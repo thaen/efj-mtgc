@@ -46,6 +46,14 @@ class Printing:
     finishes: List[str] = field(default_factory=list)
     artist: Optional[str] = None
     image_uri: Optional[str] = None
+    raw_json: Optional[str] = None  # Full Scryfall API response as JSON string
+
+    def get_scryfall_data(self) -> Optional[Dict]:
+        """Parse and return the full Scryfall API response as a dict."""
+        if self.raw_json:
+            import json
+            return json.loads(self.raw_json)
+        return None
 
 
 @dataclass
@@ -205,8 +213,8 @@ class PrintingRepository:
             INSERT OR REPLACE INTO printings
             (scryfall_id, oracle_id, set_code, collector_number, rarity,
              frame_effects, border_color, full_art, promo, promo_types,
-             finishes, artist, image_uri)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             finishes, artist, image_uri, raw_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 p.scryfall_id,
@@ -222,6 +230,7 @@ class PrintingRepository:
                 to_json_array(p.finishes),
                 p.artist,
                 p.image_uri,
+                p.raw_json,
             ),
         )
 
@@ -264,6 +273,13 @@ class PrintingRepository:
         return cursor.fetchone() is not None
 
     def _row_to_printing(self, row: sqlite3.Row) -> Printing:
+        # Handle raw_json which might not exist in older databases
+        raw_json = None
+        try:
+            raw_json = row["raw_json"]
+        except (IndexError, KeyError):
+            pass
+
         return Printing(
             scryfall_id=row["scryfall_id"],
             oracle_id=row["oracle_id"],
@@ -278,6 +294,7 @@ class PrintingRepository:
             finishes=parse_json_array(row["finishes"]),
             artist=row["artist"],
             image_uri=row["image_uri"],
+            raw_json=raw_json,
         )
 
 

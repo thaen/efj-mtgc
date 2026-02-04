@@ -1,10 +1,10 @@
-"""Claude Vision API interface for card image analysis."""
+"""Claude Vision API interface for reading card corner info."""
 
 import base64
 import json
 import time
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict
 
 import anthropic
 
@@ -12,7 +12,7 @@ import anthropic
 class ClaudeVision:
     """Interface to Claude API for card image analysis."""
 
-    def __init__(self, model: str = "claude-sonnet-4-20250514", max_retries: int = 4):
+    def __init__(self, model: str = "claude-opus-4-6", max_retries: int = 4):
         self.client = anthropic.Anthropic()
         self.model = model
         self.max_retries = max_retries
@@ -34,22 +34,57 @@ class ClaudeVision:
         return media_type_map.get(ext, "image/jpeg")
 
     def _parse_json_response(self, text: str) -> any:
-        """Parse JSON from Claude response, handling markdown fences."""
+        """Parse JSON from Claude response, handling markdown fences and preamble text."""
         text = text.strip()
+
+        # Handle markdown code fences
         if text.startswith("```"):
             lines = text.split("\n")
-            # Remove first and last line (code fences)
             text = "\n".join(lines[1:-1])
+
+        # Try direct parse first
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
+
+        # Look for JSON array in the text
+        start = text.find("[")
+        end = text.rfind("]")
+        if start != -1 and end != -1 and end > start:
+            try:
+                return json.loads(text[start:end + 1])
+            except json.JSONDecodeError:
+                pass
+
+        # Look for JSON object in the text
+        start = text.find("{")
+        end = text.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            try:
+                return json.loads(text[start:end + 1])
+            except json.JSONDecodeError:
+                pass
+
+        # If all else fails, raise the original error
         return json.loads(text)
 
-    def identify_cards(self, image_path: str) -> List[Dict[str, Optional[str]]]:
+    def read_card_corners(self, image_path: str) -> List[Dict]:
         """
-        Send image to Claude and ask it to identify all card names and sets.
+        Read rarity, collector number, and set code from a photo of card corners.
 
-        Returns list of dicts with 'name' and 'set' keys.
-        The 'set' may be None if Claude couldn't determine it.
+        The bottom-left corner of MTG cards contains text like:
+            C 0075
+            EOE · EN    (nonfoil — dot separator)
+            EOE ★ EN    (foil — star separator)
+
+        Args:
+            image_path: Path to the image showing card corners
+
+        Returns:
+            List of dicts with 'rarity', 'collector_number', 'set', 'foil'
         """
-        print(f"Analyzing image: {image_path}")
+        print(f"Reading card corners from: {image_path}")
 
         media_type = self._get_media_type(image_path)
         image_data = self.encode_image(image_path)
@@ -58,14 +93,13 @@ class ClaudeVision:
         for attempt in range(self.max_retries + 1):
             try:
                 if attempt > 0:
-                    # Wait before retry with exponential backoff (starting at 3s)
                     wait_time = 3 * (2 ** (attempt - 1))
                     print(f"  Retrying in {wait_time}s (attempt {attempt + 1}/{self.max_retries + 1})...")
                     time.sleep(wait_time)
 
                 response = self.client.messages.create(
                     model=self.model,
-                    max_tokens=2000,
+                    max_tokens=4000,
                     messages=[
                         {
                             "role": "user",
@@ -80,24 +114,30 @@ class ClaudeVision:
                                 },
                                 {
                                     "type": "text",
-                                    "text": """Please identify all Magic: The Gathering cards in this image.
+                                    "text": """This image shows the bottom-left corners of Magic: The Gathering cards.
 
-For each card, read:
-1. The card name (top of card)
-2. The set code (3-4 letter code at bottom, near the collector number)
+Each corner has tiny printed text with collector info. Look for the pattern:
+  RARITY  COLLECTOR_NUMBER
+  SET · EN    (nonfoil)
+  SET ★ EN    (foil)
 
-Return ONLY a JSON array with objects containing "name" and "set" for each card:
-[
-  {"name": "Card Name 1", "set": "ABC"},
-  {"name": "Card Name 2", "set": "XYZ"}
-]
+Where:
+- RARITY: a single letter — C (common), U (uncommon), R (rare), M (mythic rare)
+- COLLECTOR_NUMBER: 3-4 digits, often with leading zeros (e.g. 0075, 0187, 0200)
+- SET: 3-4 letter set code (e.g. EOE, ECL, MKM) — appears BEFORE "EN"
+- "EN" is the language marker (English) — NOT part of the set code
 
-If you cannot read the set code for a card, use null:
-  {"name": "Card Name", "set": null}
+FOIL DETECTION — look at the symbol between SET and EN:
+- A dot/circle (·) means NONFOIL
+- A star (★) means FOIL
+This is the ONLY reliable way to detect foil from corner photos.
 
-If multiple cards appear to be from the same set but you can only read the set code on some of them, use that set code for all cards that look similar (same frame style, expansion symbol).
+TIP: Find "EN" first as a landmark, then read the set code before it, check the separator symbol for foil, and read rarity + collector number on the line above.
 
-Be precise with card names - they must match exactly as printed.""",
+For EACH distinct card corner visible, extract the rarity letter, collector number, set code, and foil status.
+
+Return ONLY a JSON array:
+[{"rarity": "C", "collector_number": "0075", "set": "EOE", "foil": false}, ...]""",
                                 },
                             ],
                         }
@@ -114,103 +154,41 @@ Be precise with card names - they must match exactly as printed.""",
 
                 cards = self._parse_json_response(text_content)
 
-                # Normalize the response format
+                if not isinstance(cards, list):
+                    raise ValueError(f"Expected JSON array, got {type(cards)}")
+
+                # Normalize
                 normalized = []
                 for card in cards:
-                    if isinstance(card, str):
-                        # Legacy format - just a name
-                        normalized.append({"name": card, "set": None})
-                    elif isinstance(card, dict):
-                        normalized.append({
-                            "name": card.get("name", ""),
-                            "set": card.get("set"),
-                        })
+                    if not isinstance(card, dict):
+                        continue
+                    rarity = card.get("rarity", "").strip().upper()
+                    cn = card.get("collector_number", "").strip()
+                    set_code = card.get("set", "").strip()
+                    foil = bool(card.get("foil", False))
 
-                card_names = [c["name"] for c in normalized]
-                print(f"  Found {len(normalized)} card(s): {', '.join(card_names)}")
+                    if not cn or not set_code:
+                        continue
+
+                    normalized.append({
+                        "rarity": rarity,
+                        "collector_number": cn,
+                        "set": set_code,
+                        "foil": foil,
+                    })
+
+                print(f"  Found {len(normalized)} card corner(s)")
                 return normalized
 
             except json.JSONDecodeError as e:
                 last_error = f"JSON parse error: {e}"
-                # Log what Claude actually returned for debugging
-                if text_content:
-                    preview = text_content[:200] + "..." if len(text_content) > 200 else text_content
-                    print(f"  {last_error} (response: {repr(preview)})")
-                else:
-                    print(f"  {last_error} (empty response)")
+                print(f"  {last_error}")
             except Exception as e:
                 last_error = str(e)
-                # Don't retry on authentication or permanent errors
                 if "api_key" in str(e).lower() or "authentication" in str(e).lower():
-                    print(f"  Error calling Claude API: {e}")
+                    print(f"  Error: {e}")
                     return []
-                print(f"  Error calling Claude API: {e}")
+                print(f"  Error: {e}")
 
         print(f"  Failed after {self.max_retries + 1} attempts. Last error: {last_error}")
         return []
-
-    def get_card_details(self, image_path: str, card_name: str) -> Dict:
-        """
-        Ask Claude to extract details about a specific card from the image.
-        Returns dict with visible details: set_code, collector_number, foil, condition.
-        """
-        print(f"  Extracting details for '{card_name}'...")
-
-        media_type = self._get_media_type(image_path)
-        image_data = self.encode_image(image_path)
-
-        try:
-            response = self.client.messages.create(
-                model=self.model,
-                max_tokens=500,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "image",
-                                "source": {
-                                    "type": "base64",
-                                    "media_type": media_type,
-                                    "data": image_data,
-                                },
-                            },
-                            {
-                                "type": "text",
-                                "text": f"""Look at the card named "{card_name}" in this image.
-
-Extract the following information if visible:
-- Set code (3-4 letter code, often near bottom)
-- Collector number (number at bottom)
-- Is it foil? (shiny/holographic appearance)
-- Condition (any visible damage, wear, or is it Near Mint?)
-
-Return ONLY a JSON object:
-{{
-  "set_code": "xxx" or null,
-  "collector_number": "123" or null,
-  "foil": true or false,
-  "condition": "Near Mint" or other condition
-}}""",
-                            },
-                        ],
-                    }
-                ],
-            )
-
-            text_content = ""
-            for block in response.content:
-                if block.type == "text":
-                    text_content += block.text
-
-            details = self._parse_json_response(text_content)
-            return details
-
-        except Exception as e:
-            print(f"    Could not extract details: {e}")
-            return {
-                "set_code": None,
-                "collector_number": None,
-                "foil": False,
-                "condition": "Near Mint",
-            }

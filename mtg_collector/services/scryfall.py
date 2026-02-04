@@ -1,6 +1,6 @@
 """Scryfall API interface."""
 
-import difflib
+import json
 import time
 from typing import List, Dict, Optional
 
@@ -25,6 +25,19 @@ class ScryfallAPI:
         if elapsed < 0.1:
             time.sleep(0.1 - elapsed)
         self.last_request = time.time()
+
+    def _request_with_retry(self, method: str, url: str, max_retries: int = 3, **kwargs) -> requests.Response:
+        """Make an HTTP request with retry on 429 rate limit errors."""
+        for attempt in range(max_retries + 1):
+            self._rate_limit()
+            response = self.session.request(method, url, **kwargs)
+            if response.status_code == 429:
+                wait = 0.5 * (2 ** attempt)
+                print(f"    Scryfall rate limited, retrying in {wait:.1f}s...")
+                time.sleep(wait)
+                continue
+            return response
+        return response  # Return last response even if still 429
 
     def search_card(
         self,
@@ -69,8 +82,6 @@ class ScryfallAPI:
         collector_number: Optional[str] = None,
     ) -> List[Dict]:
         """Search for exact card name match."""
-        self._rate_limit()
-
         # Build search query with exact match operator
         if set_code and collector_number:
             query = f'!"{name}" set:{set_code} cn:{collector_number}'
@@ -83,7 +94,7 @@ class ScryfallAPI:
         params = {"q": query, "unique": "prints", "order": "released", "dir": "desc"}
 
         try:
-            response = self.session.get(url, params=params)
+            response = self._request_with_retry("GET", url, params=params)
             response.raise_for_status()
             data = response.json()
 
@@ -96,13 +107,11 @@ class ScryfallAPI:
 
     def _fuzzy_autocomplete(self, name: str) -> Optional[str]:
         """Use Scryfall autocomplete to find the correct card name."""
-        self._rate_limit()
-
         url = f"{self.BASE_URL}/cards/autocomplete"
         params = {"q": name}
 
         try:
-            response = self.session.get(url, params=params)
+            response = self._request_with_retry("GET", url, params=params)
             response.raise_for_status()
             data = response.json()
 
@@ -117,13 +126,11 @@ class ScryfallAPI:
 
     def _search_fuzzy(self, name: str) -> List[Dict]:
         """Use Scryfall's fuzzy named endpoint to find a card."""
-        self._rate_limit()
-
         url = f"{self.BASE_URL}/cards/named"
         params = {"fuzzy": name}
 
         try:
-            response = self.session.get(url, params=params)
+            response = self._request_with_retry("GET", url, params=params)
             response.raise_for_status()
             card = response.json()
 
@@ -137,8 +144,6 @@ class ScryfallAPI:
 
     def _get_all_printings(self, name: str) -> List[Dict]:
         """Get all printings of a card by exact name."""
-        self._rate_limit()
-
         url = f"{self.BASE_URL}/cards/search"
         params = {
             "q": f'!"{name}"',
@@ -148,7 +153,7 @@ class ScryfallAPI:
         }
 
         try:
-            response = self.session.get(url, params=params)
+            response = self._request_with_retry("GET", url, params=params)
             response.raise_for_status()
             data = response.json()
 
@@ -166,9 +171,8 @@ class ScryfallAPI:
         Results are cached in memory for the session.
         """
         if not hasattr(self, "_all_sets_cache"):
-            self._rate_limit()
             try:
-                response = self.session.get(f"{self.BASE_URL}/sets")
+                response = self._request_with_retry("GET", f"{self.BASE_URL}/sets")
                 response.raise_for_status()
                 data = response.json()
                 self._all_sets_cache = data.get("data", [])
@@ -228,12 +232,11 @@ class ScryfallAPI:
 
         cards = []
         url = f"{self.BASE_URL}/cards/search"
-        params = {"q": f"set:{set_code}", "order": "collector_number"}
+        params = {"q": f"set:{set_code}", "unique": "prints", "order": "collector_number"}
 
         while url:
-            self._rate_limit()
             try:
-                response = self.session.get(url, params=params)
+                response = self._request_with_retry("GET", url, params=params)
                 response.raise_for_status()
                 data = response.json()
 
@@ -254,67 +257,12 @@ class ScryfallAPI:
         self._set_cache[set_code] = cards
         return cards
 
-    def fuzzy_match_in_set(
-        self, name: str, set_code: str, threshold: float = 0.75, cached_cards: List[Dict] = None
-    ) -> Optional[Dict]:
-        """
-        Find the best fuzzy match for a card name within a specific set.
-
-        Args:
-            name: The (possibly misread) card name
-            set_code: The set to search within
-            threshold: Minimum similarity ratio (0-1) to accept a match
-            cached_cards: Optional list of cards from local cache (use get_cached_set_cards)
-
-        Returns:
-            The best matching card dict, or None if no good match found
-        """
-        # Use cached cards if provided, otherwise fetch from Scryfall
-        if cached_cards is not None:
-            cards = cached_cards
-        else:
-            cards = self.get_set_cards(set_code)
-
-        if not cards:
-            return None
-
-        # Build list of card names (handle DFCs)
-        name_to_card = {}
-        for card in cards:
-            card_name = card["name"]
-            name_to_card[card_name.lower()] = card
-            # Also index by front face for DFCs
-            if " // " in card_name:
-                front_face = card_name.split(" // ")[0]
-                name_to_card[front_face.lower()] = card
-
-        # Try exact match first (case-insensitive)
-        if name.lower() in name_to_card:
-            return name_to_card[name.lower()]
-
-        # Fuzzy match using difflib
-        all_names = list(name_to_card.keys())
-        matches = difflib.get_close_matches(
-            name.lower(), all_names, n=1, cutoff=threshold
-        )
-
-        if matches:
-            matched_name = matches[0]
-            card = name_to_card[matched_name]
-            if matched_name != name.lower():
-                print(f"    Fuzzy match: '{name}' -> '{card['name']}'")
-            return card
-
-        return None
-
     def get_card_by_id(self, scryfall_id: str) -> Optional[Dict]:
         """Get a specific card by Scryfall ID."""
-        self._rate_limit()
-
         url = f"{self.BASE_URL}/cards/{scryfall_id}"
 
         try:
-            response = self.session.get(url)
+            response = self._request_with_retry("GET", url)
             response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException:
@@ -324,12 +272,10 @@ class ScryfallAPI:
         self, set_code: str, collector_number: str
     ) -> Optional[Dict]:
         """Get a specific card by set code and collector number."""
-        self._rate_limit()
-
         url = f"{self.BASE_URL}/cards/{set_code.lower()}/{collector_number}"
 
         try:
-            response = self.session.get(url)
+            response = self._request_with_retry("GET", url)
             response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException:
@@ -337,29 +283,14 @@ class ScryfallAPI:
 
     def get_set(self, set_code: str) -> Optional[Dict]:
         """Get set information."""
-        self._rate_limit()
-
         url = f"{self.BASE_URL}/sets/{set_code.lower()}"
 
         try:
-            response = self.session.get(url)
+            response = self._request_with_retry("GET", url)
             response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException:
             return None
-
-    def format_card_info(self, card: Dict) -> str:
-        """Format card printing info for display."""
-        set_code = card.get("set", "").upper()
-        set_name = card.get("set_name", "")
-        cn = card.get("collector_number", "")
-        rarity = card.get("rarity", "").capitalize()
-        released = card.get("released_at", "")
-
-        finishes = card.get("finishes", [])
-        finish_str = "/".join(finishes) if finishes else "unknown"
-
-        return f"{set_code:5s} #{cn:4s} - {set_name:35s} ({rarity:10s}) [{released}] ({finish_str})"
 
     # Conversion methods for database storage
 
@@ -401,6 +332,9 @@ class ScryfallAPI:
                     "small"
                 )
 
+        # Store the complete JSON for future reference
+        raw_json = json.dumps(data)
+
         return Printing(
             scryfall_id=data["id"],
             oracle_id=data["oracle_id"],
@@ -415,6 +349,7 @@ class ScryfallAPI:
             finishes=data.get("finishes", []),
             artist=data.get("artist"),
             image_uri=image_uri,
+            raw_json=raw_json,
         )
 
 
@@ -490,6 +425,8 @@ def ensure_set_cached(
 
     # Cache each card and printing
     for card_data in cards:
+        if "oracle_id" not in card_data:
+            continue  # Skip tokens and other cards without oracle identity
         card = api.to_card_model(card_data)
         card_repo.upsert(card)
 
@@ -503,23 +440,3 @@ def ensure_set_cached(
     return True
 
 
-def get_cached_set_cards(conn, set_code: str) -> List[Dict]:
-    """
-    Get all card names from a cached set.
-
-    Returns list of dicts with 'name' and 'scryfall_id' for fuzzy matching.
-    """
-    set_code = set_code.lower()
-
-    cursor = conn.execute(
-        """
-        SELECT c.name, p.scryfall_id, p.collector_number
-        FROM printings p
-        JOIN cards c ON p.oracle_id = c.oracle_id
-        WHERE p.set_code = ?
-        ORDER BY p.collector_number
-        """,
-        (set_code,),
-    )
-
-    return [{"name": row[0], "scryfall_id": row[1], "collector_number": row[2]} for row in cursor]
