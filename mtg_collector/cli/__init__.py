@@ -25,16 +25,16 @@ def main():
     # Import subcommand modules and register them
     # These imports are done here to allow partial functionality
     # even if some dependencies (like anthropic) are missing
-    from mtg_collector.cli import db_cmd, list_cmd, show, edit, delete, stats, export
+    from mtg_collector.cli import db_cmd, list_cmd, show, edit, delete, stats, export, ingest_ids
 
-    modules = [db_cmd, list_cmd, show, edit, delete, stats, export]
+    modules = [db_cmd, list_cmd, show, edit, delete, stats, export, ingest_ids]
 
     # Try to import modules that require external dependencies
     try:
-        from mtg_collector.cli import ingest
-        modules.append(ingest)
-    except ImportError as e:
-        # anthropic not installed - ingest won't be available
+        from mtg_collector.cli import ingest_corners
+        modules.append(ingest_corners)
+    except ImportError:
+        # anthropic not installed - ingest-corners won't be available
         pass
 
     try:

@@ -3,7 +3,7 @@
 import sqlite3
 from typing import Optional
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 SCHEMA_SQL = """
 -- Abstract cards (oracle-level, cached from Scryfall)
@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS printings (
     finishes TEXT,         -- JSON array (what finishes exist for this printing)
     artist TEXT,
     image_uri TEXT,
+    raw_json TEXT,         -- Full Scryfall API response as JSON (for semantic search, etc.)
     UNIQUE(set_code, collector_number)
 );
 
@@ -118,6 +119,8 @@ def init_db(conn: sqlite3.Connection, force: bool = False) -> bool:
         # Run migrations
         if current < 2:
             _migrate_v1_to_v2(conn)
+        if current < 3:
+            _migrate_v2_to_v3(conn)
 
     # Record schema version
     conn.execute(
@@ -137,6 +140,15 @@ def _migrate_v1_to_v2(conn: sqlite3.Connection):
 
     if "cards_fetched_at" not in columns:
         conn.execute("ALTER TABLE sets ADD COLUMN cards_fetched_at TEXT")
+
+
+def _migrate_v2_to_v3(conn: sqlite3.Connection):
+    """Add raw_json column to printings table for full Scryfall metadata."""
+    cursor = conn.execute("PRAGMA table_info(printings)")
+    columns = [row[1] for row in cursor.fetchall()]
+
+    if "raw_json" not in columns:
+        conn.execute("ALTER TABLE printings ADD COLUMN raw_json TEXT")
 
 
 def drop_all_tables(conn: sqlite3.Connection):

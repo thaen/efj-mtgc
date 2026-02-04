@@ -1,0 +1,18 @@
+{
+  "description": "13 EOE booster pack card corners — tests star/dot foil detection",
+  "cards": [
+    {"rarity": "C", "collector_number": "0105", "set": "EOE", "foil": false},
+    {"rarity": "C", "collector_number": "0092", "set": "EOE", "foil": false},
+    {"rarity": "U", "collector_number": "0161", "set": "EOE", "foil": false},
+    {"rarity": "U", "collector_number": "0125", "set": "EOE", "foil": false},
+    {"rarity": "U", "collector_number": "0195", "set": "EOE", "foil": false},
+    {"rarity": "C", "collector_number": "0152", "set": "EOE", "foil": false},
+    {"rarity": "C", "collector_number": "0185", "set": "EOE", "foil": false},
+    {"rarity": "C", "collector_number": "0075", "set": "EOE", "foil": false},
+    {"rarity": "C", "collector_number": "0173", "set": "EOE", "foil": false},
+    {"rarity": "C", "collector_number": "0005", "set": "EOE", "foil": false},
+    {"rarity": "C", "collector_number": "0045", "set": "EOE", "foil": false},
+    {"rarity": "R", "collector_number": "0200", "set": "EOE", "foil": false},
+    {"rarity": "C", "collector_number": "0187", "set": "EOE", "foil": true}
+  ]
+}
