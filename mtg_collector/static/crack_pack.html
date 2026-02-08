@@ -230,6 +230,12 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .card-slot.face-down .card-img-wrap {
   transform: rotateY(180deg);
+  background: #111;
+}
+
+.card-slot.face-down .card-front.foil::before,
+.card-slot.face-down .card-front.foil::after {
+  display: none;
 }
 
 .card-front, .card-back {
@@ -251,6 +257,47 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   height: 100%;
   object-fit: cover;
   display: block;
+}
+
+/* Foil: rainbow wash */
+.card-front.foil::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background: repeating-linear-gradient(
+    135deg,
+    rgba(255,0,0,0.08),
+    rgba(255,165,0,0.08) 5%,
+    rgba(255,255,0,0.08) 10%,
+    rgba(0,200,0,0.08) 15%,
+    rgba(0,140,255,0.08) 20%,
+    rgba(130,0,255,0.08) 25%,
+    rgba(255,0,200,0.08) 30%,
+    rgba(255,0,0,0.08) 33.33%
+  );
+  mix-blend-mode: color;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Foil: animated light streak */
+.card-front.foil::after {
+  content: "";
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background:
+    linear-gradient(135deg, transparent 46%, rgba(255,255,255,0.12) 49%, rgba(255,255,255,0.12) 51%, transparent 54%)
+    100% 100% / 240% 240%;
+  pointer-events: none;
+  z-index: 2;
+  animation: foil-streak 3s ease-in-out infinite;
+}
+
+@keyframes foil-streak {
+  0% { background-position: 100% 100%; }
+  15%, 100% { background-position: 0 0; }
 }
 
 .card-slot img {
@@ -277,10 +324,6 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   text-transform: uppercase;
 }
 
-.badge.foil {
-  background: linear-gradient(135deg, #ff6ec7, #7873f5, #4ade80);
-  color: #fff;
-}
 .badge.treatment { background: #0f3460; color: #7ec8e3; }
 .badge.price { background: rgba(0,0,0,0.6); color: #4ade80; font-variant-numeric: tabular-nums; }
 a.badge.link { background: #333; color: #aaa; text-decoration: none; font-variant-numeric: tabular-nums; }
@@ -578,7 +621,6 @@ function buildCardBadges(card, packSetCode) {
       html += `<a class="badge link" href="${card.ck_url}" target="_blank" rel="noopener" onclick="event.stopPropagation()">CK${ckPrice}</a>`;
     }
   }
-  if (card.foil) html += '<span class="badge foil">F</span>';
   if (card.border_color === 'borderless') html += '<span class="badge treatment">BL</span>';
   if (card.frame_effects && card.frame_effects.includes('showcase'))
     html += '<span class="badge treatment">SC</span>';
@@ -843,7 +885,7 @@ async function openPack(seed, hashRevealed) {
 
     div.innerHTML = `
       <div class="card-img-wrap" style="--rarity-color:${rarityColor};--set-color:${setColor}">
-        <div class="card-front"><img src="${card.image_uri}" alt="${card.name}" loading="lazy"></div>
+        <div class="card-front${card.foil ? ' foil' : ''}"><img src="${card.image_uri}" alt="${card.name}" loading="lazy"></div>
         <div class="card-back"><img src="/static/card_back.jpeg" alt=""></div>
       </div>
       <div class="card-info">${buildBadges(card, currentPackSetCode)}</div>
