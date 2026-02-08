@@ -147,6 +147,7 @@ class PackGenerator:
                     ck_url = purchase_urls.get("cardKingdom", "")
 
                 pack.append({
+                    "uuid": uuid,
                     "name": card.get("name", "Unknown"),
                     "set_code": card.get("setCode", set_code),
                     "collector_number": card.get("number", ""),
@@ -160,6 +161,9 @@ class PackGenerator:
                     "is_full_art": card.get("isFullArt", False),
                     "ck_url": ck_url,
                 })
+
+        _RARITY_ORDER = {"common": 0, "uncommon": 1, "rare": 2, "mythic": 3}
+        pack.sort(key=lambda c: _RARITY_ORDER.get(c["rarity"], 1))
 
         return {
             "seed": seed,

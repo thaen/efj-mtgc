@@ -106,8 +106,10 @@ select:focus, button:focus, .set-search-input:focus { outline: 2px solid #e94560
 }
 
 .product-radios input[type="radio"] { display: none; }
+.product-radios input[type="checkbox"] { display: none; }
 
-.product-radios input[type="radio"]:checked + label {
+.product-radios input[type="radio"]:checked + label,
+.product-radios input[type="checkbox"]:checked + label {
   background: #e94560;
   border-color: #e94560;
   color: #fff;
@@ -127,7 +129,21 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   font-size: 0.85rem;
   color: #888;
   margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
+
+.prices-status {
+  font-size: 0.75rem;
+  color: #666;
+  cursor: pointer;
+  user-select: none;
+}
+
+.prices-status:hover { color: #aaa; }
+
+.prices-status.loading { color: #e94560; }
 
 .main {
   display: flex;
@@ -159,36 +175,13 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   cursor: pointer;
   transition: transform 0.15s, box-shadow 0.15s;
   height: calc((100vh - 174px) / var(--pack-rows, 2));
-  /* width driven by image aspect ratio; badges allowed to overflow below */
+  perspective: 800px;
 }
 
 .card-slot.zoomed {
   transform: scale(1.8);
   box-shadow: 0 12px 32px rgba(0,0,0,0.7);
   z-index: 10;
-}
-
-.zoom-btn {
-  position: absolute;
-  bottom: 24px;
-  right: 4px;
-  width: 24px;
-  height: 24px;
-  border: none;
-  border-radius: 50%;
-  background: rgba(0,0,0,0.45);
-  color: rgba(255,255,255,0.6);
-  font-size: 14px;
-  line-height: 24px;
-  text-align: center;
-  cursor: pointer;
-  z-index: 2;
-  padding: 0;
-}
-
-.zoom-btn:hover {
-  background: rgba(0,0,0,0.7);
-  color: #fff;
 }
 
 .card-slot.picked .card-img-wrap {
@@ -213,7 +206,34 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   height: calc(100% - 20px);
   aspect-ratio: 488 / 680;
   border-radius: 12px;
+  position: relative;
+  transform-style: preserve-3d;
+  transition: transform 0.5s;
+}
+
+.card-slot.face-down .card-img-wrap {
+  transform: rotateY(180deg);
+}
+
+.card-front, .card-back {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%;
+  height: 100%;
+  backface-visibility: hidden;
+  border-radius: 12px;
   overflow: hidden;
+}
+
+.card-back {
+  transform: rotateY(180deg);
+}
+
+.card-back img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .card-slot img {
@@ -250,8 +270,16 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 }
 .badge.treatment { background: #0f3460; color: #7ec8e3; }
 .badge.price { background: rgba(0,0,0,0.6); color: #4ade80; font-variant-numeric: tabular-nums; }
-a.badge.link { background: #333; color: #aaa; text-decoration: none; }
+a.badge.link { background: #333; color: #aaa; text-decoration: none; font-variant-numeric: tabular-nums; }
 a.badge.link:hover { color: #fff; background: #555; }
+.badge.zoom-badge {
+  background: rgba(0,0,0,0.45);
+  color: rgba(255,255,255,0.6);
+  cursor: pointer;
+  font-size: 0.6rem;
+  padding: 2px 4px;
+}
+.badge.zoom-badge:hover { background: rgba(0,0,0,0.7); color: #fff; }
 
 .picks-panel {
   width: 300px;
@@ -352,8 +380,12 @@ a.badge.link:hover { color: #fff; background: #555; }
     </div>
     <div class="product-radios" id="product-radios"></div>
     <button id="open-btn" disabled>Open Pack</button>
+    <div class="product-radios"><input type="checkbox" id="open-mode"><label for="open-mode">Open</label></div>
   </div>
-  <div id="status"></div>
+  <div id="status">
+    <span class="prices-status" id="prices-status" title="Click to update CK prices"></span>
+    <span id="status-text"></span>
+  </div>
 </header>
 
 <div class="main">
@@ -374,18 +406,65 @@ const setInput = document.getElementById('set-input');
 const setDropdown = document.getElementById('set-dropdown');
 const productRadios = document.getElementById('product-radios');
 const openBtn = document.getElementById('open-btn');
-const status = document.getElementById('status');
+const statusText = document.getElementById('status-text');
+const pricesStatus = document.getElementById('prices-status');
 const packGrid = document.getElementById('pack-grid');
 const packHeader = document.getElementById('pack-header');
 const pickList = document.getElementById('pick-list');
 const pickCount = document.getElementById('pick-count');
 const clearBtn = document.getElementById('clear-picks');
+const openModeCheckbox = document.getElementById('open-mode');
 
 let allSets = [];
 let selectedSetCode = '';
 let activeDropdownIndex = -1;
 let picks = JSON.parse(localStorage.getItem('crackPackPicks') || '[]');
 let currentPack = [];
+
+// --- Prices status ---
+
+function formatTimeAgo(isoStr) {
+  if (!isoStr) return 'not loaded';
+  const diff = Date.now() - new Date(isoStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+async function loadPricesStatus() {
+  try {
+    const res = await fetch('/api/prices-status');
+    const data = await res.json();
+    if (data.available) {
+      pricesStatus.textContent = `CK: ${formatTimeAgo(data.last_modified)}`;
+    } else {
+      pricesStatus.textContent = 'CK: not loaded';
+    }
+  } catch {
+    pricesStatus.textContent = 'CK: unavailable';
+  }
+}
+
+pricesStatus.addEventListener('click', async () => {
+  pricesStatus.classList.add('loading');
+  pricesStatus.textContent = 'CK: downloading...';
+  try {
+    const res = await fetch('/api/fetch-prices', { method: 'POST' });
+    const data = await res.json();
+    if (data.error) {
+      pricesStatus.textContent = 'CK: error';
+    } else {
+      pricesStatus.textContent = `CK: ${formatTimeAgo(data.last_modified)}`;
+    }
+  } catch {
+    pricesStatus.textContent = 'CK: error';
+  }
+  pricesStatus.classList.remove('loading');
+});
 
 // --- Picks ---
 
@@ -404,11 +483,12 @@ function renderPicks() {
   picks.forEach((card, i) => {
     const li = document.createElement('li');
     li.className = 'pick-item';
+    const price = card.tcg_price || card.price;
     li.innerHTML = `
       <img src="${card.image_uri}" alt="" loading="lazy">
       <div>
         <div class="pick-name">${card.name}</div>
-        <div class="pick-set">${card.set_code} #${card.collector_number}${card.price ? ` — $${parseFloat(card.price).toFixed(2)}` : ''}</div>
+        <div class="pick-set">${card.set_code} #${card.collector_number}${price ? ` — $${parseFloat(price).toFixed(2)}` : ''}</div>
       </div>
       <span class="remove-pick" data-index="${i}">&times;</span>
     `;
@@ -435,10 +515,16 @@ function syncPickState() {
 
 function buildBadges(card) {
   let html = '';
-  // Links first
+  // Zoom badge first
+  html += '<span class="badge zoom-badge">&#128269;</span>';
+  // Links with prices
   if (card.scryfall_id) {
-    html += `<a class="badge link" href="https://scryfall.com/card/${card.set_code.toLowerCase()}/${card.collector_number}" target="_blank" rel="noopener" onclick="event.stopPropagation()">SF</a>`;
-    if (card.ck_url) html += `<a class="badge link" href="${card.ck_url}" target="_blank" rel="noopener" onclick="event.stopPropagation()">CK</a>`;
+    const sfPrice = card.tcg_price ? ` $${parseFloat(card.tcg_price).toFixed(2)}` : '';
+    html += `<a class="badge link" href="https://scryfall.com/card/${card.set_code.toLowerCase()}/${card.collector_number}" target="_blank" rel="noopener" onclick="event.stopPropagation()">SF${sfPrice}</a>`;
+    if (card.ck_url) {
+      const ckPrice = card.ck_price ? ` $${parseFloat(card.ck_price).toFixed(2)}` : '';
+      html += `<a class="badge link" href="${card.ck_url}" target="_blank" rel="noopener" onclick="event.stopPropagation()">CK${ckPrice}</a>`;
+    }
   }
   if (card.rarity && card.rarity !== 'common') {
     const abbrev = {mythic: 'M', rare: 'R', uncommon: 'U'};
@@ -451,7 +537,6 @@ function buildBadges(card) {
   if (card.frame_effects && card.frame_effects.includes('extendedart'))
     html += '<span class="badge treatment">EA</span>';
   if (card.is_full_art) html += '<span class="badge treatment">FA</span>';
-  if (card.price) html += `<span class="badge price">$${parseFloat(card.price).toFixed(2)}</span>`;
   return html;
 }
 
@@ -547,13 +632,13 @@ setInput.addEventListener('keydown', (e) => {
 // --- Set & product loading ---
 
 async function loadSets() {
-  status.textContent = 'Loading sets...';
+  statusText.textContent = 'Loading sets...';
   const res = await fetch('/api/sets');
   const sets = await res.json();
   allSets = sets;
   setInput.disabled = false;
   setInput.placeholder = 'Search sets...';
-  status.textContent = `${sets.length} sets loaded`;
+  statusText.textContent = `${sets.length} sets loaded`;
 }
 
 async function loadProducts(setCode) {
@@ -608,6 +693,12 @@ function parseHash() {
   return null;
 }
 
+// --- Zoom ---
+
+function unzoomAll() {
+  document.querySelectorAll('.card-slot.zoomed').forEach(el => el.classList.remove('zoomed'));
+}
+
 // --- Pack generation ---
 
 async function openPack(seed) {
@@ -616,7 +707,7 @@ async function openPack(seed) {
   if (!setCode || !product) return;
 
   openBtn.disabled = true;
-  status.textContent = 'Generating pack...';
+  statusText.textContent = 'Generating pack...';
 
   const body = {set_code: setCode, product: product};
   if (seed != null) body.seed = seed;
@@ -632,11 +723,13 @@ async function openPack(seed) {
 
   currentPack = result.cards || [];
   const pct = ((result.variant_weight / result.total_weight) * 100).toFixed(1);
-  const packTotal = currentPack.reduce((sum, c) => sum + (parseFloat(c.price) || 0), 0);
+  const packTotal = currentPack.reduce((sum, c) => sum + (parseFloat(c.tcg_price) || 0), 0);
   const totalStr = packTotal > 0 ? ` — $${packTotal.toFixed(2)}` : '';
   packHeader.textContent = `${setCode} ${product} — ${currentPack.length} cards (variant ${result.variant_index}, ${pct}%)${totalStr}`;
 
   packGrid.innerHTML = '';
+
+  const isOpenMode = openModeCheckbox.checked;
 
   // Calculate rows needed so cards fit vertically
   const cardCount = currentPack.length;
@@ -654,25 +747,43 @@ async function openPack(seed) {
   currentPack.forEach((card, i) => {
     card._packIndex = i;
     const div = document.createElement('div');
-    div.className = 'card-slot';
+    div.className = 'card-slot' + (isOpenMode ? ' face-down' : '');
     div.dataset.scryfallId = card.scryfall_id;
     div.dataset.index = i;
     div.innerHTML = `
-      <div class="card-img-wrap"><img src="${card.image_uri}" alt="${card.name}" loading="lazy"></div>
-      <span class="zoom-btn">&#128269;</span>
+      <div class="card-img-wrap">
+        <div class="card-front"><img src="${card.image_uri}" alt="${card.name}" loading="lazy"></div>
+        <div class="card-back"><img src="/static/card_back.jpeg" alt=""></div>
+      </div>
       <div class="card-info">${buildBadges(card)}</div>
     `;
-    div.querySelector('.zoom-btn').addEventListener('click', (e) => {
+    // Zoom badge click
+    div.querySelector('.zoom-badge').addEventListener('click', (e) => {
       e.stopPropagation();
-      div.classList.toggle('zoomed');
+      if (div.classList.contains('face-down')) return;
+      div.classList.add('zoomed');
+      setTimeout(() => {
+        document.addEventListener('click', function handler() {
+          unzoomAll();
+          document.removeEventListener('click', handler);
+        }, { once: true });
+      }, 0);
     });
-    div.addEventListener('click', () => togglePick(card, i));
+    // Card click: flip or pick
+    div.addEventListener('click', () => {
+      if (div.classList.contains('zoomed')) return;
+      if (div.classList.contains('face-down')) {
+        div.classList.remove('face-down');
+        return;
+      }
+      togglePick(card, i);
+    });
     packGrid.appendChild(div);
   });
 
   syncPickState();
   openBtn.disabled = false;
-  status.textContent = '';
+  statusText.textContent = '';
 }
 
 function togglePick(card, packIndex) {
@@ -697,6 +808,7 @@ clearBtn.addEventListener('click', () => {
 // --- Init ---
 
 renderPicks();
+loadPricesStatus();
 
 loadSets().then(async () => {
   const hashParams = parseHash();

@@ -7,6 +7,7 @@ import urllib.request
 from pathlib import Path
 
 MTGJSON_URL = "https://mtgjson.com/api/v5/AllPrintings.json.gz"
+MTGJSON_PRICES_URL = "https://mtgjson.com/api/v5/AllPricesToday.json.gz"
 
 
 def get_data_dir() -> Path:
@@ -17,6 +18,11 @@ def get_data_dir() -> Path:
 def get_allprintings_path() -> Path:
     """Get the default path for AllPrintings.json."""
     return get_data_dir() / "AllPrintings.json"
+
+
+def get_allpricestoday_path() -> Path:
+    """Get the default path for AllPricesToday.json."""
+    return get_data_dir() / "AllPricesToday.json"
 
 
 def register(subparsers):
@@ -36,6 +42,17 @@ def register(subparsers):
         action="store_true",
         help="Re-download even if file already exists",
     )
+
+    fetch_prices_parser = data_sub.add_parser(
+        "fetch-prices",
+        help="Download AllPricesToday.json from MTGJSON",
+    )
+    fetch_prices_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-download even if file already exists",
+    )
+
     parser.set_defaults(func=run)
 
 
@@ -43,8 +60,10 @@ def run(args):
     """Run the data command."""
     if args.data_command == "fetch":
         _fetch(force=args.force)
+    elif args.data_command == "fetch-prices":
+        _fetch_prices(force=args.force)
     else:
-        print("Usage: mtg data fetch [--force]")
+        print("Usage: mtg data {fetch|fetch-prices} [--force]")
         sys.exit(1)
 
 
@@ -77,3 +96,34 @@ def _fetch(force: bool = False):
 
     size_mb = dest.stat().st_size / (1024 * 1024)
     print(f"Done! AllPrintings.json ({size_mb:.0f} MB) saved to: {dest}")
+
+
+def _fetch_prices(force: bool = False):
+    """Download AllPricesToday.json from MTGJSON."""
+    dest = get_allpricestoday_path()
+    dest.parent.mkdir(parents=True, exist_ok=True)
+
+    if dest.exists() and not force:
+        size_mb = dest.stat().st_size / (1024 * 1024)
+        print(f"AllPricesToday.json already exists ({size_mb:.0f} MB): {dest}")
+        print("Use --force to re-download.")
+        return
+
+    gz_path = dest.parent / "AllPricesToday.json.gz"
+
+    print(f"Downloading {MTGJSON_PRICES_URL} ...")
+    try:
+        urllib.request.urlretrieve(MTGJSON_PRICES_URL, str(gz_path))
+    except Exception as e:
+        print(f"Error downloading: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    print("Decompressing ...")
+    with gzip.open(gz_path, "rb") as f_in:
+        with open(dest, "wb") as f_out:
+            shutil.copyfileobj(f_in, f_out)
+
+    gz_path.unlink()
+
+    size_mb = dest.stat().st_size / (1024 * 1024)
+    print(f"Done! AllPricesToday.json ({size_mb:.0f} MB) saved to: {dest}")
