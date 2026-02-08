@@ -347,6 +347,13 @@ a.badge.link:hover { color: #fff; background: #555; }
   font-size: 0.7rem;
 }
 
+.pick-item .pick-badges {
+  display: flex;
+  gap: 3px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+
 .pick-item .remove-pick {
   color: #888;
   font-size: 1rem;
@@ -380,7 +387,7 @@ a.badge.link:hover { color: #fff; background: #555; }
     </div>
     <div class="product-radios" id="product-radios"></div>
     <button id="open-btn" disabled>Open Pack</button>
-    <div class="product-radios"><input type="checkbox" id="open-mode"><label for="open-mode">Open</label></div>
+    <div class="product-radios"><input type="checkbox" id="open-mode" checked><label for="open-mode">Surprise</label></div>
   </div>
   <div id="status">
     <span class="prices-status" id="prices-status" title="Click to update CK prices"></span>
@@ -420,6 +427,7 @@ let selectedSetCode = '';
 let activeDropdownIndex = -1;
 let picks = JSON.parse(localStorage.getItem('crackPackPicks') || '[]');
 let currentPack = [];
+let currentPackSeed = null;
 
 // --- Prices status ---
 
@@ -483,12 +491,12 @@ function renderPicks() {
   picks.forEach((card, i) => {
     const li = document.createElement('li');
     li.className = 'pick-item';
-    const price = card.tcg_price || card.price;
     li.innerHTML = `
       <img src="${card.image_uri}" alt="" loading="lazy">
       <div>
         <div class="pick-name">${card.name}</div>
-        <div class="pick-set">${card.set_code} #${card.collector_number}${price ? ` — $${parseFloat(price).toFixed(2)}` : ''}</div>
+        <div class="pick-set">${card.set_code} #${card.collector_number}</div>
+        <div class="pick-badges">${buildCardBadges(card)}</div>
       </div>
       <span class="remove-pick" data-index="${i}">&times;</span>
     `;
@@ -513,11 +521,8 @@ function syncPickState() {
 
 // --- Badges ---
 
-function buildBadges(card) {
+function buildCardBadges(card) {
   let html = '';
-  // Zoom badge first
-  html += '<span class="badge zoom-badge">&#128269;</span>';
-  // Links with prices
   if (card.scryfall_id) {
     const sfPrice = card.tcg_price ? ` $${parseFloat(card.tcg_price).toFixed(2)}` : '';
     html += `<a class="badge link" href="https://scryfall.com/card/${card.set_code.toLowerCase()}/${card.collector_number}" target="_blank" rel="noopener" onclick="event.stopPropagation()">SF${sfPrice}</a>`;
@@ -538,6 +543,10 @@ function buildBadges(card) {
     html += '<span class="badge treatment">EA</span>';
   if (card.is_full_art) html += '<span class="badge treatment">FA</span>';
   return html;
+}
+
+function buildBadges(card) {
+  return '<span class="badge zoom-badge">&#128269;</span>' + buildCardBadges(card);
 }
 
 // --- Searchable set selector ---
@@ -677,8 +686,18 @@ function setSelectedProduct(value) {
 
 // --- URL hash ---
 
-function updateHash(setCode, product, seed) {
-  location.hash = `set=${encodeURIComponent(setCode)}&product=${encodeURIComponent(product)}&seed=${seed}`;
+function updateHash() {
+  if (!selectedSetCode || !currentPack.length) return;
+  const product = getSelectedProduct();
+  const seed = currentPackSeed;
+  const surprise = openModeCheckbox.checked ? '1' : '0';
+  // Collect indices of face-up cards (not face-down)
+  const revealed = [];
+  document.querySelectorAll('.card-slot').forEach((slot, i) => {
+    if (!slot.classList.contains('face-down')) revealed.push(i);
+  });
+  const revealedStr = revealed.join(',');
+  location.hash = `set=${encodeURIComponent(selectedSetCode)}&product=${encodeURIComponent(product)}&seed=${seed}&surprise=${surprise}&revealed=${revealedStr}`;
 }
 
 function parseHash() {
@@ -688,7 +707,13 @@ function parseHash() {
   const product = params.get('product');
   const seed = params.get('seed');
   if (set && product && seed) {
-    return { set, product, seed: parseInt(seed) };
+    const surprise = params.get('surprise');
+    const revealed = params.get('revealed');
+    return {
+      set, product, seed: parseInt(seed),
+      surprise: surprise !== '0',
+      revealed: revealed ? revealed.split(',').map(Number) : null,
+    };
   }
   return null;
 }
@@ -701,7 +726,7 @@ function unzoomAll() {
 
 // --- Pack generation ---
 
-async function openPack(seed) {
+async function openPack(seed, hashRevealed) {
   const setCode = selectedSetCode;
   const product = getSelectedProduct();
   if (!setCode || !product) return;
@@ -719,9 +744,9 @@ async function openPack(seed) {
   });
   const result = await res.json();
 
-  updateHash(setCode, product, result.seed);
-
   currentPack = result.cards || [];
+  currentPackSeed = result.seed;
+
   const pct = ((result.variant_weight / result.total_weight) * 100).toFixed(1);
   const packTotal = currentPack.reduce((sum, c) => sum + (parseFloat(c.tcg_price) || 0), 0);
   const totalStr = packTotal > 0 ? ` — $${packTotal.toFixed(2)}` : '';
@@ -729,7 +754,8 @@ async function openPack(seed) {
 
   packGrid.innerHTML = '';
 
-  const isOpenMode = openModeCheckbox.checked;
+  const isSurprise = openModeCheckbox.checked;
+  const revealedSet = hashRevealed ? new Set(hashRevealed) : null;
 
   // Calculate rows needed so cards fit vertically
   const cardCount = currentPack.length;
@@ -747,7 +773,9 @@ async function openPack(seed) {
   currentPack.forEach((card, i) => {
     card._packIndex = i;
     const div = document.createElement('div');
-    div.className = 'card-slot' + (isOpenMode ? ' face-down' : '');
+    // If restoring from hash, use revealed set; otherwise use surprise mode
+    const faceDown = revealedSet ? !revealedSet.has(i) : isSurprise;
+    div.className = 'card-slot' + (faceDown ? ' face-down' : '');
     div.dataset.scryfallId = card.scryfall_id;
     div.dataset.index = i;
     div.innerHTML = `
@@ -774,6 +802,7 @@ async function openPack(seed) {
       if (div.classList.contains('zoomed')) return;
       if (div.classList.contains('face-down')) {
         div.classList.remove('face-down');
+        updateHash();
         return;
       }
       togglePick(card, i);
@@ -782,6 +811,7 @@ async function openPack(seed) {
   });
 
   syncPickState();
+  updateHash();
   openBtn.disabled = false;
   statusText.textContent = '';
 }
@@ -815,10 +845,11 @@ loadSets().then(async () => {
   if (hashParams) {
     const s = allSets.find(s => s.code.toLowerCase() === hashParams.set.toLowerCase());
     if (s) {
+      openModeCheckbox.checked = hashParams.surprise;
       selectSet(s);
       await loadProducts(s.code);
       setSelectedProduct(hashParams.product);
-      openPack(hashParams.seed);
+      openPack(hashParams.seed, hashParams.revealed);
     }
   }
 });
