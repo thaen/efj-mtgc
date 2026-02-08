@@ -3,7 +3,7 @@
 import sqlite3
 from typing import Optional
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 SCHEMA_SQL = """
 -- Abstract cards (oracle-level, cached from Scryfall)
@@ -79,6 +79,39 @@ CREATE INDEX IF NOT EXISTS idx_collection_source ON collection(source);
 CREATE INDEX IF NOT EXISTS idx_printings_oracle ON printings(oracle_id);
 CREATE INDEX IF NOT EXISTS idx_printings_set ON printings(set_code);
 CREATE INDEX IF NOT EXISTS idx_cards_name ON cards(name);
+
+-- Denormalized collection view
+CREATE VIEW IF NOT EXISTS collection_view AS
+SELECT
+    c.id,
+    card.name,
+    s.set_name,
+    p.set_code,
+    p.collector_number,
+    p.rarity,
+    p.promo,
+    c.finish,
+    c.condition,
+    c.language,
+    card.type_line,
+    card.mana_cost,
+    card.cmc,
+    card.colors,
+    card.color_identity,
+    p.artist,
+    c.purchase_price,
+    c.acquired_at,
+    c.source,
+    c.source_image,
+    c.notes,
+    c.tags,
+    c.tradelist,
+    c.scryfall_id,
+    p.oracle_id
+FROM collection c
+JOIN printings p ON c.scryfall_id = p.scryfall_id
+JOIN cards card ON p.oracle_id = card.oracle_id
+JOIN sets s ON p.set_code = s.set_code;
 """
 
 
@@ -124,6 +157,8 @@ def init_db(conn: sqlite3.Connection, force: bool = False) -> bool:
             _migrate_v2_to_v3(conn)
         if current < 4:
             _migrate_v3_to_v4(conn)
+        if current < 5:
+            _migrate_v4_to_v5(conn)
 
     # Record schema version
     conn.execute(
@@ -163,9 +198,48 @@ def _migrate_v3_to_v4(conn: sqlite3.Connection):
         conn.execute("ALTER TABLE collection ADD COLUMN source_image TEXT")
 
 
+def _migrate_v4_to_v5(conn: sqlite3.Connection):
+    """Add denormalized collection_view."""
+    conn.execute("DROP VIEW IF EXISTS collection_view")
+    conn.execute("""
+        CREATE VIEW collection_view AS
+        SELECT
+            c.id,
+            card.name,
+            s.set_name,
+            p.set_code,
+            p.collector_number,
+            p.rarity,
+            p.promo,
+            c.finish,
+            c.condition,
+            c.language,
+            card.type_line,
+            card.mana_cost,
+            card.cmc,
+            card.colors,
+            card.color_identity,
+            p.artist,
+            c.purchase_price,
+            c.acquired_at,
+            c.source,
+            c.source_image,
+            c.notes,
+            c.tags,
+            c.tradelist,
+            c.scryfall_id,
+            p.oracle_id
+        FROM collection c
+        JOIN printings p ON c.scryfall_id = p.scryfall_id
+        JOIN cards card ON p.oracle_id = card.oracle_id
+        JOIN sets s ON p.set_code = s.set_code
+    """)
+
+
 def drop_all_tables(conn: sqlite3.Connection):
     """Drop all tables (for testing/reset)."""
     conn.executescript("""
+        DROP VIEW IF EXISTS collection_view;
         DROP TABLE IF EXISTS collection;
         DROP TABLE IF EXISTS printings;
         DROP TABLE IF EXISTS cards;
