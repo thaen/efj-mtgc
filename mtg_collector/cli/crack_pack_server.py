@@ -6,7 +6,6 @@ import shutil
 import sys
 import threading
 import time
-import urllib.request
 from datetime import datetime, timezone
 from functools import partial
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -15,7 +14,7 @@ from urllib.parse import urlparse, parse_qs
 
 import requests
 
-from mtg_collector.cli.data_cmd import MTGJSON_PRICES_URL, get_allpricestoday_path
+from mtg_collector.cli.data_cmd import MTGJSON_PRICES_URL, get_allpricestoday_path, _download
 from mtg_collector.services.pack_generator import PackGenerator
 
 # In-memory price cache: scryfall_id -> (timestamp, prices_dict)
@@ -28,11 +27,9 @@ _prices_lock = threading.Lock()
 
 
 def _load_prices():
-    """Load AllPricesToday.json into memory if available."""
+    """Load AllPricesToday.json into memory."""
     global _prices_data
     path = get_allpricestoday_path()
-    if not path.exists():
-        return
     with open(path) as f:
         raw = json.load(f)
     with _prices_lock:
@@ -96,7 +93,7 @@ def _download_prices():
     dest.parent.mkdir(parents=True, exist_ok=True)
     gz_path = dest.parent / "AllPricesToday.json.gz"
 
-    urllib.request.urlretrieve(MTGJSON_PRICES_URL, str(gz_path))
+    _download(MTGJSON_PRICES_URL, gz_path)
 
     with gzip.open(gz_path, "rb") as f_in:
         with open(dest, "wb") as f_out:
@@ -270,6 +267,19 @@ def run(args):
     mtgjson_path = Path(args.mtgjson) if args.mtgjson else None
 
     gen = PackGenerator(mtgjson_path)
+
+    # Verify required data files exist
+    allprintings = gen.mtgjson_path
+    if not allprintings.exists():
+        print(f"Error: AllPrintings.json not found: {allprintings}", file=sys.stderr)
+        print("Run: mtg data fetch", file=sys.stderr)
+        sys.exit(1)
+
+    prices_path = get_allpricestoday_path()
+    if not prices_path.exists():
+        print(f"Error: AllPricesToday.json not found: {prices_path}", file=sys.stderr)
+        print("Run: mtg data fetch-prices", file=sys.stderr)
+        sys.exit(1)
 
     # Pre-warm AllPrintings.json in background thread
     warm_thread = threading.Thread(target=lambda: gen.data, daemon=True)

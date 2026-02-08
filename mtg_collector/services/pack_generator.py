@@ -126,7 +126,14 @@ class PackGenerator:
             if not card_uuids:
                 continue
 
-            drawn_uuids = rng.choices(card_uuids, weights=card_weights, k=count)
+            # Draw without replacement: pick one at a time, removing chosen cards
+            pool_uuids = list(card_uuids)
+            pool_weights = list(card_weights)
+            drawn_uuids = []
+            for _ in range(min(count, len(pool_uuids))):
+                idx = rng.choices(range(len(pool_uuids)), weights=pool_weights, k=1)[0]
+                drawn_uuids.append(pool_uuids.pop(idx))
+                pool_weights.pop(idx)
 
             is_foil = sheet.get("foil", False)
 

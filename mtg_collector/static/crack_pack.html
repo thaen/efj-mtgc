@@ -178,10 +178,24 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   perspective: 800px;
 }
 
-.card-slot.zoomed {
-  transform: scale(1.8);
-  box-shadow: 0 12px 32px rgba(0,0,0,0.7);
-  z-index: 10;
+#zoom-overlay {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.75);
+  z-index: 100;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+}
+
+#zoom-overlay.active { display: flex; }
+
+#zoom-overlay img {
+  max-height: 85vh;
+  max-width: 90vw;
+  border-radius: 16px;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.8);
 }
 
 .card-slot.picked .card-img-wrap {
@@ -388,12 +402,15 @@ a.badge.link:hover { color: #fff; background: #555; }
     <div class="product-radios" id="product-radios"></div>
     <button id="open-btn" disabled>Open Pack</button>
     <div class="product-radios"><input type="checkbox" id="open-mode" checked><label for="open-mode">Surprise</label></div>
+    <button id="reveal-all-btn" disabled>Reveal All</button>
   </div>
   <div id="status">
     <span class="prices-status" id="prices-status" title="Click to update CK prices"></span>
     <span id="status-text"></span>
   </div>
 </header>
+
+<div id="zoom-overlay"><img id="zoom-img" src="" alt=""></div>
 
 <div class="main">
   <div class="pack-area">
@@ -421,6 +438,9 @@ const pickList = document.getElementById('pick-list');
 const pickCount = document.getElementById('pick-count');
 const clearBtn = document.getElementById('clear-picks');
 const openModeCheckbox = document.getElementById('open-mode');
+const revealAllBtn = document.getElementById('reveal-all-btn');
+const zoomOverlay = document.getElementById('zoom-overlay');
+const zoomImg = document.getElementById('zoom-img');
 
 let allSets = [];
 let selectedSetCode = '';
@@ -720,9 +740,24 @@ function parseHash() {
 
 // --- Zoom ---
 
-function unzoomAll() {
-  document.querySelectorAll('.card-slot.zoomed').forEach(el => el.classList.remove('zoomed'));
+function showZoom(imgSrc) {
+  zoomImg.src = imgSrc;
+  zoomOverlay.classList.add('active');
 }
+
+zoomOverlay.addEventListener('click', () => {
+  zoomOverlay.classList.remove('active');
+});
+
+function syncRevealBtn() {
+  revealAllBtn.disabled = !document.querySelector('.card-slot.face-down');
+}
+
+revealAllBtn.addEventListener('click', () => {
+  document.querySelectorAll('.card-slot.face-down').forEach(el => el.classList.remove('face-down'));
+  syncRevealBtn();
+  updateHash();
+});
 
 // --- Pack generation ---
 
@@ -789,19 +824,13 @@ async function openPack(seed, hashRevealed) {
     div.querySelector('.zoom-badge').addEventListener('click', (e) => {
       e.stopPropagation();
       if (div.classList.contains('face-down')) return;
-      div.classList.add('zoomed');
-      setTimeout(() => {
-        document.addEventListener('click', function handler() {
-          unzoomAll();
-          document.removeEventListener('click', handler);
-        }, { once: true });
-      }, 0);
+      showZoom(card.image_uri);
     });
     // Card click: flip or pick
     div.addEventListener('click', () => {
-      if (div.classList.contains('zoomed')) return;
       if (div.classList.contains('face-down')) {
         div.classList.remove('face-down');
+        syncRevealBtn();
         updateHash();
         return;
       }
@@ -811,6 +840,7 @@ async function openPack(seed, hashRevealed) {
   });
 
   syncPickState();
+  syncRevealBtn();
   updateHash();
   openBtn.disabled = false;
   statusText.textContent = '';

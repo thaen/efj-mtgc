@@ -6,25 +6,29 @@ import sys
 import urllib.request
 from pathlib import Path
 
+
 from mtg_collector.utils import get_mtgc_home
+
+_USER_AGENT = "MTGCollectionTool/2.0"
+
+def _download(url: str, dest: Path):
+    """Download a URL to a file with proper User-Agent."""
+    req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+    with urllib.request.urlopen(req) as resp, open(dest, "wb") as out:
+        shutil.copyfileobj(resp, out)
 
 MTGJSON_URL = "https://mtgjson.com/api/v5/AllPrintings.json.gz"
 MTGJSON_PRICES_URL = "https://mtgjson.com/api/v5/AllPricesToday.json.gz"
 
 
-def get_data_dir():
-    """Get the data directory (~/.mtgc/ or MTGC_HOME)."""
-    return get_mtgc_home()
-
-
 def get_allprintings_path() -> Path:
     """Get the default path for AllPrintings.json."""
-    return get_data_dir() / "AllPrintings.json"
+    return get_mtgc_home() / "AllPrintings.json"
 
 
 def get_allpricestoday_path() -> Path:
     """Get the default path for AllPricesToday.json."""
-    return get_data_dir() / "AllPricesToday.json"
+    return get_mtgc_home() / "AllPricesToday.json"
 
 
 def register(subparsers):
@@ -83,11 +87,7 @@ def _fetch(force: bool = False):
     gz_path = dest.parent / "AllPrintings.json.gz"
 
     print(f"Downloading {MTGJSON_URL} ...")
-    try:
-        urllib.request.urlretrieve(MTGJSON_URL, str(gz_path))
-    except Exception as e:
-        print(f"Error downloading: {e}", file=sys.stderr)
-        sys.exit(1)
+    _download(MTGJSON_URL, gz_path)
 
     print("Decompressing ...")
     with gzip.open(gz_path, "rb") as f_in:
@@ -114,11 +114,7 @@ def _fetch_prices(force: bool = False):
     gz_path = dest.parent / "AllPricesToday.json.gz"
 
     print(f"Downloading {MTGJSON_PRICES_URL} ...")
-    try:
-        urllib.request.urlretrieve(MTGJSON_PRICES_URL, str(gz_path))
-    except Exception as e:
-        print(f"Error downloading: {e}", file=sys.stderr)
-        sys.exit(1)
+    _download(MTGJSON_PRICES_URL, gz_path)
 
     print("Decompressing ...")
     with gzip.open(gz_path, "rb") as f_in:
