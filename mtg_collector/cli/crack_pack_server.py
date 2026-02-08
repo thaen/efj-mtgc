@@ -36,8 +36,8 @@ def _load_prices():
         _prices_data = raw.get("data", {})
 
 
-def _get_ck_price(uuid: str, foil: bool) -> str | None:
-    """Look up CardKingdom retail price for a card UUID."""
+def _get_local_price(uuid: str, foil: bool, provider: str) -> str | None:
+    """Look up a retail price for a card UUID from AllPricesToday.json."""
     with _prices_lock:
         data = _prices_data
     if data is None:
@@ -46,15 +46,22 @@ def _get_ck_price(uuid: str, foil: bool) -> str | None:
     if not card_prices:
         return None
     paper = card_prices.get("paper", {})
-    ck = paper.get("cardkingdom", {})
-    retail = ck.get("retail", {})
+    prov = paper.get(provider, {})
+    retail = prov.get("retail", {})
     price_type = "foil" if foil else "normal"
     prices_by_date = retail.get(price_type, {})
     if not prices_by_date:
         return None
-    # Get the most recent date's price
     latest_date = max(prices_by_date.keys())
     return str(prices_by_date[latest_date])
+
+
+def _get_ck_price(uuid: str, foil: bool) -> str | None:
+    return _get_local_price(uuid, foil, "cardkingdom")
+
+
+def _get_tcg_price(uuid: str, foil: bool) -> str | None:
+    return _get_local_price(uuid, foil, "tcgplayer")
 
 
 def _fetch_prices(scryfall_ids: list[str]) -> dict[str, dict]:
@@ -119,12 +126,19 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             self._serve_homepage()
         elif path == "/crack":
             self._serve_static("crack_pack.html")
+        elif path == "/sheets":
+            self._serve_static("explore_sheets.html")
         elif path == "/api/sets":
             self._api_sets()
         elif path == "/api/products":
             params = parse_qs(parsed.query)
             set_code = params.get("set", [""])[0]
             self._api_products(set_code)
+        elif path == "/api/sheets":
+            params = parse_qs(parsed.query)
+            set_code = params.get("set", [""])[0]
+            product = params.get("product", [""])[0]
+            self._api_sheets(set_code, product)
         elif path == "/api/prices-status":
             self._api_prices_status()
         elif path.startswith("/static/"):
@@ -184,6 +198,22 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             return
         products = self.generator.list_products(set_code)
         self._send_json(products)
+
+    def _api_sheets(self, set_code: str, product: str):
+        if not set_code or not product:
+            self._send_json({"error": "Missing 'set' or 'product' parameter"}, 400)
+            return
+        result = self.generator.get_sheet_data(set_code, product)
+
+        # Attach local prices
+        for sheet in result["sheets"].values():
+            for card in sheet["cards"]:
+                uuid = card.get("uuid", "")
+                foil = card.get("foil", False)
+                card["ck_price"] = _get_ck_price(uuid, foil)
+                card["tcg_price"] = _get_tcg_price(uuid, foil)
+
+        self._send_json(result)
 
     def _api_generate(self, data: dict):
         set_code = data.get("set_code", "")
@@ -297,6 +327,7 @@ def run(args):
     server = HTTPServer(("", args.port), handler)
     print(f"Server running at http://localhost:{args.port}")
     print(f"Crack-a-Pack: http://localhost:{args.port}/crack")
+    print(f"Explore Sheets: http://localhost:{args.port}/sheets")
     print("Press Ctrl+C to stop.")
 
     try:

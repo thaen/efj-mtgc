@@ -305,6 +305,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   height: 100%;
   object-fit: cover;
   display: block;
+  image-rendering: high-quality;
 }
 
 .card-info {
@@ -460,6 +461,7 @@ a.badge.link:hover { color: #fff; background: #555; }
     <button id="open-btn" disabled>Open Pack</button>
     <div class="product-radios"><input type="checkbox" id="open-mode" checked><label for="open-mode">Surprise</label></div>
     <button id="reveal-all-btn" disabled>Reveal All</button>
+    <button id="sheets-btn" disabled style="background:#333;border-color:#555">Explore Sheets</button>
   </div>
   <div id="status">
     <span class="prices-status" id="prices-status" title="Click to update CK prices"></span>
@@ -496,6 +498,7 @@ const pickCount = document.getElementById('pick-count');
 const clearBtn = document.getElementById('clear-picks');
 const openModeCheckbox = document.getElementById('open-mode');
 const revealAllBtn = document.getElementById('reveal-all-btn');
+const sheetsBtn = document.getElementById('sheets-btn');
 const zoomOverlay = document.getElementById('zoom-overlay');
 const zoomImg = document.getElementById('zoom-img');
 
@@ -756,7 +759,10 @@ async function loadProducts(setCode) {
     productRadios.appendChild(radio);
     productRadios.appendChild(label);
   });
-  if (products.length > 0) openBtn.disabled = false;
+  if (products.length > 0) {
+    openBtn.disabled = false;
+    sheetsBtn.disabled = false;
+  }
 }
 
 function getSelectedProduct() {
@@ -822,6 +828,13 @@ revealAllBtn.addEventListener('click', () => {
   document.querySelectorAll('.card-slot.face-down').forEach(el => el.classList.remove('face-down'));
   syncRevealBtn();
   updateHash();
+});
+
+sheetsBtn.addEventListener('click', () => {
+  const product = getSelectedProduct();
+  if (selectedSetCode && product) {
+    location.href = `/sheets#set=${encodeURIComponent(selectedSetCode)}&product=${encodeURIComponent(product)}`;
+  }
 });
 
 // --- Pack generation ---

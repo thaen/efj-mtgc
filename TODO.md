@@ -21,21 +21,25 @@ DONE 6.5 cards need to be drawn without replacement
 
 DONE 6.5.1 fix CK prices, still aren't showing up
 
-6.5.3 move crack a pack to /crack, add a basic homepage.
+DONE 6.5.3 move crack a pack to /crack, add a basic homepage.
 
-6.5.4 add highlighting for non-primary sets (like EOS drawn in an EOE pack)
+DONE 6.5.4 add highlighting for non-primary sets (like EOS drawn in an EOE pack)
 
-6.6 MTG.WTF/PACK: A better UI.
+DONE 6.6 MTG.WTF/PACK: A better UI.
 
 Now that we have the math and images, we can recreate the MTG.WTF/PACK UI but better. Let's do that.
 
 there should be a button next to "Open Pack" that says "Explore Sheets". once a set is selected, that button should take you to a page that shows the pack distributions and sheet distributions, like mtg.wtf/pack . however, mtg.pack shows you *all* the cards by default in one enormous scrolling thing. i want to be able to expand/collapse the various sections. you can look at their UI to see what they have. a url like https://mtg.wtf/pack/eoe-collector this should give you that.
 
+DONE 6.7 MTG per-sheet odds
+
+A given slot can be filled by drawing from one of several sheets and each sheet has slightly different odss
+
 7. **Move bling odds calculator into repo** — `~/mtg/blingodds.py` + `bling.yml` + AllPrintings.json data. Calculates probability of opening special cards (borderless, showcase, extended art, etc.) per pack/box.
 
 7.5 **A basic Collection UI**: Like Moxfield. Use the same assets from crack a pack.
 
-the collection UI should be straightforward, with a card name search, various sort options for card types/colors/price/etc, filter options for the same, table or full-card-image views.
+the collection UI should be straightforward, with a card name search, various sort options for card types/colors/price/etc, filter options for the same, table or full-card-image views. card display should be the same as the Sheet interface.
 
 8. **Move local OCR into repo** — `local-ocr/ocr_cli.py` uses easyocr to read collector numbers from card corner photos without Claude API. Replace Claude Vision in the ingest pipeline for cards with visible collector numbers.
 

@@ -182,3 +182,107 @@ class PackGenerator:
             "total_weight": sum(weights),
             "cards": pack,
         }
+
+    def get_sheet_data(self, set_code: str, product: str) -> dict:
+        """Return full booster structure: variants, sheets, and per-card pull rates."""
+        set_code = set_code.upper()
+        set_data = self._get_set(set_code)
+
+        if "booster" not in set_data:
+            raise ValueError(f"Set '{set_code}' has no booster data")
+
+        product_key = product.lower()
+        if product_key not in set_data["booster"]:
+            available = list(set_data["booster"].keys())
+            raise ValueError(
+                f"Product '{product}' not found for '{set_code}'. Available: {available}"
+            )
+
+        booster = set_data["booster"][product_key]
+        sheets = booster.get("sheets", {})
+        variants = booster.get("boosters", [])
+
+        weights = [v.get("weight", 1) for v in variants]
+        total_weight = sum(weights)
+
+        card_index = self._build_card_index(set_code, booster)
+
+        # Build variant data
+        variant_list = []
+        for i, v in enumerate(variants):
+            variant_list.append({
+                "index": i,
+                "weight": v.get("weight", 1),
+                "probability": v.get("weight", 1) / total_weight if total_weight else 0,
+                "contents": v.get("contents", {}),
+            })
+
+        # Build sheet data
+        sheet_data = {}
+        for sheet_name, sheet in sheets.items():
+            is_foil = sheet.get("foil", False)
+            card_entries = sheet.get("cards", {})
+            sheet_total_weight = sum(card_entries.values())
+
+            cards = []
+            for uuid, weight in card_entries.items():
+                card = card_index.get(uuid)
+                if card is None:
+                    continue
+
+                scryfall_id = card.get("identifiers", {}).get("scryfallId", "")
+                image_uri = ""
+                if scryfall_id:
+                    image_uri = (
+                        f"https://cards.scryfall.io/normal/front/"
+                        f"{scryfall_id[0]}/{scryfall_id[1]}/{scryfall_id}.jpg"
+                    )
+
+                purchase_urls = card.get("purchaseUrls", {})
+                ck_url = purchase_urls.get(
+                    "cardKingdomFoil" if is_foil else "cardKingdom", ""
+                )
+                if not ck_url:
+                    ck_url = purchase_urls.get("cardKingdom", "")
+
+                cards.append({
+                    "uuid": uuid,
+                    "name": card.get("name", "Unknown"),
+                    "set_code": card.get("setCode", set_code),
+                    "collector_number": card.get("number", ""),
+                    "rarity": card.get("rarity", ""),
+                    "scryfall_id": scryfall_id,
+                    "image_uri": image_uri,
+                    "weight": weight,
+                    "pull_rate": weight / sheet_total_weight if sheet_total_weight else 0,
+                    "foil": is_foil,
+                    "border_color": card.get("borderColor", "black"),
+                    "frame_effects": card.get("frameEffects") or [],
+                    "is_full_art": card.get("isFullArt", False),
+                    "ck_url": ck_url,
+                })
+
+            # Sort by collector number (numeric where possible)
+            def sort_key(c):
+                num = c["collector_number"]
+                try:
+                    return (0, int(num), "")
+                except ValueError:
+                    return (1, 0, num)
+
+            cards.sort(key=sort_key)
+
+            sheet_data[sheet_name] = {
+                "foil": is_foil,
+                "total_weight": sheet_total_weight,
+                "card_count": len(cards),
+                "cards": cards,
+            }
+
+        return {
+            "set_code": set_code,
+            "product": product_key,
+            "total_weight": total_weight,
+            "variants": variant_list,
+            "sheets": sheet_data,
+        }
