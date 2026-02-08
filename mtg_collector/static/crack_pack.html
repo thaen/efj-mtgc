@@ -38,7 +38,7 @@ header h1 {
   flex-wrap: wrap;
 }
 
-select, button {
+select, button, .set-search-input {
   padding: 8px 14px;
   border: 1px solid #0f3460;
   border-radius: 6px;
@@ -48,7 +48,70 @@ select, button {
   cursor: pointer;
 }
 
-select:focus, button:focus { outline: 2px solid #e94560; }
+select:focus, button:focus, .set-search-input:focus { outline: 2px solid #e94560; }
+
+.set-search-wrap {
+  position: relative;
+}
+
+.set-search-input {
+  width: 260px;
+  cursor: text;
+}
+
+.set-dropdown {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  max-height: 300px;
+  overflow-y: auto;
+  background: #1a1a2e;
+  border: 1px solid #0f3460;
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+  z-index: 100;
+  list-style: none;
+}
+
+.set-dropdown.open { display: block; }
+
+.set-dropdown li {
+  padding: 6px 14px;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.set-dropdown li:hover, .set-dropdown li.active {
+  background: #0f3460;
+}
+
+.product-radios {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.product-radios label {
+  display: inline-block;
+  padding: 6px 14px;
+  border: 1px solid #0f3460;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  user-select: none;
+}
+
+.product-radios input[type="radio"] { display: none; }
+
+.product-radios input[type="radio"]:checked + label {
+  background: #e94560;
+  border-color: #e94560;
+  color: #fff;
+}
 
 button {
   background: #e94560;
@@ -84,9 +147,11 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 }
 
 .pack-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-content: flex-start;
+  height: calc(100vh - 150px);
 }
 
 .card-slot {
@@ -95,11 +160,14 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   border-radius: 12px;
   overflow: hidden;
   transition: transform 0.15s, box-shadow 0.15s;
+  height: calc((100vh - 174px) / var(--pack-rows, 2));
+  aspect-ratio: 488 / 680;
 }
 
 .card-slot:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  transform: scale(1.8);
+  box-shadow: 0 12px 32px rgba(0,0,0,0.7);
+  z-index: 10;
 }
 
 .card-slot.picked {
@@ -121,6 +189,8 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .card-slot img {
   width: 100%;
+  height: 100%;
+  object-fit: cover;
   display: block;
   border-radius: 12px;
 }
@@ -250,8 +320,11 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 <header>
   <h1>Crack-a-Pack</h1>
   <div class="controls">
-    <select id="set-select" disabled><option>Loading sets...</option></select>
-    <select id="product-select" disabled><option>Select a set first</option></select>
+    <div class="set-search-wrap">
+      <input type="text" class="set-search-input" id="set-input" placeholder="Loading sets..." disabled autocomplete="off">
+      <ul class="set-dropdown" id="set-dropdown"></ul>
+    </div>
+    <div class="product-radios" id="product-radios"></div>
     <button id="open-btn" disabled>Open Pack</button>
   </div>
   <div id="status"></div>
@@ -271,8 +344,9 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 </div>
 
 <script>
-const setSelect = document.getElementById('set-select');
-const productSelect = document.getElementById('product-select');
+const setInput = document.getElementById('set-input');
+const setDropdown = document.getElementById('set-dropdown');
+const productRadios = document.getElementById('product-radios');
 const openBtn = document.getElementById('open-btn');
 const status = document.getElementById('status');
 const packGrid = document.getElementById('pack-grid');
@@ -281,8 +355,13 @@ const pickList = document.getElementById('pick-list');
 const pickCount = document.getElementById('pick-count');
 const clearBtn = document.getElementById('clear-picks');
 
+let allSets = [];
+let selectedSetCode = '';
+let activeDropdownIndex = -1;
 let picks = JSON.parse(localStorage.getItem('crackPackPicks') || '[]');
 let currentPack = [];
+
+// --- Picks ---
 
 function savePicks() {
   localStorage.setItem('crackPackPicks', JSON.stringify(picks));
@@ -326,6 +405,8 @@ function syncPickState() {
   });
 }
 
+// --- Badges ---
+
 function buildBadges(card) {
   let html = '';
   if (card.rarity && card.rarity !== 'common') {
@@ -341,58 +422,200 @@ function buildBadges(card) {
   return html;
 }
 
+// --- Searchable set selector ---
+
+function filterSets(query) {
+  const q = query.toLowerCase();
+  if (!q) return allSets;
+  return allSets.filter(s =>
+    s.name.toLowerCase().includes(q) || s.code.toLowerCase().includes(q)
+  );
+}
+
+function renderDropdown(sets) {
+  setDropdown.innerHTML = '';
+  activeDropdownIndex = -1;
+  sets.forEach((s, i) => {
+    const li = document.createElement('li');
+    li.textContent = `${s.name} (${s.code})`;
+    li.dataset.code = s.code;
+    li.addEventListener('mousedown', (e) => {
+      e.preventDefault(); // prevent blur before click fires
+      selectSet(s);
+    });
+    setDropdown.appendChild(li);
+  });
+}
+
+function showDropdown() {
+  const filtered = filterSets(selectedSetCode ? '' : setInput.value);
+  renderDropdown(filtered);
+  setDropdown.classList.add('open');
+}
+
+function hideDropdown() {
+  setDropdown.classList.remove('open');
+  activeDropdownIndex = -1;
+}
+
+function selectSet(s) {
+  selectedSetCode = s.code;
+  setInput.value = `${s.name} (${s.code})`;
+  hideDropdown();
+  loadProducts(s.code);
+}
+
+setInput.addEventListener('focus', () => {
+  if (selectedSetCode) {
+    selectedSetCode = '';
+    setInput.value = '';
+  }
+  showDropdown();
+});
+
+setInput.addEventListener('input', () => {
+  selectedSetCode = '';
+  const filtered = filterSets(setInput.value);
+  renderDropdown(filtered);
+  setDropdown.classList.add('open');
+});
+
+setInput.addEventListener('blur', () => {
+  hideDropdown();
+});
+
+setInput.addEventListener('keydown', (e) => {
+  const items = setDropdown.querySelectorAll('li');
+  if (!items.length) return;
+
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    activeDropdownIndex = Math.min(activeDropdownIndex + 1, items.length - 1);
+    items.forEach((li, i) => li.classList.toggle('active', i === activeDropdownIndex));
+    items[activeDropdownIndex].scrollIntoView({block: 'nearest'});
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    activeDropdownIndex = Math.max(activeDropdownIndex - 1, 0);
+    items.forEach((li, i) => li.classList.toggle('active', i === activeDropdownIndex));
+    items[activeDropdownIndex].scrollIntoView({block: 'nearest'});
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    if (activeDropdownIndex >= 0 && activeDropdownIndex < items.length) {
+      const code = items[activeDropdownIndex].dataset.code;
+      const s = allSets.find(s => s.code === code);
+      if (s) selectSet(s);
+    }
+  } else if (e.key === 'Escape') {
+    hideDropdown();
+    setInput.blur();
+  }
+});
+
+// --- Set & product loading ---
+
 async function loadSets() {
   status.textContent = 'Loading sets...';
   const res = await fetch('/api/sets');
   const sets = await res.json();
-  setSelect.innerHTML = '<option value="">-- Select Set --</option>';
-  sets.forEach(s => {
-    const opt = document.createElement('option');
-    opt.value = s.code;
-    opt.textContent = `${s.name} (${s.code})`;
-    setSelect.appendChild(opt);
-  });
-  setSelect.disabled = false;
+  allSets = sets;
+  setInput.disabled = false;
+  setInput.placeholder = 'Search sets...';
   status.textContent = `${sets.length} sets loaded`;
 }
 
 async function loadProducts(setCode) {
-  productSelect.innerHTML = '<option>Loading...</option>';
-  productSelect.disabled = true;
+  productRadios.innerHTML = '<span style="color:#888;font-size:0.85rem">Loading...</span>';
   openBtn.disabled = true;
   const res = await fetch(`/api/products?set=${encodeURIComponent(setCode)}`);
   const products = await res.json();
-  productSelect.innerHTML = '';
-  products.forEach(p => {
-    const opt = document.createElement('option');
-    opt.value = p;
-    opt.textContent = p;
-    productSelect.appendChild(opt);
+  productRadios.innerHTML = '';
+  products.forEach((p, i) => {
+    const id = `product-${p}`;
+    const radio = document.createElement('input');
+    radio.type = 'radio';
+    radio.name = 'product';
+    radio.value = p;
+    radio.id = id;
+    if (i === 0) radio.checked = true;
+    radio.addEventListener('change', () => { openBtn.disabled = false; });
+    const label = document.createElement('label');
+    label.htmlFor = id;
+    label.textContent = p;
+    productRadios.appendChild(radio);
+    productRadios.appendChild(label);
   });
-  productSelect.disabled = false;
-  openBtn.disabled = false;
+  if (products.length > 0) openBtn.disabled = false;
 }
 
-async function openPack() {
-  const setCode = setSelect.value;
-  const product = productSelect.value;
+function getSelectedProduct() {
+  const checked = productRadios.querySelector('input[name="product"]:checked');
+  return checked ? checked.value : '';
+}
+
+function setSelectedProduct(value) {
+  const radio = productRadios.querySelector(`input[name="product"][value="${value}"]`);
+  if (radio) radio.checked = true;
+}
+
+// --- URL hash ---
+
+function updateHash(setCode, product, seed) {
+  location.hash = `set=${encodeURIComponent(setCode)}&product=${encodeURIComponent(product)}&seed=${seed}`;
+}
+
+function parseHash() {
+  const hash = location.hash.replace(/^#/, '');
+  const params = new URLSearchParams(hash);
+  const set = params.get('set');
+  const product = params.get('product');
+  const seed = params.get('seed');
+  if (set && product && seed) {
+    return { set, product, seed: parseInt(seed) };
+  }
+  return null;
+}
+
+// --- Pack generation ---
+
+async function openPack(seed) {
+  const setCode = selectedSetCode;
+  const product = getSelectedProduct();
   if (!setCode || !product) return;
 
   openBtn.disabled = true;
   status.textContent = 'Generating pack...';
 
+  const body = {set_code: setCode, product: product};
+  if (seed != null) body.seed = seed;
+
   const res = await fetch('/api/generate', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({set_code: setCode, product: product}),
+    body: JSON.stringify(body),
   });
   const result = await res.json();
+
+  updateHash(setCode, product, result.seed);
 
   currentPack = result.cards || [];
   const pct = ((result.variant_weight / result.total_weight) * 100).toFixed(1);
   packHeader.textContent = `${setCode} ${product} — ${currentPack.length} cards (variant ${result.variant_index}, ${pct}%)`;
 
   packGrid.innerHTML = '';
+
+  // Calculate rows needed so cards fit vertically
+  const cardCount = currentPack.length;
+  const gridWidth = packGrid.clientWidth;
+  const availHeight = window.innerHeight - 150;
+  let rows = 1;
+  for (rows = 1; rows <= cardCount; rows++) {
+    const cardH = (availHeight - (rows - 1) * 12) / rows;
+    const cardW = cardH * (488 / 680);
+    const cols = Math.floor((gridWidth + 12) / (cardW + 12));
+    if (cols * rows >= cardCount) break;
+  }
+  packGrid.style.setProperty('--pack-rows', rows);
+
   currentPack.forEach((card, i) => {
     card._packIndex = i;
     const div = document.createElement('div');
@@ -423,11 +646,7 @@ function togglePick(card, packIndex) {
   syncPickState();
 }
 
-setSelect.addEventListener('change', () => {
-  if (setSelect.value) loadProducts(setSelect.value);
-});
-
-openBtn.addEventListener('click', openPack);
+openBtn.addEventListener('click', () => openPack());
 
 clearBtn.addEventListener('click', () => {
   picks = [];
@@ -435,8 +654,22 @@ clearBtn.addEventListener('click', () => {
   syncPickState();
 });
 
+// --- Init ---
+
 renderPicks();
-loadSets();
+
+loadSets().then(async () => {
+  const hashParams = parseHash();
+  if (hashParams) {
+    const s = allSets.find(s => s.code.toLowerCase() === hashParams.set.toLowerCase());
+    if (s) {
+      selectSet(s);
+      await loadProducts(s.code);
+      setSelectedProduct(hashParams.product);
+      openPack(hashParams.seed);
+    }
+  }
+});
 </script>
 
 </body>

@@ -9,9 +9,19 @@
    - [ ] **6d. Highlight owned cards** — Cross-reference generated pack against the collection DB. Visually flag cards you already own.
    - [ ] **6e. Add to cart** — For picked cards, generate links or auto-add to TCGPlayer/CardKingdom cart.
 
-6.1 MTG.WTF/PACK: A better UI
+6.1 the drop-down for set selection is unwieldy, too long. what other options are there?
+
+6.2 the pack type should be a radio button, not a drop-down
+
+6.4 if i click "create" and then refresh the page, i want the same pack to reload. i also want to be able to send links to friends and have the pack show for them (the Picks do not need to be encoded in the URL in the same way). 
+
+6.5 add pricing information from somewhere
+
+6.6 MTG.WTF/PACK: A better UI.
 
 Now that we have the math and images, we can recreate the MTG.WTF/PACK UI but better. Let's do that.
+
+there should be a button next to "Open Pack" that says "Explore Sheets". once a set is selected, that button should take you to a page that shows the pack distributions and sheet distributions, like mtg.wtf/pack . however, mtg.pack shows you *all* the cards by default in one enormous scrolling thing. i want to be able to expand/collapse the various sections. you can look at their UI to see what they have. a url like https://mtg.wtf/pack/eoe-collector this should give you that.
 
 7. **Move bling odds calculator into repo** — `~/mtg/blingodds.py` + `bling.yml` + AllPrintings.json data. Calculates probability of opening special cards (borderless, showcase, extended art, etc.) per pack/box.
 

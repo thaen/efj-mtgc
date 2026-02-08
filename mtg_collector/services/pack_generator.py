@@ -66,11 +66,14 @@ class PackGenerator:
             return []
         return list(set_data["booster"].keys())
 
-    def generate_pack(self, set_code: str, product: str) -> dict:
+    def generate_pack(
+        self, set_code: str, product: str, seed: int | None = None
+    ) -> dict:
         """
         Generate a virtual booster pack.
 
         Returns a dict with:
+            seed: the seed used for generation
             variant_index: which variant was selected (0-based)
             variant_weight: weight of the selected variant
             total_weight: sum of all variant weights
@@ -96,9 +99,13 @@ class PackGenerator:
         if not variants:
             raise ValueError(f"No booster variants defined for {set_code} {product}")
 
+        if seed is None:
+            seed = random.randint(0, 2**31 - 1)
+        rng = random.Random(seed)
+
         # Pick a variant by weight
         weights = [v.get("weight", 1) for v in variants]
-        variant_index = random.choices(range(len(variants)), weights=weights, k=1)[0]
+        variant_index = rng.choices(range(len(variants)), weights=weights, k=1)[0]
         variant = variants[variant_index]
 
         # Build card index for UUID lookups
@@ -117,7 +124,7 @@ class PackGenerator:
             if not card_uuids:
                 continue
 
-            drawn_uuids = random.choices(card_uuids, weights=card_weights, k=count)
+            drawn_uuids = rng.choices(card_uuids, weights=card_weights, k=count)
 
             is_foil = "foil" in sheet_name.lower()
 
@@ -149,6 +156,7 @@ class PackGenerator:
                 })
 
         return {
+            "seed": seed,
             "variant_index": variant_index,
             "variant_weight": variant.get("weight", 1),
             "total_weight": sum(weights),

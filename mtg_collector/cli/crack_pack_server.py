@@ -74,7 +74,10 @@ class CrackPackHandler(BaseHTTPRequestHandler):
         if not set_code or not product:
             self._send_json({"error": "Missing set_code or product"}, 400)
             return
-        result = self.generator.generate_pack(set_code, product)
+        seed = data.get("seed")
+        if seed is not None:
+            seed = int(seed)
+        result = self.generator.generate_pack(set_code, product, seed=seed)
         self._send_json(result)
 
     def _send_json(self, obj, status=200):
