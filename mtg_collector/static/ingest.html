@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ingestor - OCR Card Identification</title>
+<link href="https://cdn.jsdelivr.net/npm/keyrune@latest/css/keyrune.min.css" rel="stylesheet">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: #1a1a2e;
+  color: #e0e0e0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  min-height: 100vh;
+}
+
+header {
+  background: #16213e;
+  padding: 16px 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  border-bottom: 2px solid #0f3460;
+}
+
+header h1 {
+  font-size: 1.3rem;
+  color: #e94560;
+}
+
+header a {
+  color: #888;
+  text-decoration: none;
+  font-size: 0.85rem;
+}
+header a:hover { color: #e94560; }
+
+#status-bar {
+  margin-left: auto;
+  font-size: 0.85rem;
+  color: #888;
+}
+
+button {
+  padding: 8px 16px;
+  border: 1px solid #0f3460;
+  border-radius: 6px;
+  background: #e94560;
+  border-color: #e94560;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+button:hover { background: #c73651; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+button.secondary {
+  background: #333;
+  border-color: #555;
+}
+button.secondary:hover { background: #444; }
+
+/* ── Pill Progress Bar ── */
+#pill-bar {
+  display: none;
+  padding: 10px 24px;
+  background: #0d1117;
+  border-bottom: 1px solid #0f3460;
+  gap: 12px;
+  align-items: center;
+  font-size: 0.85rem;
+}
+#pill-bar .pill {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 20px;
+  background: #16213e;
+  border: 1px solid #0f3460;
+  color: #888;
+  font-size: 0.8rem;
+  transition: all 0.3s;
+}
+#pill-bar .pill.active {
+  background: #e94560;
+  border-color: #e94560;
+  color: #fff;
+}
+#pill-bar .pill.done {
+  background: #1b5e20;
+  border-color: #4caf50;
+  color: #4caf50;
+}
+#pill-bar .pill-label {
+  color: #888;
+  margin-right: 4px;
+}
+#pill-bar .filename {
+  color: #e0e0e0;
+  font-weight: 600;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Drop Zone ── */
+#drop-zone {
+  border: 3px dashed #0f3460;
+  border-radius: 12px;
+  padding: 60px 40px;
+  text-align: center;
+  margin: 24px;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+#drop-zone.dragover {
+  border-color: #e94560;
+  background: rgba(233, 69, 96, 0.05);
+}
+#drop-zone h2 { color: #888; font-size: 1.2rem; margin-bottom: 8px; }
+#drop-zone p { color: #555; font-size: 0.9rem; }
+
+/* ── Image List ── */
+#image-list {
+  margin: 0 24px;
+}
+.image-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: #16213e;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  border: 1px solid #0f3460;
+}
+.image-row .thumb {
+  width: 60px;
+  height: 45px;
+  object-fit: cover;
+  border-radius: 4px;
+}
+.image-row .name { flex: 1; font-size: 0.9rem; }
+.image-row label { font-size: 0.85rem; color: #888; }
+.image-row .status-text { font-size: 0.8rem; color: #888; }
+
+/* Card count button group */
+.count-group {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+.count-group button {
+  padding: 4px 8px;
+  font-size: 0.75rem;
+  border-radius: 0;
+  background: #333;
+  border: 1px solid #555;
+  color: #e0e0e0;
+  min-width: 28px;
+}
+.count-group button:first-child { border-radius: 4px 0 0 4px; }
+.count-group button:last-child { border-radius: 0 4px 4px 0; }
+.count-group button:hover { background: #444; }
+.count-group .count-display {
+  padding: 4px 10px;
+  background: #1a1a2e;
+  border: 1px solid #555;
+  border-left: none;
+  border-right: none;
+  color: #e0e0e0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  min-width: 32px;
+  text-align: center;
+}
+
+.force-ingest-label {
+  font-size: 0.75rem;
+  color: #666;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+.force-ingest-label input { cursor: pointer; }
+
+#process-controls {
+  margin: 16px 24px;
+  display: none;
+}
+
+/* ── Processing Log ── */
+#processing-log {
+  margin: 0 24px 16px;
+  padding: 12px 16px;
+  background: #0d1117;
+  border-radius: 8px;
+  font-family: "SF Mono", Monaco, "Cascadia Code", monospace;
+  font-size: 0.8rem;
+  max-height: 200px;
+  overflow-y: auto;
+  display: none;
+  line-height: 1.6;
+}
+#processing-log .log-line { color: #888; }
+#processing-log .log-line.running { color: #f0c040; }
+#processing-log .log-line.done { color: #4caf50; }
+#processing-log .log-line.error { color: #e94560; }
+#processing-log .log-line.cached { color: #64b5f6; }
+
+/* ── Disambiguation View ── */
+#disambig-view {
+  display: none;
+  margin: 0 24px;
+}
+
+.disambig-layout {
+  display: flex;
+  gap: 20px;
+  min-height: calc(100vh - 180px);
+}
+
+/* Left panel: image crop */
+.crop-panel {
+  flex: 0 0 45%;
+  background: #0d1117;
+  border-radius: 8px;
+  overflow: hidden;
+  position: relative;
+  cursor: grab;
+  user-select: none;
+}
+.crop-panel:active { cursor: grabbing; }
+.crop-panel img {
+  position: absolute;
+  transform-origin: 0 0;
+}
+
+/* Right panel: candidates */
+.candidates-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.card-info {
+  padding: 12px 16px;
+  background: #16213e;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  border: 1px solid #0f3460;
+}
+.card-info h3 { color: #e94560; margin-bottom: 4px; }
+.card-info .meta { font-size: 0.85rem; color: #888; }
+
+.candidates-list {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.candidate-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: #16213e;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.candidate-row:hover { background: #1a1a3e; border-color: #0f3460; }
+.candidate-row.selected { border-color: #e94560; background: #1a1a3e; }
+
+.candidate-row .set-icon {
+  font-size: 1.3rem;
+  width: 28px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.candidate-row .card-details { flex: 1; min-width: 0; }
+.candidate-row .card-name {
+  font-weight: 600;
+  font-size: 0.9rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.candidate-row .card-set {
+  font-size: 0.8rem;
+  color: #888;
+}
+.candidate-row .card-cn {
+  font-size: 0.8rem;
+  color: #666;
+  flex-shrink: 0;
+}
+.candidate-row .card-rarity {
+  font-size: 0.8rem;
+  flex-shrink: 0;
+  text-transform: capitalize;
+}
+.candidate-row .card-img-small {
+  width: 40px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+/* Rarity colors */
+.rarity-common { color: #b0b0b0; }
+.rarity-uncommon { color: #c0c0c0; }
+.rarity-rare { color: #e8c547; }
+.rarity-mythic { color: #e94560; }
+
+.disambig-actions {
+  display: flex;
+  gap: 10px;
+  padding: 12px 0;
+  align-items: center;
+}
+.disambig-actions .progress {
+  margin-left: auto;
+  font-size: 0.85rem;
+  color: #888;
+}
+
+.finish-select {
+  padding: 6px 10px;
+  border: 1px solid #0f3460;
+  border-radius: 6px;
+  background: #1a1a2e;
+  color: #e0e0e0;
+  font-size: 0.85rem;
+}
+
+/* ── Done Screen ── */
+#done-view {
+  display: none;
+  text-align: center;
+  padding: 80px 40px;
+}
+#done-view h2 { color: #4caf50; margin-bottom: 12px; }
+#done-view p { color: #888; margin-bottom: 24px; }
+
+/* Spinner */
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid #555;
+  border-top-color: #e94560;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  vertical-align: middle;
+  margin-right: 6px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Ingestor</h1>
+  <a href="/">Home</a>
+  <div id="status-bar"></div>
+</header>
+
+<!-- Pill Progress Bar -->
+<div id="pill-bar">
+  <span class="filename" id="pill-filename"></span>
+  <span class="pill" id="pill-image">Image 0 / 0</span>
+  <span class="pill" id="pill-step">Ready</span>
+  <span class="pill" id="pill-card">Card 0 / 0</span>
+</div>
+
+<!-- Phase 1: Upload -->
+<div id="upload-phase">
+  <div id="drop-zone">
+    <h2>Drop card photos here</h2>
+    <p>or click to select files (JPG, PNG, WebP)</p>
+    <input type="file" id="file-input" multiple accept="image/jpeg,image/png,image/webp" style="display:none">
+  </div>
+  <div id="image-list"></div>
+  <div id="process-controls">
+    <button id="process-all-btn">Process All</button>
+  </div>
+</div>
+
+<!-- Processing Log -->
+<div id="processing-log"></div>
+
+<!-- Phase 2: Disambiguation -->
+<div id="disambig-view">
+  <div class="disambig-layout">
+    <div class="crop-panel" id="crop-panel">
+      <img id="crop-img" src="">
+    </div>
+    <div class="candidates-panel">
+      <div class="card-info" id="card-info">
+        <h3 id="card-info-name">&mdash;</h3>
+        <div class="meta" id="card-info-meta"></div>
+      </div>
+      <div class="candidates-list" id="candidates-list"></div>
+      <div class="disambig-actions">
+        <button id="confirm-btn" disabled>Confirm</button>
+        <select class="finish-select" id="finish-select">
+          <option value="nonfoil">Nonfoil</option>
+          <option value="foil">Foil</option>
+          <option value="etched">Etched</option>
+        </select>
+        <button id="skip-btn" class="secondary">Skip</button>
+        <div class="progress" id="progress-text"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Phase 3: Done -->
+<div id="done-view">
+  <h2>All done!</h2>
+  <p id="done-summary"></p>
+  <button onclick="location.reload()">Start New Session</button>
+  <a href="/collection" style="margin-left: 12px; color: #e94560;">View Collection</a>
+</div>
+
+<script>
+const state = {
+  sessionId: null,
+  images: [],
+  processing: false,
+  confirmedCount: 0,
+  skippedCount: 0,
+};
+
+let selectedCandidate = null;
+
+// ── Session Management ──
+
+async function createSession() {
+  const resp = await fetch('/api/ingest/session', { method: 'POST' });
+  const data = await resp.json();
+  state.sessionId = data.session_id;
+}
+
+// ── File Upload ──
+
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+const imageList = document.getElementById('image-list');
+const processControls = document.getElementById('process-controls');
+
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('dragover');
+  handleFiles(e.dataTransfer.files);
+});
+fileInput.addEventListener('change', () => handleFiles(fileInput.files));
+
+async function handleFiles(fileList) {
+  if (!state.sessionId) await createSession();
+
+  const formData = new FormData();
+  formData.append('session_id', state.sessionId);
+  for (const f of fileList) {
+    formData.append('files', f);
+  }
+
+  const resp = await fetch('/api/ingest/upload', { method: 'POST', body: formData });
+  const data = await resp.json();
+
+  for (const uploaded of data.uploaded) {
+    const img = {
+      filename: uploaded.filename,
+      storedName: uploaded.stored_name,
+      index: uploaded.index,
+      cardCount: 1,
+      forceIngest: false,
+      processed: false,
+    };
+    state.images.push(img);
+    renderImageRow(img);
+  }
+
+  processControls.style.display = 'block';
+}
+
+function renderImageRow(img) {
+  const row = document.createElement('div');
+  row.className = 'image-row';
+  row.id = `img-row-${img.index}`;
+  row.innerHTML = `
+    <img class="thumb" src="/api/ingest/image/${img.storedName}" alt="${img.filename}">
+    <span class="name">${img.filename}</span>
+    <label>Cards:</label>
+    <div class="count-group">
+      <button onclick="adjustCount(${img.index}, -5)">-5</button>
+      <button onclick="adjustCount(${img.index}, -1)">-1</button>
+      <span class="count-display" id="count-${img.index}">${img.cardCount}</span>
+      <button onclick="adjustCount(${img.index}, 1)">+1</button>
+      <button onclick="adjustCount(${img.index}, 5)">+5</button>
+    </div>
+    <label class="force-ingest-label">
+      <input type="checkbox" onchange="toggleForce(${img.index}, this.checked)"> Force
+    </label>
+    <span class="status-text" id="img-status-${img.index}">Ready</span>
+  `;
+  imageList.appendChild(row);
+}
+
+function adjustCount(index, delta) {
+  const img = state.images.find(i => i.index === index);
+  if (!img) return;
+  img.cardCount = Math.max(1, Math.min(20, img.cardCount + delta));
+  document.getElementById(`count-${index}`).textContent = img.cardCount;
+  syncCount(index);
+}
+
+function toggleForce(index, checked) {
+  const img = state.images.find(i => i.index === index);
+  if (img) img.forceIngest = checked;
+}
+
+async function syncCount(index) {
+  const img = state.images.find(i => i.index === index);
+  if (!img) return;
+  await fetch('/api/ingest/set-count', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      session_id: state.sessionId,
+      image_idx: index,
+      card_count: img.cardCount,
+      force_ingest: img.forceIngest,
+    }),
+  });
+}
+
+// ── Processing (SSE) ──
+
+document.getElementById('process-all-btn').addEventListener('click', processAll);
+
+async function processAll() {
+  if (state.processing) return;
+  state.processing = true;
+  document.getElementById('process-all-btn').disabled = true;
+
+  const log = document.getElementById('processing-log');
+  log.style.display = 'block';
+  log.innerHTML = '';
+
+  const pillBar = document.getElementById('pill-bar');
+  pillBar.style.display = 'flex';
+
+  // Sync all counts first
+  for (const img of state.images) {
+    await syncCount(img.index);
+  }
+
+  for (let i = 0; i < state.images.length; i++) {
+    const img = state.images[i];
+    if (img.processed) continue;
+
+    const statusEl = document.getElementById(`img-status-${img.index}`);
+    statusEl.innerHTML = '<span class="spinner"></span> Processing...';
+
+    // Update pills
+    document.getElementById('pill-filename').textContent = img.filename;
+    const pillImage = document.getElementById('pill-image');
+    pillImage.textContent = `Image ${i + 1} / ${state.images.length}`;
+    pillImage.className = 'pill active';
+    document.getElementById('pill-step').textContent = 'Starting...';
+    document.getElementById('pill-step').className = 'pill active';
+
+    appendLog(`Processing ${img.filename}...`, 'running');
+
+    await processImageSSE(img);
+
+    img.processed = true;
+    statusEl.textContent = 'Done';
+    statusEl.style.color = '#4caf50';
+    pillImage.className = 'pill done';
+  }
+
+  state.processing = false;
+  document.getElementById('pill-step').textContent = 'Complete';
+  document.getElementById('pill-step').className = 'pill done';
+  appendLog('All images processed. Starting disambiguation...', 'done');
+
+  setTimeout(() => showDisambiguation(), 500);
+}
+
+function processImageSSE(img) {
+  return new Promise((resolve) => {
+    const force = img.forceIngest ? '1' : '0';
+    const url = `/api/ingest/process/${state.sessionId}/${img.index}?force=${force}`;
+    const es = new EventSource(url);
+    const pillStep = document.getElementById('pill-step');
+
+    es.addEventListener('status', (e) => {
+      const data = JSON.parse(e.data);
+      pillStep.textContent = data.message;
+      pillStep.className = 'pill active';
+    });
+
+    es.addEventListener('cached', (e) => {
+      const data = JSON.parse(e.data);
+      appendLog(`  Cache hit: ${data.step}`, 'cached');
+      pillStep.textContent = `Cached: ${data.step}`;
+    });
+
+    es.addEventListener('ocr_complete', (e) => {
+      const data = JSON.parse(e.data);
+      appendLog(`  OCR: ${data.fragment_count} text fragments`, 'done');
+    });
+
+    es.addEventListener('claude_complete', (e) => {
+      const data = JSON.parse(e.data);
+      let msg = `  Claude: ${data.card_count} card(s)`;
+      if (data.tokens && data.tokens.in) {
+        msg += ` (${data.tokens.in} in / ${data.tokens.out} out tokens)`;
+      }
+      appendLog(msg, 'done');
+    });
+
+    es.addEventListener('matches_ready', (e) => {
+      const data = JSON.parse(e.data);
+      const totalCandidates = data.cards.reduce((sum, c) => sum + c.candidates.length, 0);
+      appendLog(`  Scryfall: ${data.cards.length} card(s), ${totalCandidates} total candidates`, 'done');
+      const alreadyCount = data.cards.filter(c => c.already_ingested).length;
+      if (alreadyCount > 0) {
+        appendLog(`  ${alreadyCount} card(s) already ingested (auto-skipped)`, 'cached');
+      }
+    });
+
+    es.addEventListener('error', (e) => {
+      if (e.data) {
+        const data = JSON.parse(e.data);
+        appendLog(`  Error: ${data.message}`, 'error');
+      }
+    });
+
+    es.addEventListener('done', () => {
+      es.close();
+      resolve();
+    });
+
+    // EventSource error (connection issue)
+    es.onerror = () => {
+      es.close();
+      resolve();
+    };
+  });
+}
+
+function appendLog(text, cls) {
+  const log = document.getElementById('processing-log');
+  const line = document.createElement('div');
+  line.className = `log-line ${cls || ''}`;
+  line.textContent = text;
+  log.appendChild(line);
+  log.scrollTop = log.scrollHeight;
+}
+
+// ── Disambiguation ──
+
+async function showDisambiguation() {
+  document.getElementById('upload-phase').style.display = 'none';
+  document.getElementById('disambig-view').style.display = 'block';
+  await loadNextCard();
+}
+
+async function loadNextCard() {
+  const resp = await fetch('/api/ingest/next-card', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: state.sessionId }),
+  });
+  const data = await resp.json();
+
+  if (data.done) {
+    showDone();
+    return;
+  }
+
+  selectedCandidate = null;
+  document.getElementById('confirm-btn').disabled = true;
+
+  // Card info
+  const card = data.card;
+  document.getElementById('card-info-name').textContent = card.name || '(Unknown name)';
+  const metaParts = [];
+  if (card.type) metaParts.push(card.type);
+  if (card.set_code) metaParts.push(`Set: ${card.set_code.toUpperCase()}`);
+  if (card.collector_number) metaParts.push(`#${card.collector_number}`);
+  if (card.artist) metaParts.push(`Art: ${card.artist}`);
+  document.getElementById('card-info-meta').textContent = metaParts.join(' | ');
+
+  // Progress pills
+  document.getElementById('pill-card').textContent =
+    `Card ${data.total_done + 1} of ${data.total_cards}`;
+  document.getElementById('pill-card').className = 'pill active';
+  document.getElementById('progress-text').textContent =
+    `${data.total_done + 1} of ${data.total_cards}`;
+
+  // Load image and set crop
+  const img = state.images.find(i => i.index === data.image_idx);
+  if (img) {
+    document.getElementById('pill-filename').textContent = img.filename;
+  }
+  setupCropView(data.image_filename, data.crop);
+
+  // Render candidates
+  renderCandidates(data.candidates, data.image_idx, data.card_idx);
+
+  // Store current card context
+  state.currentImageIdx = data.image_idx;
+  state.currentCardIdx = data.card_idx;
+}
+
+function setupCropView(imageFilename, crop) {
+  const panel = document.getElementById('crop-panel');
+  const img = document.getElementById('crop-img');
+
+  function applyCrop() {
+    requestAnimationFrame(() => {
+      const panelW = panel.clientWidth;
+      const panelH = panel.clientHeight;
+      if (panelW === 0 || panelH === 0) {
+        requestAnimationFrame(applyCrop);
+        return;
+      }
+
+      if (crop && crop.w > 0 && crop.h > 0) {
+        const scaleX = panelW / crop.w;
+        const scaleY = panelH / crop.h;
+        const scale = Math.min(scaleX, scaleY) * 0.9;
+
+        const offsetX = (panelW / 2) - (crop.x + crop.w / 2) * scale;
+        const offsetY = (panelH / 2) - (crop.y + crop.h / 2) * scale;
+
+        img.style.transform = `translate(${offsetX}px, ${offsetY}px) scale(${scale})`;
+        img._scale = scale;
+        img._tx = offsetX;
+        img._ty = offsetY;
+      } else {
+        const scale = Math.min(panelW / img.naturalWidth, panelH / img.naturalHeight);
+        img.style.transform = `scale(${scale})`;
+        img._scale = scale;
+        img._tx = 0;
+        img._ty = 0;
+      }
+    });
+  }
+
+  const newSrc = `/api/ingest/image/${imageFilename}`;
+  if (img.src.endsWith(imageFilename) && img.complete) {
+    applyCrop();
+  } else {
+    img.src = newSrc;
+    img.onload = applyCrop;
+  }
+
+  // Pan/zoom handlers
+  let dragging = false, lastX, lastY;
+
+  panel.onmousedown = e => {
+    dragging = true;
+    lastX = e.clientX;
+    lastY = e.clientY;
+    e.preventDefault();
+  };
+
+  panel.onmousemove = e => {
+    if (!dragging) return;
+    const dx = e.clientX - lastX;
+    const dy = e.clientY - lastY;
+    lastX = e.clientX;
+    lastY = e.clientY;
+    img._tx += dx;
+    img._ty += dy;
+    img.style.transform = `translate(${img._tx}px, ${img._ty}px) scale(${img._scale})`;
+  };
+
+  panel.onmouseup = () => dragging = false;
+  panel.onmouseleave = () => dragging = false;
+
+  panel.onwheel = e => {
+    e.preventDefault();
+    const rect = panel.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    const oldScale = img._scale || 1;
+    const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+    const newScale = oldScale * factor;
+
+    img._tx = mouseX - (mouseX - img._tx) * (newScale / oldScale);
+    img._ty = mouseY - (mouseY - img._ty) * (newScale / oldScale);
+    img._scale = newScale;
+
+    img.style.transform = `translate(${img._tx}px, ${img._ty}px) scale(${img._scale})`;
+  };
+}
+
+function renderCandidates(candidates, imageIdx, cardIdx) {
+  const list = document.getElementById('candidates-list');
+  list.innerHTML = '';
+
+  if (!candidates.length) {
+    list.innerHTML = '<div style="padding:20px;color:#888;text-align:center;">No candidates found</div>';
+    return;
+  }
+
+  for (const c of candidates) {
+    const row = document.createElement('div');
+    row.className = 'candidate-row';
+    row.dataset.scryfallId = c.scryfall_id;
+
+    const rarityClass = `rarity-${c.rarity}`;
+    const setCode = (c.set_code || '').toLowerCase();
+
+    const rarityKeyrune = c.rarity === 'mythic' ? 'ss-mythic' :
+                          c.rarity === 'rare' ? 'ss-rare' :
+                          c.rarity === 'uncommon' ? 'ss-uncommon' :
+                          'ss-common';
+
+    const badges = [];
+    if (c.foil) badges.push('<span style="color:#f0c040;font-size:0.75rem;">FOIL</span>');
+    if (c.promo) badges.push('<span style="color:#9c27b0;font-size:0.75rem;">PROMO</span>');
+    if (c.full_art) badges.push('<span style="color:#2196f3;font-size:0.75rem;">FULL ART</span>');
+    if (c.border_color === 'borderless') badges.push('<span style="color:#4caf50;font-size:0.75rem;">BORDERLESS</span>');
+    if ((c.frame_effects || []).includes('extendedart')) badges.push('<span style="color:#ff9800;font-size:0.75rem;">EXT ART</span>');
+
+    row.innerHTML = `
+      <i class="ss ss-${setCode} ${rarityKeyrune} set-icon"></i>
+      <div class="card-details">
+        <div class="card-name">${c.name}</div>
+        <div class="card-set">${c.set_name} (${c.set_code.toUpperCase()}) ${badges.join(' ')}</div>
+      </div>
+      <span class="card-cn">#${c.collector_number}</span>
+      <span class="card-rarity ${rarityClass}">${c.rarity}</span>
+      ${c.image_uri ? `<img class="card-img-small" src="${c.image_uri}" loading="lazy">` : ''}
+    `;
+
+    row.addEventListener('click', () => selectCandidate(row, c));
+    list.appendChild(row);
+  }
+}
+
+function selectCandidate(row, candidate) {
+  document.querySelectorAll('.candidate-row').forEach(r => r.classList.remove('selected'));
+  row.classList.add('selected');
+  selectedCandidate = candidate;
+  document.getElementById('confirm-btn').disabled = false;
+
+  const finishSelect = document.getElementById('finish-select');
+  if (candidate.foil && !(candidate.finishes || []).includes('nonfoil')) {
+    finishSelect.value = 'foil';
+  } else {
+    finishSelect.value = 'nonfoil';
+  }
+}
+
+// Confirm button
+document.getElementById('confirm-btn').addEventListener('click', async () => {
+  if (!selectedCandidate) return;
+
+  const finish = document.getElementById('finish-select').value;
+
+  const resp = await fetch('/api/ingest/confirm', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      session_id: state.sessionId,
+      image_idx: state.currentImageIdx,
+      card_idx: state.currentCardIdx,
+      scryfall_id: selectedCandidate.scryfall_id,
+      finish: finish,
+    }),
+  });
+  const data = await resp.json();
+
+  if (data.ok) {
+    state.confirmedCount++;
+    appendLog(`Confirmed: ${data.name} (${data.set_code.toUpperCase()} #${data.collector_number}) [ID: ${data.entry_id}]`, 'done');
+    await loadNextCard();
+  }
+});
+
+// Skip button
+document.getElementById('skip-btn').addEventListener('click', async () => {
+  await fetch('/api/ingest/skip', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      session_id: state.sessionId,
+      image_idx: state.currentImageIdx,
+      card_idx: state.currentCardIdx,
+    }),
+  });
+  state.skippedCount++;
+  appendLog(`Skipped card ${state.currentCardIdx + 1}`, '');
+  await loadNextCard();
+});
+
+function showDone() {
+  document.getElementById('disambig-view').style.display = 'none';
+  document.getElementById('done-view').style.display = 'block';
+  document.getElementById('pill-card').textContent = 'Done';
+  document.getElementById('pill-card').className = 'pill done';
+  document.getElementById('done-summary').textContent =
+    `Confirmed ${state.confirmedCount} card(s), skipped ${state.skippedCount}.`;
+}
+
+// ── Init ──
+createSession();
+</script>
+</body>
+</html>

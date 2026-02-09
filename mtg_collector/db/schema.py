@@ -3,7 +3,7 @@
 import sqlite3
 from typing import Optional
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 SCHEMA_SQL = """
 -- Abstract cards (oracle-level, cached from Scryfall)
@@ -66,6 +66,29 @@ CREATE TABLE IF NOT EXISTS collection (
     signed INTEGER DEFAULT 0,
     misprint INTEGER DEFAULT 0
 );
+
+-- Ingest cache: OCR + Claude results by image MD5
+CREATE TABLE IF NOT EXISTS ingest_cache (
+    image_md5 TEXT PRIMARY KEY,
+    image_path TEXT NOT NULL,
+    card_count INTEGER NOT NULL,
+    ocr_result TEXT NOT NULL,       -- JSON array of {text, bbox, confidence}
+    claude_result TEXT,             -- JSON array of card dicts from Claude
+    created_at TEXT NOT NULL
+);
+
+-- Ingest lineage: track which card came from which image
+CREATE TABLE IF NOT EXISTS ingest_lineage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    collection_id INTEGER NOT NULL REFERENCES collection(id),
+    image_md5 TEXT NOT NULL,
+    image_path TEXT NOT NULL,
+    card_index INTEGER NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_lineage_md5 ON ingest_lineage(image_md5);
+CREATE INDEX IF NOT EXISTS idx_lineage_collection ON ingest_lineage(collection_id);
 
 -- Schema version tracking
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -159,6 +182,8 @@ def init_db(conn: sqlite3.Connection, force: bool = False) -> bool:
             _migrate_v3_to_v4(conn)
         if current < 5:
             _migrate_v4_to_v5(conn)
+        if current < 6:
+            _migrate_v5_to_v6(conn)
 
     # Record schema version
     conn.execute(
@@ -236,10 +261,38 @@ def _migrate_v4_to_v5(conn: sqlite3.Connection):
     """)
 
 
+def _migrate_v5_to_v6(conn: sqlite3.Connection):
+    """Add ingest_cache and ingest_lineage tables."""
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS ingest_cache (
+            image_md5 TEXT PRIMARY KEY,
+            image_path TEXT NOT NULL,
+            card_count INTEGER NOT NULL,
+            ocr_result TEXT NOT NULL,
+            claude_result TEXT,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS ingest_lineage (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            collection_id INTEGER NOT NULL REFERENCES collection(id),
+            image_md5 TEXT NOT NULL,
+            image_path TEXT NOT NULL,
+            card_index INTEGER NOT NULL,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_lineage_md5 ON ingest_lineage(image_md5);
+        CREATE INDEX IF NOT EXISTS idx_lineage_collection ON ingest_lineage(collection_id);
+    """)
+
+
 def drop_all_tables(conn: sqlite3.Connection):
     """Drop all tables (for testing/reset)."""
     conn.executescript("""
         DROP VIEW IF EXISTS collection_view;
+        DROP TABLE IF EXISTS ingest_lineage;
+        DROP TABLE IF EXISTS ingest_cache;
         DROP TABLE IF EXISTS collection;
         DROP TABLE IF EXISTS printings;
         DROP TABLE IF EXISTS cards;
