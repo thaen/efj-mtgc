@@ -292,14 +292,8 @@ button.secondary:hover { background: #444; }
 .candidate-row.selected { border-color: #e94560; background: #1a1a3e; }
 
 .candidate-row .set-icon {
-  font-size: 1rem;
-  width: 26px;
-  height: 26px;
-  line-height: 26px;
-  text-align: center;
+  font-size: 1.1rem;
   flex-shrink: 0;
-  background: #efefef;
-  border-radius: 5px;
 }
 .candidate-row .card-name {
   font-weight: 600;
@@ -833,16 +827,11 @@ function renderCandidates(candidates, imageIdx, cardIdx) {
     row.dataset.scryfallId = c.scryfall_id;
 
     const setCode = (c.set_code || '').toLowerCase();
-
-    const rarityKeyrune = c.rarity === 'mythic' ? 'ss-mythic' :
-                          c.rarity === 'rare' ? 'ss-rare' :
-                          c.rarity === 'uncommon' ? 'ss-uncommon' :
-                          'ss-common';
-
+    const rarityClass = `ss-${c.rarity || 'common'}`;
     const priceHtml = c.price ? `<span class="card-price">$${c.price}</span>` : '';
 
     row.innerHTML = `
-      <i class="ss ss-${setCode} ${rarityKeyrune} set-icon"></i>
+      <i class="ss ss-${setCode} ${rarityClass} ss-grad ss-fw set-icon"></i>
       <span class="card-name">${c.name}</span>
       <span class="card-set-name">${c.set_name}</span>
       ${priceHtml}

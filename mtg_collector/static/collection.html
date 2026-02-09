@@ -193,6 +193,15 @@ button.secondary.active { background: #0f3460; border-color: #e94560; }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  line-height: 1.3;
+}
+.type-sub {
+  display: block;
+  font-size: 0.8em;
+  color: #777;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .mana-cost { white-space: nowrap; }
@@ -203,11 +212,23 @@ button.secondary.active { background: #0f3460; border-color: #e94560; }
 .card-face + .card-face { margin-top: 2px; }
 
 .set-cell { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
-.set-cell .ss { font-size: 1.1em; }
+.set-cell .ss {
+  font-size: 1.3em;
+  width: 26px;
+  height: 26px;
+  line-height: 26px;
+  text-align: center;
+  background: #efefef;
+  border-radius: 5px;
+}
 
 .price-cell {
   display: flex;
   gap: 4px;
+}
+.price-cell .badge {
+  font-size: 0.75rem;
+  padding: 2px 6px;
 }
 
 /* Card grid */
@@ -310,9 +331,9 @@ button.secondary.active { background: #0f3460; border-color: #e94560; }
   text-transform: uppercase;
 }
 
-.badge.treatment { background: #0f3460; color: #7ec8e3; }
-a.badge.link { background: #333; color: #aaa; text-decoration: none; font-variant-numeric: tabular-nums; }
-a.badge.link:hover { color: #fff; background: #555; }
+.badge.treatment { background: linear-gradient(135deg, #0f2a3e, #0f3460); border: 1px solid #1a5276; color: #7ec8e3; }
+a.badge.link { background: #333; border: 1px solid #555; color: #aaa; text-decoration: none; font-variant-numeric: tabular-nums; }
+a.badge.link:hover { color: #fff; background: #555; border-color: #777; }
 
 .foil-tag, .treat-tag, .promo-tag {
   display: inline-block;
@@ -525,6 +546,20 @@ function showZoom(imgSrc) {
   zoomOverlay.classList.add('active');
 }
 
+// --- Price badges (for table price column) ---
+function buildPriceBadges(card) {
+  let html = '';
+  if (card.scryfall_id) {
+    const sfPrice = card.tcg_price ? ` $${parseFloat(card.tcg_price).toFixed(2)}` : '';
+    html += `<a class="badge link" href="https://scryfall.com/card/${card.set_code.toLowerCase()}/${card.collector_number}" target="_blank" rel="noopener" onclick="event.stopPropagation()">SF${sfPrice}</a>`;
+  }
+  if (card.ck_url) {
+    const ckPrice = card.ck_price ? ` $${parseFloat(card.ck_price).toFixed(2)}` : '';
+    html += `<a class="badge link" href="${card.ck_url}" target="_blank" rel="noopener" onclick="event.stopPropagation()">CK${ckPrice}</a>`;
+  }
+  return html;
+}
+
 // --- Badge builder (from crack_pack patterns) ---
 function buildCardBadges(card) {
   let html = '';
@@ -699,7 +734,7 @@ function renderTable() {
       nameHtml = `<span class="card-name">${card.name}</span>`;
       manaHtml = renderMana(rawMana);
     }
-    const price = card.tcg_price ? `$${parseFloat(card.tcg_price).toFixed(2)}` : '';
+    const priceBadges = buildPriceBadges(card);
     const condAbbrev = CONDITION_ABBREV[card.condition] || card.condition;
     const setCode = card.set_code.toLowerCase();
     const rarityClass = `ss-${card.rarity || 'common'}`;
@@ -711,13 +746,15 @@ function renderTable() {
     html += `<td>${card.qty}</td>`;
     html += `<td><div class="card-cell">${imgSrc ? `<img class="card-thumb" src="${imgSrc}" loading="lazy">` : ''}<span>${nameHtml}${tags}</span></div></td>`;
     const fullType = card.type_line || '';
-    const shortType = fullType.replace(/Legendary /g, 'Lgd. ');
-    html += `<td class="type-cell" title="${fullType}">${shortType}</td>`;
+    const typeParts = fullType.split(' — ');
+    const mainType = typeParts[0].replace(/Legendary /g, 'Lgdry. ');
+    const subType = typeParts[1] || '';
+    html += `<td class="type-cell" title="${fullType}">${mainType}${subType ? `<span class="type-sub">${subType}</span>` : ''}</td>`;
     html += `<td class="mana-cost">${manaHtml}</td>`;
     html += `<td title="${setName}"><div class="set-cell">${setIcon} ${card.set_code.toUpperCase()}</div></td>`;
     html += `<td>${(card.collector_number || '').padStart(4, '0')}</td>`;
     html += `<td>${condAbbrev}</td>`;
-    html += `<td>${price}</td>`;
+    html += `<td class="price-cell">${priceBadges}</td>`;
     html += '</tr>';
   }
 
