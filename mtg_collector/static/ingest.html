@@ -260,15 +260,30 @@ button.secondary:hover { background: #444; }
   overflow-y: auto;
 }
 
+.disambig-actions {
+  display: flex;
+  gap: 10px;
+  padding: 8px 0 10px;
+  align-items: center;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.disambig-actions .progress {
+  margin-left: auto;
+  font-size: 0.85rem;
+  color: #888;
+}
+
 .candidate-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
+  gap: 8px;
+  padding: 4px 8px;
   background: #16213e;
   border: 2px solid transparent;
-  border-radius: 8px;
-  margin-bottom: 6px;
+  border-radius: 6px;
+  margin-bottom: 3px;
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
 }
@@ -276,57 +291,49 @@ button.secondary:hover { background: #444; }
 .candidate-row.selected { border-color: #e94560; background: #1a1a3e; }
 
 .candidate-row .set-icon {
-  font-size: 1.3rem;
-  width: 28px;
+  font-size: 1rem;
+  width: 26px;
+  height: 26px;
+  line-height: 26px;
   text-align: center;
   flex-shrink: 0;
+  background: #efefef;
+  border-radius: 5px;
 }
-.candidate-row .card-details { flex: 1; min-width: 0; }
 .candidate-row .card-name {
   font-weight: 600;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
 }
-.candidate-row .card-set {
-  font-size: 0.8rem;
+.candidate-row .card-set-name {
+  font-size: 0.75rem;
   color: #888;
-}
-.candidate-row .card-cn {
-  font-size: 0.8rem;
-  color: #666;
+  white-space: nowrap;
   flex-shrink: 0;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.candidate-row .card-rarity {
-  font-size: 0.8rem;
+.candidate-row .card-price {
+  font-size: 0.7rem;
+  color: #4caf50;
+  background: rgba(76, 175, 80, 0.12);
+  padding: 2px 6px;
+  border-radius: 4px;
   flex-shrink: 0;
-  text-transform: capitalize;
+  white-space: nowrap;
 }
-.candidate-row .card-img-small {
-  width: 40px;
-  height: 56px;
+.candidate-row .card-img-crop {
+  width: 140px;
+  height: 62px;
   object-fit: cover;
-  border-radius: 3px;
+  object-position: top center;
+  border-radius: 4px;
   flex-shrink: 0;
-}
-
-/* Rarity colors */
-.rarity-common { color: #b0b0b0; }
-.rarity-uncommon { color: #c0c0c0; }
-.rarity-rare { color: #e8c547; }
-.rarity-mythic { color: #e94560; }
-
-.disambig-actions {
-  display: flex;
-  gap: 10px;
-  padding: 12px 0;
-  align-items: center;
-}
-.disambig-actions .progress {
-  margin-left: auto;
-  font-size: 0.85rem;
-  color: #888;
 }
 
 .finish-select {
@@ -405,7 +412,6 @@ button.secondary:hover { background: #444; }
         <h3 id="card-info-name">&mdash;</h3>
         <div class="meta" id="card-info-meta"></div>
       </div>
-      <div class="candidates-list" id="candidates-list"></div>
       <div class="disambig-actions">
         <button id="confirm-btn" disabled>Confirm</button>
         <select class="finish-select" id="finish-select">
@@ -416,6 +422,7 @@ button.secondary:hover { background: #444; }
         <button id="skip-btn" class="secondary">Skip</button>
         <div class="progress" id="progress-text"></div>
       </div>
+      <div class="candidates-list" id="candidates-list"></div>
     </div>
   </div>
 </div>
@@ -824,7 +831,6 @@ function renderCandidates(candidates, imageIdx, cardIdx) {
     row.className = 'candidate-row';
     row.dataset.scryfallId = c.scryfall_id;
 
-    const rarityClass = `rarity-${c.rarity}`;
     const setCode = (c.set_code || '').toLowerCase();
 
     const rarityKeyrune = c.rarity === 'mythic' ? 'ss-mythic' :
@@ -832,22 +838,14 @@ function renderCandidates(candidates, imageIdx, cardIdx) {
                           c.rarity === 'uncommon' ? 'ss-uncommon' :
                           'ss-common';
 
-    const badges = [];
-    if (c.foil) badges.push('<span style="color:#f0c040;font-size:0.75rem;">FOIL</span>');
-    if (c.promo) badges.push('<span style="color:#9c27b0;font-size:0.75rem;">PROMO</span>');
-    if (c.full_art) badges.push('<span style="color:#2196f3;font-size:0.75rem;">FULL ART</span>');
-    if (c.border_color === 'borderless') badges.push('<span style="color:#4caf50;font-size:0.75rem;">BORDERLESS</span>');
-    if ((c.frame_effects || []).includes('extendedart')) badges.push('<span style="color:#ff9800;font-size:0.75rem;">EXT ART</span>');
+    const priceHtml = c.price ? `<span class="card-price">$${c.price}</span>` : '';
 
     row.innerHTML = `
       <i class="ss ss-${setCode} ${rarityKeyrune} set-icon"></i>
-      <div class="card-details">
-        <div class="card-name">${c.name}</div>
-        <div class="card-set">${c.set_name} (${c.set_code.toUpperCase()}) ${badges.join(' ')}</div>
-      </div>
-      <span class="card-cn">#${c.collector_number}</span>
-      <span class="card-rarity ${rarityClass}">${c.rarity}</span>
-      ${c.image_uri ? `<img class="card-img-small" src="${c.image_uri}" loading="lazy">` : ''}
+      <span class="card-name">${c.name}</span>
+      <span class="card-set-name">${c.set_name}</span>
+      ${priceHtml}
+      ${c.image_uri ? `<img class="card-img-crop" src="${c.image_uri}" loading="lazy">` : ''}
     `;
 
     row.addEventListener('click', () => selectCandidate(row, c));

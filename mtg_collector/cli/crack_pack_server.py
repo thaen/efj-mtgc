@@ -803,7 +803,7 @@ class CrackPackHandler(BaseHTTPRequestHandler):
 
             # Format candidates for client
             formatted = []
-            for c in candidates[:20]:  # Limit to 20
+            for c in candidates[:50]:  # Limit to 50
                 image_uri = None
                 if "image_uris" in c:
                     image_uri = c["image_uris"].get("small") or c["image_uris"].get("normal")
@@ -811,6 +811,9 @@ class CrackPackHandler(BaseHTTPRequestHandler):
                     face = c["card_faces"][0]
                     if "image_uris" in face:
                         image_uri = face["image_uris"].get("small") or face["image_uris"].get("normal")
+
+                prices = c.get("prices", {})
+                price = prices.get("usd") or prices.get("usd_foil")
 
                 formatted.append({
                     "scryfall_id": c["id"],
@@ -826,6 +829,7 @@ class CrackPackHandler(BaseHTTPRequestHandler):
                     "full_art": c.get("full_art", False),
                     "border_color": c.get("border_color", ""),
                     "frame_effects": c.get("frame_effects", []),
+                    "price": price,
                 })
 
             all_matches.append(formatted)
