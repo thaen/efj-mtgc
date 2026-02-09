@@ -341,6 +341,40 @@ button.secondary:hover { background: #444; }
   flex-shrink: 0;
   white-space: nowrap;
 }
+/* Grid mode for many candidates (>20) */
+.candidates-list.grid-mode {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+}
+.candidates-list.grid-mode .candidate-row {
+  flex-direction: column;
+  padding: 4px;
+  gap: 4px;
+  align-items: center;
+}
+.candidates-list.grid-mode .candidate-row .set-icon {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  z-index: 1;
+  font-size: 1.6rem;
+  width: 36px;
+  height: 36px;
+  line-height: 36px;
+  border: 2px solid #0f3460;
+}
+.candidates-list.grid-mode .candidate-row {
+  position: relative;
+}
+.candidates-list.grid-mode .card-img-grid {
+  width: 100%;
+  aspect-ratio: 63 / 44;
+  object-fit: cover;
+  object-position: top center;
+  border-radius: 4px;
+}
+
 .candidate-row .card-img-crop {
   width: 140px;
   height: 62px;
@@ -844,6 +878,9 @@ function renderCandidates(candidates, imageIdx, cardIdx) {
     return;
   }
 
+  const gridMode = candidates.length > 20;
+  list.className = 'candidates-list' + (gridMode ? ' grid-mode' : '');
+
   for (const c of candidates) {
     const row = document.createElement('div');
     row.className = 'candidate-row';
@@ -851,15 +888,23 @@ function renderCandidates(candidates, imageIdx, cardIdx) {
 
     const setCode = (c.set_code || '').toLowerCase();
     const rarityClass = `ss-${c.rarity || 'common'}`;
-    const priceHtml = c.price ? `<span class="card-price">$${c.price}</span>` : '';
 
-    row.innerHTML = `
-      <i class="ss ss-${setCode} ${rarityClass} ss-grad ss-fw set-icon"></i>
-      <span class="card-name">${c.name}</span>
-      <span class="card-set-name">${c.set_name}</span>
-      ${priceHtml}
-      ${c.image_uri ? `<img class="card-img-crop" src="${c.image_uri}" loading="lazy">` : ''}
-    `;
+    if (gridMode) {
+      row.innerHTML = `
+        <i class="ss ss-${setCode} ${rarityClass} ss-grad ss-fw set-icon"></i>
+        ${c.image_uri ? `<img class="card-img-grid" src="${c.image_uri}" loading="lazy">` : `<div style="width:100%;aspect-ratio:63/88;background:#0d1117;border-radius:4px;"></div>`}
+      `;
+      row.title = `${c.name} — ${c.set_name}${c.price ? ' ($' + c.price + ')' : ''}`;
+    } else {
+      const priceHtml = c.price ? `<span class="card-price">$${c.price}</span>` : '';
+      row.innerHTML = `
+        <i class="ss ss-${setCode} ${rarityClass} ss-grad ss-fw set-icon"></i>
+        <span class="card-name">${c.name}</span>
+        <span class="card-set-name">${c.set_name}</span>
+        ${priceHtml}
+        ${c.image_uri ? `<img class="card-img-crop" src="${c.image_uri}" loading="lazy">` : ''}
+      `;
+    }
 
     row.addEventListener('click', () => selectCandidate(row, c));
     list.appendChild(row);

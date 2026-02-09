@@ -11,7 +11,10 @@ body {
   background: #1a1a2e;
   color: #e0e0e0;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  min-height: 100vh;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 header {
@@ -21,6 +24,7 @@ header {
   align-items: center;
   gap: 16px;
   flex-wrap: wrap;
+  flex-shrink: 0;
   border-bottom: 2px solid #0f3460;
 }
 
@@ -148,12 +152,16 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .main {
   display: flex;
   gap: 0;
-  min-height: calc(100vh - 64px);
+  flex: 1;
+  overflow: hidden;
 }
 
 .pack-area {
   flex: 1;
   padding: 24px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .pack-area h2 {
@@ -167,14 +175,14 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   flex-wrap: wrap;
   gap: 12px;
   align-content: flex-start;
-  height: calc(100vh - 150px);
+  flex: 1;
 }
 
 .card-slot {
   position: relative;
   cursor: pointer;
   transition: transform 0.15s, box-shadow 0.15s;
-  height: calc((100vh - 174px) / var(--pack-rows, 2));
+  height: var(--card-height);
   perspective: 800px;
 }
 
@@ -509,6 +517,24 @@ let picks = JSON.parse(localStorage.getItem('crackPackPicks') || '[]');
 let currentPack = [];
 let currentPackSeed = null;
 let currentPackSetCode = null;
+
+function fitGrid() {
+  const cardCount = packGrid.children.length;
+  if (!cardCount) return;
+  const gridWidth = packGrid.clientWidth;
+  const availHeight = packGrid.clientHeight;
+  let rows = 1;
+  for (rows = 1; rows <= cardCount; rows++) {
+    const cardH = (availHeight - (rows - 1) * 12) / rows;
+    const cardW = cardH * (488 / 680);
+    const cols = Math.floor((gridWidth + 12) / (cardW + 12));
+    if (cols * rows >= cardCount) break;
+  }
+  const cardH = (availHeight - (rows - 1) * 12) / rows;
+  packGrid.style.setProperty('--card-height', cardH + 'px');
+}
+
+window.addEventListener('resize', fitGrid);
 
 // --- Prices status ---
 
@@ -871,19 +897,6 @@ async function openPack(seed, hashRevealed) {
   const isSurprise = openModeCheckbox.checked;
   const revealedSet = hashRevealed ? new Set(hashRevealed) : null;
 
-  // Calculate rows needed so cards fit vertically
-  const cardCount = currentPack.length;
-  const gridWidth = packGrid.clientWidth;
-  const availHeight = window.innerHeight - 150;
-  let rows = 1;
-  for (rows = 1; rows <= cardCount; rows++) {
-    const cardH = (availHeight - (rows - 1) * 12) / rows;
-    const cardW = cardH * (488 / 680);
-    const cols = Math.floor((gridWidth + 12) / (cardW + 12));
-    if (cols * rows >= cardCount) break;
-  }
-  packGrid.style.setProperty('--pack-rows', rows);
-
   currentPack.forEach((card, i) => {
     card._packIndex = i;
     const div = document.createElement('div');
@@ -922,6 +935,7 @@ async function openPack(seed, hashRevealed) {
     packGrid.appendChild(div);
   });
 
+  fitGrid();
   syncPickState();
   syncRevealBtn();
   updateHash();

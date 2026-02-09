@@ -803,7 +803,7 @@ class CrackPackHandler(BaseHTTPRequestHandler):
 
             # Format candidates for client
             formatted = []
-            for c in candidates[:50]:  # Limit to 50
+            for c in candidates:
                 image_uri = None
                 if "image_uris" in c:
                     image_uri = c["image_uris"].get("small") or c["image_uris"].get("normal")
