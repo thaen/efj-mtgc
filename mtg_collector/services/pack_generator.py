@@ -21,6 +21,11 @@ class PackGenerator:
     @property
     def data(self) -> dict:
         if self._data is None:
+            if not self.mtgjson_path.exists():
+                raise FileNotFoundError(
+                    f"AllPrintings.json not found at {self.mtgjson_path}\n"
+                    f"Run 'mtg data fetch' to download it."
+                )
             with open(self.mtgjson_path) as f:
                 self._data = json.load(f)
         return self._data
