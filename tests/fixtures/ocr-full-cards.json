@@ -1,0 +1,14 @@
+{
+  "description": "7 full EOE cards laid out in a grid",
+  "set": "eoe",
+  "count": 7,
+  "cards": [
+    {"rarity": "C", "collector_number": "0092", "set": "EOE"},
+    {"rarity": "U", "collector_number": "0125", "set": "EOE"},
+    {"rarity": "U", "collector_number": "0161", "set": "EOE"},
+    {"rarity": "C", "collector_number": "0185", "set": "EOE"},
+    {"rarity": "C", "collector_number": "0187", "set": "EOE"},
+    {"rarity": "U", "collector_number": "0195", "set": "EOE"},
+    {"rarity": "R", "collector_number": "0200", "set": "EOE"}
+  ]
+}

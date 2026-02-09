@@ -38,6 +38,13 @@ def main():
         pass
 
     try:
+        from mtg_collector.cli import ingest_ocr
+        modules.append(ingest_ocr)
+    except ImportError:
+        # easyocr not installed - ingest-ocr won't be available
+        pass
+
+    try:
         from mtg_collector.cli import import_cmd
         modules.append(import_cmd)
     except ImportError:
