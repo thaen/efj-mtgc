@@ -269,6 +269,8 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             self._api_sheets(set_code, product)
         elif path == "/api/collection":
             self._api_collection(params)
+        elif path == "/api/settings":
+            self._api_get_settings()
         elif path == "/api/prices-status":
             self._api_prices_status()
         # Ingest SSE endpoint: /api/ingest/process/{session_id}/{image_idx}
@@ -317,6 +319,15 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             self._api_ingest_next_card()
         elif path == "/api/ingest/search-card":
             self._api_ingest_search_card()
+        else:
+            self._send_json({"error": "Not found"}, 404)
+
+    def do_PUT(self):
+        parsed = urlparse(self.path)
+        path = parsed.path
+
+        if path == "/api/settings":
+            self._api_put_settings()
         else:
             self._send_json({"error": "Not found"}, 404)
 
@@ -583,6 +594,33 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             self._send_json({"available": True, "last_modified": last_modified})
         else:
             self._send_json({"available": False, "last_modified": None})
+
+    def _api_get_settings(self):
+        from mtg_collector.db.schema import init_db
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        init_db(conn)
+        rows = conn.execute("SELECT key, value FROM settings").fetchall()
+        conn.close()
+        self._send_json({row["key"]: row["value"] for row in rows})
+
+    def _api_put_settings(self):
+        from mtg_collector.db.schema import init_db
+        data = self._read_json_body()
+        if data is None:
+            return
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        init_db(conn)
+        for key, value in data.items():
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                (str(key), str(value)),
+            )
+        conn.commit()
+        rows = conn.execute("SELECT key, value FROM settings").fetchall()
+        conn.close()
+        self._send_json({row["key"]: row["value"] for row in rows})
 
     def _api_fetch_prices(self):
         try:

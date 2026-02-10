@@ -441,6 +441,7 @@ button.secondary:hover { background: #444; }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 </style>
+<style id="dynamic-settings-style"></style>
 </head>
 <body>
 
@@ -524,6 +525,23 @@ const state = {
   confirmedCount: 0,
   skippedCount: 0,
 };
+
+let _settings = {};
+
+function applyIngestSettings() {
+  const style = document.getElementById('dynamic-settings-style');
+  let css = '';
+  if (_settings.image_display === 'contain') {
+    css += '.card-img-crop { object-fit: contain !important; object-position: center !important; }\n';
+    css += '.card-img-grid { object-fit: contain !important; object-position: center !important; }\n';
+  }
+  if (_settings.icon_background === 'none') {
+    css += '.candidate-row .set-icon { background: transparent !important; }\n';
+  }
+  style.textContent = css;
+}
+
+fetch('/api/settings').then(r => r.json()).then(s => { _settings = s; applyIngestSettings(); });
 
 let selectedCandidate = null;
 
@@ -1006,14 +1024,17 @@ function renderCandidates(candidates, imageIdx, cardIdx) {
     const setCode = (c.set_code || '').toLowerCase();
     const rarityClass = `ss-${c.rarity || 'common'}`;
 
+    const sources = (_settings.price_sources || 'tcg,ck').split(',');
+    const showPrice = sources.includes('tcg') && c.price;
+
     if (gridMode) {
       row.innerHTML = `
         <i class="ss ss-${setCode} ${rarityClass} ss-grad ss-fw set-icon"></i>
         ${c.image_uri ? `<img class="card-img-grid" src="${c.image_uri}" loading="lazy">` : `<div style="width:100%;aspect-ratio:63/88;background:#0d1117;border-radius:4px;"></div>`}
       `;
-      row.title = `${c.name} — ${c.set_name}${c.price ? ' ($' + c.price + ')' : ''}`;
+      row.title = `${c.name} — ${c.set_name}${showPrice ? ' ($' + c.price + ')' : ''}`;
     } else {
-      const priceHtml = c.price ? `<span class="card-price">$${c.price}</span>` : '';
+      const priceHtml = showPrice ? `<span class="card-price">$${c.price}</span>` : '';
       row.innerHTML = `
         <i class="ss ss-${setCode} ${rarityClass} ss-grad ss-fw set-icon"></i>
         <span class="card-name">${c.name}</span>
