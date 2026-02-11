@@ -449,6 +449,7 @@ class CrackPackHandler(BaseHTTPRequestHandler):
 
     _CONTENT_TYPES = {
         ".html": "text/html; charset=utf-8",
+        ".ico": "image/x-icon",
         ".jpeg": "image/jpeg",
         ".jpg": "image/jpeg",
         ".png": "image/png",

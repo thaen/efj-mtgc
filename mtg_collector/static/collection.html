@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<link rel="icon" href="/static/favicon.ico" type="image/x-icon">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Collection Browser</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/keyrune@latest/css/keyrune.min.css">
@@ -296,7 +297,7 @@ button.secondary.active { background: #0f3460; border-color: #e94560; }
 .set-cell { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 .set-cell .ss { font-size: 1.1em; }
 
-.price-cell { white-space: nowrap; color: #aaa; }
+.price-cell { white-space: nowrap; color: #aaa; font-variant-numeric: tabular-nums; }
 
 /* Card grid */
 .card-grid {
@@ -639,7 +640,7 @@ a.badge.link:hover { color: #fff; background: #555; border-color: #777; }
 <body>
 
 <header>
-  <h1>Collection</h1>
+  <h1><a href="/" style="color:inherit;text-decoration:none">Collection</a></h1>
   <div class="controls">
     <input type="text" id="search-input" placeholder="Search cards...">
     <button class="secondary" id="view-table-btn" title="Table view">Table</button>
@@ -820,8 +821,8 @@ const ALL_COLUMNS = [
   { key: 'price', label: 'Price', sort: 'price', defaultOn: true },
   { key: 'condition', label: 'Cond.', sort: 'name', defaultOn: false },
   { key: 'date_added', label: 'Added', sort: 'date_added', defaultOn: false },
-  { key: 'ck_price', label: 'CK $', sort: 'price', defaultOn: false },
-  { key: 'tcg_price', label: 'TCG $', sort: 'price', defaultOn: false },
+  { key: 'ck_price', label: 'CK $', sort: 'ck_price', defaultOn: false },
+  { key: 'tcg_price', label: 'TCG $', sort: 'tcg_price', defaultOn: false },
 ];
 
 const DEFAULT_COLS = ALL_COLUMNS.filter(c => c.defaultOn).map(c => c.key);
@@ -1146,6 +1147,7 @@ function updateViewButtons() {
   viewTableBtn.classList.toggle('active', currentView === 'table');
   viewGridBtn.classList.toggle('active', currentView === 'grid');
   gridSizeWrap.style.display = currentView === 'grid' ? '' : 'none';
+  document.querySelector('.col-config-wrap').style.display = currentView === 'table' ? '' : 'none';
 }
 updateViewButtons();
 
@@ -1201,10 +1203,16 @@ async function fetchCollection() {
   allCards = await res.json();
 
   // Client-side price sort if needed
-  if (sortColumn === 'price') {
+  if (sortColumn === 'price' || sortColumn === 'tcg_price') {
     allCards.sort((a, b) => {
       const pa = parseFloat(a.tcg_price) || 0;
       const pb = parseFloat(b.tcg_price) || 0;
+      return sortOrder === 'asc' ? pa - pb : pb - pa;
+    });
+  } else if (sortColumn === 'ck_price') {
+    allCards.sort((a, b) => {
+      const pa = parseFloat(a.ck_price) || 0;
+      const pb = parseFloat(b.ck_price) || 0;
       return sortOrder === 'asc' ? pa - pb : pb - pa;
     });
   }
@@ -1292,8 +1300,14 @@ function renderCellContent(colKey, card, helpers) {
     case 'price': return buildPriceBadges(card);
     case 'condition': return CONDITION_ABBREV[card.condition] || card.condition || '';
     case 'date_added': return formatDate(card.acquired_at);
-    case 'ck_price': return card.ck_price ? `$${parseFloat(card.ck_price).toFixed(2)}` : '';
-    case 'tcg_price': return card.tcg_price ? `$${parseFloat(card.tcg_price).toFixed(2)}` : '';
+    case 'ck_price': {
+      const p = card.ck_price ? `$${parseFloat(card.ck_price).toFixed(2)}` : '';
+      return p ? `<a class="badge link" href="${getCkUrl(card)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${p}</a>` : '';
+    }
+    case 'tcg_price': {
+      const p = card.tcg_price ? `$${parseFloat(card.tcg_price).toFixed(2)}` : '';
+      return p ? `<a class="badge link" href="https://scryfall.com/card/${card.set_code.toLowerCase()}/${card.collector_number}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${p}</a>` : '';
+    }
     default: return '';
   }
 }
@@ -1319,7 +1333,9 @@ function renderTable() {
     const imgFull = card.image_uri || '';
     const imgSrc = imgFull.replace('/normal/', '/small/');
     const rawMana = card.mana_cost || '';
-    const isDfc = card.name.includes(' // ');
+    const isArtSeries = card.layout === 'art_series';
+    const isDfc = !isArtSeries && card.name.includes(' // ');
+    let displayName = isArtSeries ? card.name.split(' // ')[0] : card.name;
     let nameHtml, manaHtml;
     if (isDfc) {
       const names = card.name.split(' // ');
@@ -1327,7 +1343,7 @@ function renderTable() {
       nameHtml = names.map(n => `<span class="card-face"><span class="card-name">${n}</span></span>`).join('');
       manaHtml = manas.map(m => `<span class="mana-line">${renderMana(m)}</span>`).join('');
     } else {
-      nameHtml = `<span class="card-name">${card.name}</span>`;
+      nameHtml = `<span class="card-name">${displayName}</span>`;
       manaHtml = renderMana(rawMana);
     }
     const setCode = keyruneSetCode(card.set_code);
@@ -1458,14 +1474,14 @@ clearFiltersBtn.addEventListener('click', () => {
 });
 
 function applySettings() {
-  // Image display: toggle card-thumb between crop and contain
   const style = document.getElementById('dynamic-settings-style');
   let css = '';
   if (_settings.image_display === 'contain') {
     css += '.card-thumb { object-fit: contain !important; object-position: center !important; }\n';
+    css += '.sheet-card-img-wrap img { object-fit: contain !important; object-position: center !important; }\n';
   }
   if (_settings.icon_background === 'none') {
-    css += '.set-cell .ss { background: transparent !important; }\n';
+    css += '.set-cell .ss { color: transparent !important; }\n';
   }
   style.textContent = css;
 }
