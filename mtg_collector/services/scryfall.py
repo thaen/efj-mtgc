@@ -84,11 +84,11 @@ class ScryfallAPI:
         """Search for exact card name match."""
         # Build search query with exact match operator
         if set_code and collector_number:
-            query = f'!"{name}" set:{set_code} cn:{collector_number}'
+            query = f'!"{name}" set:{set_code} cn:{collector_number} lang:en'
         elif set_code:
-            query = f'!"{name}" set:{set_code}'
+            query = f'!"{name}" set:{set_code} lang:en'
         else:
-            query = f'!"{name}"'
+            query = f'!"{name}" lang:en'
 
         url = f"{self.BASE_URL}/cards/search"
         params = {"q": query, "unique": "prints", "order": "released", "dir": "desc"}
@@ -146,7 +146,7 @@ class ScryfallAPI:
         """Get all printings of a card by exact name."""
         url = f"{self.BASE_URL}/cards/search"
         params = {
-            "q": f'!"{name}"',
+            "q": f'!"{name}" lang:en',
             "unique": "prints",
             "order": "released",
             "dir": "desc",
@@ -232,7 +232,7 @@ class ScryfallAPI:
 
         cards = []
         url = f"{self.BASE_URL}/cards/search"
-        params = {"q": f"set:{set_code}", "unique": "prints", "order": "collector_number"}
+        params = {"q": f"set:{set_code} lang:en", "unique": "prints", "order": "collector_number"}
 
         while url:
             try:
