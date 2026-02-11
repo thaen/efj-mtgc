@@ -246,7 +246,7 @@ button.secondary.active { background: #0f3460; border-color: #e94560; }
 .collection-table th.sorted { color: #e94560; }
 
 .collection-table td {
-  padding: 8px 12px;
+  padding: 2px 12px;
   border-bottom: 1px solid #0f346033;
   vertical-align: middle;
 }
@@ -261,17 +261,14 @@ button.secondary.active { background: #0f3460; border-color: #e94560; }
 }
 
 .card-thumb {
-  width: 146px;
-  height: 44px;
+  width: 36px;
+  height: 50px;
   object-fit: cover;
-  object-position: top center;
-  border-radius: 4px;
+  border-radius: 3px;
   flex-shrink: 0;
 }
 
-.card-info { display: flex; flex-direction: column; gap: 2px; }
-.card-name { font-weight: 500; }
-.card-tags { display: flex; gap: 3px; flex-wrap: wrap; }
+.card-name { font-weight: 500; margin-right: 1em; }
 
 .type-cell {
   max-width: 160px;
@@ -297,25 +294,9 @@ button.secondary.active { background: #0f3460; border-color: #e94560; }
 .card-face + .card-face { margin-top: 2px; }
 
 .set-cell { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
-.set-cell .ss {
-  font-size: 1.3em;
-  width: 26px;
-  height: 26px;
-  line-height: 26px;
-  text-align: center;
-  background: #efefef;
-  border-radius: 5px;
-}
+.set-cell .ss { font-size: 1.1em; }
 
-.price-cell {
-  display: inline-flex;
-  flex-direction: column;
-  gap: 3px;
-}
-.price-cell .badge {
-  font-size: 0.75rem;
-  padding: 2px 6px;
-}
+.price-cell { white-space: nowrap; color: #aaa; }
 
 /* Card grid */
 .card-grid {
@@ -418,7 +399,7 @@ button.secondary.active { background: #0f3460; border-color: #e94560; }
 }
 
 .badge.treatment { background: linear-gradient(135deg, #0f2a3e, #0f3460); border: 1px solid #1a5276; color: #7ec8e3; }
-a.badge.link { background: #333; border: 1px solid #555; color: #aaa; text-decoration: none; font-variant-numeric: tabular-nums; }
+a.badge.link { background: #333; border: 1px solid #555; color: #aaa; text-decoration: none; font-variant-numeric: tabular-nums; white-space: nowrap; }
 a.badge.link:hover { color: #fff; background: #555; border-color: #777; }
 
 .foil-tag, .treat-tag, .promo-tag {
@@ -462,25 +443,122 @@ a.badge.link:hover { color: #fff; background: #555; border-color: #777; }
   text-align: center;
 }
 
-/* Zoom overlay */
-#zoom-overlay {
+/* Card detail modal */
+#card-modal-overlay {
   display: none;
   position: fixed;
   top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0,0,0,0.75);
+  background: rgba(0,0,0,0.8);
   z-index: 100;
   justify-content: center;
   align-items: center;
-  cursor: pointer;
 }
 
-#zoom-overlay.active { display: flex; }
+#card-modal-overlay.active { display: flex; }
 
-#zoom-overlay img {
-  max-height: 85vh;
-  max-width: 90vw;
+.card-modal {
+  background: #16213e;
   border-radius: 16px;
   box-shadow: 0 12px 40px rgba(0,0,0,0.8);
+  display: flex;
+  gap: 0;
+  max-height: 90vh;
+  max-width: 90vw;
+  overflow: hidden;
+}
+
+.card-modal-img {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  background: #0a0a1a;
+  padding: 16px;
+}
+
+.card-modal-img img {
+  height: 72vh;
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.6);
+}
+
+.card-modal-details {
+  width: 320px;
+  padding: 24px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.card-modal-details h2 {
+  font-size: 1.2rem;
+  color: #fff;
+  margin: 0;
+  line-height: 1.3;
+}
+
+.modal-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.modal-section-title {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #666;
+  font-weight: 600;
+}
+
+.modal-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85rem;
+}
+
+.modal-row .label { color: #888; }
+.modal-row .value { color: #e0e0e0; font-weight: 500; }
+
+.modal-mana { margin-top: 2px; }
+.modal-mana .ms { font-size: 1rem; }
+
+.modal-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.modal-links {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.modal-links a.badge.link {
+  font-size: 0.75rem;
+  padding: 3px 8px;
+}
+
+.modal-close {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  background: none;
+  border: none;
+  color: #666;
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 4px 8px;
+  line-height: 1;
+}
+.modal-close:hover { color: #e94560; background: none; }
+
+@media (max-width: 768px) {
+  .card-modal { flex-direction: column; max-height: 95vh; }
+  .card-modal-img img { height: auto; width: 70vw; }
+  .card-modal-details { width: auto; }
 }
 
 /* Sort arrow */
@@ -616,7 +694,13 @@ a.badge.link:hover { color: #fff; background: #555; border-color: #777; }
   </div>
 </div>
 
-<div id="zoom-overlay"><img id="zoom-img" src="" alt=""></div>
+<div id="card-modal-overlay">
+  <div class="card-modal" id="card-modal">
+    <button class="modal-close" id="modal-close">&times;</button>
+    <div class="card-modal-img"><img id="modal-img" src="" alt=""></div>
+    <div class="card-modal-details" id="modal-details"></div>
+  </div>
+</div>
 
 <script>
 const searchInput = document.getElementById('search-input');
@@ -626,8 +710,10 @@ const sidebarToggleBtn = document.getElementById('sidebar-toggle-btn');
 const sidebar = document.getElementById('sidebar');
 const main = document.getElementById('main');
 const statusEl = document.getElementById('status');
-const zoomOverlay = document.getElementById('zoom-overlay');
-const zoomImg = document.getElementById('zoom-img');
+const modalOverlay = document.getElementById('card-modal-overlay');
+const modalImg = document.getElementById('modal-img');
+const modalDetails = document.getElementById('modal-details');
+const modalClose = document.getElementById('modal-close');
 const clearFiltersBtn = document.getElementById('clear-filters-btn');
 
 // Range inputs
@@ -655,14 +741,13 @@ const SORT_COLS = [
   { key: 'mana', label: 'Cost' },
   { key: 'set', label: 'Set' },
   { key: 'collector_number', label: '#' },
-  { key: 'condition', label: 'Cond.' },
   { key: 'price', label: 'Price' },
 ];
 
 const COL_SORT_MAP = {
   qty: 'qty', name: 'name', type: 'name', mana: 'cmc',
   set: 'set', collector_number: 'collector_number',
-  condition: 'name', price: 'price',
+  price: 'price',
 };
 
 function handleSortClick(colKey) {
@@ -679,34 +764,110 @@ function handleSortClick(colKey) {
 const RARITY_COLORS = {common: '#111', uncommon: '#6a6a6a', rare: '#c9a816', mythic: '#d4422a'};
 function getRarityColor(rarity) { return RARITY_COLORS[rarity] || '#111'; }
 
-// --- Zoom ---
-zoomOverlay.addEventListener('click', () => zoomOverlay.classList.remove('active'));
-function showZoom(imgSrc) {
-  zoomImg.src = imgSrc;
-  zoomOverlay.classList.add('active');
+// --- Card detail modal ---
+modalOverlay.addEventListener('click', (e) => {
+  if (e.target === modalOverlay) modalOverlay.classList.remove('active');
+});
+modalClose.addEventListener('click', () => modalOverlay.classList.remove('active'));
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') modalOverlay.classList.remove('active');
+});
+
+function showCardModal(card) {
+  modalImg.src = card.image_uri || '';
+  modalImg.alt = card.name;
+
+  const CONDITION_LABELS = {
+    'Near Mint': 'Near Mint', 'Lightly Played': 'Lightly Played',
+    'Moderately Played': 'Moderately Played', 'Heavily Played': 'Heavily Played',
+    'Damaged': 'Damaged',
+  };
+  const condition = CONDITION_LABELS[card.condition] || card.condition || 'Near Mint';
+  const finish = card.finish ? card.finish.charAt(0).toUpperCase() + card.finish.slice(1) : 'Nonfoil';
+
+  // Prices
+  const tcgPrice = card.tcg_price ? `$${parseFloat(card.tcg_price).toFixed(2)}` : '—';
+  const ckPrice = card.ck_price ? `$${parseFloat(card.ck_price).toFixed(2)}` : '—';
+
+  // Links
+  const sfUrl = `https://scryfall.com/card/${card.set_code.toLowerCase()}/${card.collector_number}`;
+  const ckUrl = getCkUrl(card);
+
+  // Tags
+  const fe = parseJsonField(card.frame_effects);
+  let tagsHtml = '';
+  if (card.finish === 'foil') tagsHtml += '<span class="foil-tag">Foil</span>';
+  if (card.finish === 'etched') tagsHtml += '<span class="foil-tag">Etched</span>';
+  if (card.border_color === 'borderless') tagsHtml += '<span class="treat-tag">Borderless</span>';
+  if (fe.includes('showcase')) tagsHtml += '<span class="treat-tag">Showcase</span>';
+  if (fe.includes('extendedart')) tagsHtml += '<span class="treat-tag">Extended Art</span>';
+  if (card.full_art) tagsHtml += '<span class="treat-tag">Full Art</span>';
+  if (fe.includes('inverted')) tagsHtml += '<span class="treat-tag">Inverted</span>';
+  if (card.promo) tagsHtml += '<span class="promo-tag">Promo</span>';
+
+  // Mana cost
+  const manaHtml = card.mana_cost ? renderMana(card.mana_cost) : '';
+  const cmcText = card.cmc != null ? card.cmc : '';
+
+  // Set info
+  const setCode = card.set_code.toLowerCase();
+  const rarityClass = `ss-${card.rarity || 'common'}`;
+  const setIcon = `<i class="ss ss-${setCode} ${rarityClass} ss-grad ss-fw"></i>`;
+  const setName = card.set_name || card.set_code.toUpperCase();
+  const rarity = card.rarity ? card.rarity.charAt(0).toUpperCase() + card.rarity.slice(1) : '';
+
+  modalDetails.innerHTML = `
+    <h2>${card.name}</h2>
+    ${manaHtml ? `<div class="modal-mana">${manaHtml}</div>` : ''}
+    <div class="modal-section">
+      <div class="modal-row"><span class="label">Type</span><span class="value">${card.type_line || ''}</span></div>
+      ${cmcText !== '' ? `<div class="modal-row"><span class="label">Mana Value</span><span class="value">${cmcText}</span></div>` : ''}
+    </div>
+    <div class="modal-section">
+      <span class="modal-section-title">Printing</span>
+      <div class="modal-row"><span class="label">Set</span><span class="value">${setIcon} ${setName}</span></div>
+      <div class="modal-row"><span class="label">Number</span><span class="value">${card.collector_number || ''}</span></div>
+      <div class="modal-row"><span class="label">Rarity</span><span class="value">${rarity}</span></div>
+    </div>
+    <div class="modal-section">
+      <span class="modal-section-title">Collection</span>
+      <div class="modal-row"><span class="label">Quantity</span><span class="value">${card.qty}</span></div>
+      <div class="modal-row"><span class="label">Condition</span><span class="value">${condition}</span></div>
+      <div class="modal-row"><span class="label">Finish</span><span class="value">${finish}</span></div>
+    </div>
+    ${tagsHtml ? `<div class="modal-section"><span class="modal-section-title">Treatments</span><div class="modal-tags">${tagsHtml}</div></div>` : ''}
+    <div class="modal-section">
+      <span class="modal-section-title">Prices</span>
+      <div class="modal-row"><span class="label">TCGplayer</span><span class="value">${tcgPrice}</span></div>
+      <div class="modal-row"><span class="label">Card Kingdom</span><span class="value">${ckPrice}</span></div>
+    </div>
+    <div class="modal-links">
+      <a class="badge link" href="${sfUrl}" target="_blank" rel="noopener">Scryfall</a>
+      <a class="badge link" href="${ckUrl}" target="_blank" rel="noopener">Card Kingdom</a>
+    </div>
+  `;
+
+  modalOverlay.classList.add('active');
 }
 
-// --- Price badges (for table price column) ---
-function buildPriceBadges(card) {
-  let html = '';
-  const sfPrice = card.tcg_price ? ` $${parseFloat(card.tcg_price).toFixed(2)}` : '';
-  html += `<a class="badge link" href="https://scryfall.com/card/${card.set_code.toLowerCase()}/${card.collector_number}" target="_blank" rel="noopener" onclick="event.stopPropagation()">SF${sfPrice}</a>`;
+// --- CK URL helper ---
+function getCkUrl(card) {
+  if (card.ck_url) return card.ck_url;
   const ckSearch = encodeURIComponent(card.name.split(' // ')[0]);
-  const ckPrice = card.ck_price ? ` $${parseFloat(card.ck_price).toFixed(2)}` : '';
-  html += `<a class="badge link" href="https://www.cardkingdom.com/catalog/search?search=header&filter%5Bname%5D=${ckSearch}" target="_blank" rel="noopener" onclick="event.stopPropagation()">CK${ckPrice}</a>`;
-  return html;
+  return `https://www.cardkingdom.com/catalog/search?search=header&filter%5Bname%5D=${ckSearch}`;
 }
 
-// --- Badge builder (from crack_pack patterns) ---
+// --- Price badge (for table price column - CK only) ---
+function buildPriceBadge(card) {
+  const ckPrice = card.ck_price ? `$${parseFloat(card.ck_price).toFixed(2)}` : '';
+  return `<a class="badge link" href="${getCkUrl(card)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${ckPrice || 'CK'}</a>`;
+}
+
+// --- Badge builder (for grid view) ---
 function buildCardBadges(card) {
   let html = '';
-  if (card.scryfall_id) {
-    const sfPrice = card.tcg_price ? ` $${parseFloat(card.tcg_price).toFixed(2)}` : '';
-    html += `<a class="badge link" href="https://scryfall.com/card/${card.set_code.toLowerCase()}/${card.collector_number}" target="_blank" rel="noopener" onclick="event.stopPropagation()">SF${sfPrice}</a>`;
-  }
-  const ckSearch = encodeURIComponent(card.name.split(' // ')[0]);
   const ckPrice = card.ck_price ? ` $${parseFloat(card.ck_price).toFixed(2)}` : '';
-  html += `<a class="badge link" href="https://www.cardkingdom.com/catalog/search?search=header&filter%5Bname%5D=${ckSearch}" target="_blank" rel="noopener" onclick="event.stopPropagation()">CK${ckPrice}</a>`;
+  html += `<a class="badge link" href="${getCkUrl(card)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">CK${ckPrice}</a>`;
   const fe = parseJsonField(card.frame_effects);
   if (card.border_color === 'borderless') html += '<span class="badge treatment">BL</span>';
   if (fe.includes('showcase')) html += '<span class="badge treatment">SC</span>';
@@ -978,11 +1139,6 @@ function renderTable() {
   }
   html += '</tr></thead><tbody>';
 
-  const CONDITION_ABBREV = {
-    'Near Mint': 'NM', 'Lightly Played': 'LP', 'Moderately Played': 'MP',
-    'Heavily Played': 'HP', 'Damaged': 'D',
-  };
-
   for (const card of allCards) {
     const imgFull = card.image_uri || '';
     const imgSrc = imgFull.replace('/normal/', '/small/');
@@ -998,17 +1154,17 @@ function renderTable() {
       nameHtml = `<span class="card-name">${card.name}</span>`;
       manaHtml = renderMana(rawMana);
     }
-    const priceBadges = buildPriceBadges(card);
-    const condAbbrev = CONDITION_ABBREV[card.condition] || card.condition;
+    const priceBadge = buildPriceBadge(card);
     const setCode = card.set_code.toLowerCase();
     const rarityClass = `ss-${card.rarity || 'common'}`;
     const setName = card.set_name || card.set_code.toUpperCase();
     const setIcon = `<i class="ss ss-${setCode} ${rarityClass} ss-grad ss-fw"></i>`;
     const tags = buildInlineTags(card);
+    const idx = allCards.indexOf(card);
 
-    html += `<tr data-img="${imgFull}" onclick="showZoom('${imgFull}')">`;
+    html += `<tr data-idx="${idx}">`;
     html += `<td>${card.qty}</td>`;
-    html += `<td><div class="card-cell">${imgSrc ? `<img class="card-thumb" src="${imgSrc}" loading="lazy">` : ''}<div class="card-info">${nameHtml}${tags ? `<div class="card-tags">${tags}</div>` : ''}</div></div></td>`;
+    html += `<td><div class="card-cell">${imgSrc ? `<img class="card-thumb" src="${imgSrc}" loading="lazy">` : ''}<span>${nameHtml}${tags}</span></div></td>`;
     const fullType = card.type_line || '';
     const typeParts = fullType.split(' \u2014 ');
     const mainType = typeParts[0].replace(/Legendary /g, 'Lgdry. ');
@@ -1017,13 +1173,20 @@ function renderTable() {
     html += `<td class="mana-cost">${manaHtml}</td>`;
     html += `<td title="${setName}"><div class="set-cell">${setIcon} ${card.set_code.toUpperCase()}</div></td>`;
     html += `<td>${(card.collector_number || '').padStart(4, '0')}</td>`;
-    html += `<td>${condAbbrev}</td>`;
-    html += `<td class="price-cell">${priceBadges}</td>`;
+    html += `<td class="price-cell">${priceBadge}</td>`;
     html += '</tr>';
   }
 
   html += '</tbody></table>';
   main.innerHTML = html;
+
+  // Row click -> modal
+  main.querySelectorAll('.collection-table tbody tr[data-idx]').forEach(tr => {
+    tr.addEventListener('click', (e) => {
+      if (e.target.closest('a')) return;
+      showCardModal(allCards[parseInt(tr.dataset.idx)]);
+    });
+  });
 
   // Column header click sorting
   main.querySelectorAll('.collection-table th[data-col]').forEach(th => {
@@ -1068,7 +1231,10 @@ function renderGrid() {
       </div>
       <div class="sheet-card-info">${badges}</div>
     `;
-    cardEl.addEventListener('click', () => showZoom(card.image_uri));
+    cardEl.addEventListener('click', (e) => {
+      if (e.target.closest('a')) return;
+      showCardModal(card);
+    });
     grid.appendChild(cardEl);
   }
 

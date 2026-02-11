@@ -554,6 +554,7 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             }
             card["tcg_price"] = None
             card["ck_price"] = None
+            card["ck_url"] = ""
             results.append(card)
 
         # Batch fetch Scryfall prices
@@ -567,10 +568,11 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             else:
                 card["tcg_price"] = card_prices.get("usd") or card_prices.get("usd_foil")
 
-            # CK price via MTGJSON uuid lookup
+            # CK price + URL via MTGJSON uuid lookup
             uuid = self.generator.get_uuid_for_scryfall_id(card["scryfall_id"])
             if uuid:
                 card["ck_price"] = _get_ck_price(uuid, foil)
+            card["ck_url"] = self.generator.get_ck_url(card["scryfall_id"], foil)
 
         conn.close()
         self._send_json(results)

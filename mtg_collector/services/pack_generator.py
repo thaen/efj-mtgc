@@ -71,6 +71,23 @@ class PackGenerator:
             self._scryfall_to_uuid = index
         return self._scryfall_to_uuid.get(scryfall_id)
 
+    def get_ck_url(self, scryfall_id: str, foil: bool = False) -> str:
+        """Look up Card Kingdom purchase URL for a Scryfall ID."""
+        if not hasattr(self, "_scryfall_to_ck_urls"):
+            index = {}
+            for set_data in self.data["data"].values():
+                for card in set_data.get("cards", []):
+                    sid = card.get("identifiers", {}).get("scryfallId", "")
+                    if sid:
+                        urls = card.get("purchaseUrls", {})
+                        index[sid] = (urls.get("cardKingdom", ""), urls.get("cardKingdomFoil", ""))
+            self._scryfall_to_ck_urls = index
+        pair = self._scryfall_to_ck_urls.get(scryfall_id)
+        if not pair:
+            return ""
+        url = pair[1] if foil else pair[0]
+        return url or pair[0]
+
     def list_sets(self) -> list[tuple[str, str]]:
         """Return (code, name) for sets that have booster data, sorted by name."""
         results = []
