@@ -474,13 +474,54 @@ a.badge.link:hover { color: #fff; background: #555; border-color: #777; }
   align-items: center;
   background: #0a0a1a;
   padding: 16px;
+  perspective: 1200px;
+  position: relative;
 }
 
-.card-modal-img img {
+.card-flip-container {
+  transform-style: preserve-3d;
+  transition: transform 0.6s;
+}
+
+.card-flip-container.flipped { transform: rotateY(180deg); }
+
+.card-flip-front, .card-flip-back {
+  backface-visibility: hidden;
+}
+
+.card-flip-back {
+  position: absolute;
+  top: 0; left: 0;
+  transform: rotateY(180deg);
+}
+
+.card-flip-front img, .card-flip-back img {
   height: 72vh;
   border-radius: 12px;
   box-shadow: 0 4px 20px rgba(0,0,0,0.6);
+  display: block;
 }
+
+.flip-btn {
+  position: absolute;
+  bottom: 24px;
+  right: 24px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.7);
+  border: 1px solid #555;
+  color: #e0e0e0;
+  font-size: 1.2rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 5;
+  padding: 0;
+}
+
+.flip-btn:hover { background: rgba(233,69,96,0.8); border-color: #e94560; }
 
 .card-modal-details {
   width: 320px;
@@ -558,7 +599,7 @@ a.badge.link:hover { color: #fff; background: #555; border-color: #777; }
 
 @media (max-width: 768px) {
   .card-modal { flex-direction: column; max-height: 95vh; }
-  .card-modal-img img { height: auto; width: 70vw; }
+  .card-flip-front img, .card-flip-back img { height: auto; width: 70vw; }
   .card-modal-details { width: auto; }
 }
 
@@ -744,7 +785,13 @@ a.badge.link:hover { color: #fff; background: #555; border-color: #777; }
 <div id="card-modal-overlay">
   <div class="card-modal" id="card-modal">
     <button class="modal-close" id="modal-close">&times;</button>
-    <div class="card-modal-img"><img id="modal-img" src="" alt=""></div>
+    <div class="card-modal-img">
+      <div class="card-flip-container" id="modal-flip">
+        <div class="card-flip-front"><img id="modal-img-front" src="" alt=""></div>
+        <div class="card-flip-back"><img id="modal-img-back" src="" alt=""></div>
+      </div>
+      <button class="flip-btn" id="modal-flip-btn" title="Flip card">&#x21BB;</button>
+    </div>
     <div class="card-modal-details" id="modal-details"></div>
   </div>
 </div>
@@ -758,7 +805,10 @@ const sidebar = document.getElementById('sidebar');
 const main = document.getElementById('main');
 const statusEl = document.getElementById('status');
 const modalOverlay = document.getElementById('card-modal-overlay');
-const modalImg = document.getElementById('modal-img');
+const modalImgFront = document.getElementById('modal-img-front');
+const modalImgBack = document.getElementById('modal-img-back');
+const modalFlip = document.getElementById('modal-flip');
+const modalFlipBtn = document.getElementById('modal-flip-btn');
 const modalDetails = document.getElementById('modal-details');
 const modalClose = document.getElementById('modal-close');
 const clearFiltersBtn = document.getElementById('clear-filters-btn');
@@ -895,9 +945,24 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') modalOverlay.classList.remove('active');
 });
 
+const DFC_LAYOUTS = ['transform', 'modal_dfc', 'reversible_card', 'double_faced_token', 'art_series'];
+
 function showCardModal(card) {
-  modalImg.src = card.image_uri || '';
-  modalImg.alt = card.name;
+  // Front image
+  modalImgFront.src = card.image_uri || '';
+  modalImgFront.alt = card.name;
+
+  // Back image
+  const isDfc = DFC_LAYOUTS.includes(card.layout);
+  const backSrc = isDfc ? (card.image_uri || '').replace('/front/', '/back/') : '/static/card_back.jpeg';
+  modalImgBack.src = backSrc;
+  modalImgBack.alt = isDfc ? 'Back face' : 'Card back';
+
+  // Reset flip state
+  modalFlip.classList.remove('flipped');
+
+  // Build modal details data for both faces
+  const modalState = { card, isDfc, showingBack: false };
 
   const CONDITION_LABELS = {
     'Near Mint': 'Near Mint', 'Lightly Played': 'Lightly Played',
@@ -927,10 +992,6 @@ function showCardModal(card) {
   if (fe.includes('inverted')) tagsHtml += '<span class="treat-tag">Inverted</span>';
   if (card.promo) tagsHtml += '<span class="promo-tag">Promo</span>';
 
-  // Mana cost
-  const manaHtml = card.mana_cost ? renderMana(card.mana_cost) : '';
-  const cmcText = card.cmc != null ? card.cmc : '';
-
   // Set info
   const setCode = card.set_code.toLowerCase();
   const rarityClass = `ss-${card.rarity || 'common'}`;
@@ -938,36 +999,62 @@ function showCardModal(card) {
   const setName = card.set_name || card.set_code.toUpperCase();
   const rarity = card.rarity ? card.rarity.charAt(0).toUpperCase() + card.rarity.slice(1) : '';
 
-  modalDetails.innerHTML = `
-    <h2>${card.name}</h2>
-    ${manaHtml ? `<div class="modal-mana">${manaHtml}</div>` : ''}
-    <div class="modal-section">
-      <div class="modal-row"><span class="label">Type</span><span class="value">${card.type_line || ''}</span></div>
-      ${cmcText !== '' ? `<div class="modal-row"><span class="label">Mana Value</span><span class="value">${cmcText}</span></div>` : ''}
-    </div>
-    <div class="modal-section">
-      <span class="modal-section-title">Printing</span>
-      <div class="modal-row"><span class="label">Set</span><span class="value">${setIcon} ${setName}</span></div>
-      <div class="modal-row"><span class="label">Number</span><span class="value">${card.collector_number || ''}</span></div>
-      <div class="modal-row"><span class="label">Rarity</span><span class="value">${rarity}</span></div>
-    </div>
-    <div class="modal-section">
-      <span class="modal-section-title">Collection</span>
-      <div class="modal-row"><span class="label">Quantity</span><span class="value">${card.qty}</span></div>
-      <div class="modal-row"><span class="label">Condition</span><span class="value">${condition}</span></div>
-      <div class="modal-row"><span class="label">Finish</span><span class="value">${finish}</span></div>
-    </div>
-    ${tagsHtml ? `<div class="modal-section"><span class="modal-section-title">Treatments</span><div class="modal-tags">${tagsHtml}</div></div>` : ''}
-    <div class="modal-section">
-      <span class="modal-section-title">Prices</span>
-      <div class="modal-row"><span class="label">TCGplayer</span><span class="value">${tcgPrice}</span></div>
-      <div class="modal-row"><span class="label">Card Kingdom</span><span class="value">${ckPrice}</span></div>
-    </div>
-    <div class="modal-links">
-      <a class="badge link" href="${sfUrl}" target="_blank" rel="noopener">Scryfall</a>
-      <a class="badge link" href="${ckUrl}" target="_blank" rel="noopener">Card Kingdom</a>
-    </div>
-  `;
+  // DFC face splitting
+  const names = card.name.split(' // ');
+  const types = (card.type_line || '').split(' // ');
+  const manas = (card.mana_cost || '').split(' // ');
+  const isArtSeries = card.layout === 'art_series';
+
+  function renderDetails(faceIdx) {
+    let faceName, faceType, faceMana;
+    if (isDfc && names.length > 1) {
+      faceName = names[faceIdx] || names[0];
+      faceType = isArtSeries ? 'Art Series' : (types[faceIdx] || types[0] || '');
+      faceMana = manas[faceIdx] || manas[0] || '';
+    } else {
+      faceName = isArtSeries ? names[0] : card.name;
+      faceType = isArtSeries ? 'Art Series' : (card.type_line || '');
+      faceMana = card.mana_cost || '';
+    }
+    const manaHtml = faceMana ? renderMana(faceMana) : '';
+    const cmcText = card.cmc != null ? card.cmc : '';
+
+    modalDetails.innerHTML = `
+      <h2>${faceName}</h2>
+      ${manaHtml ? `<div class="modal-mana">${manaHtml}</div>` : ''}
+      <div class="modal-section">
+        <span class="modal-section-title">Type</span>
+        <span class="value">${faceType}</span>
+        ${cmcText !== '' ? `<div class="modal-row"><span class="label">Mana Value</span><span class="value">${cmcText}</span></div>` : ''}
+      </div>
+      <div class="modal-section">
+        <span class="modal-section-title">Printing</span>
+        <div class="modal-row"><span class="label">Set</span><span class="value">${setIcon} ${setName}</span></div>
+        <div class="modal-row"><span class="label">Number</span><span class="value">${card.collector_number || ''}</span></div>
+        <div class="modal-row"><span class="label">Rarity</span><span class="value">${rarity}</span></div>
+      </div>
+      <div class="modal-section">
+        <span class="modal-section-title">Collection</span>
+        <div class="modal-row"><span class="label">Quantity</span><span class="value">${card.qty}</span></div>
+        <div class="modal-row"><span class="label">Condition</span><span class="value">${condition}</span></div>
+        <div class="modal-row"><span class="label">Finish</span><span class="value">${finish}</span></div>
+      </div>
+      ${tagsHtml ? `<div class="modal-section"><span class="modal-section-title">Treatments</span><div class="modal-tags">${tagsHtml}</div></div>` : ''}
+      <div class="modal-links">
+        <a class="badge link" href="${sfUrl}" target="_blank" rel="noopener">SF${tcgPrice !== '—' ? ' ' + tcgPrice : ''}</a>
+        <a class="badge link" href="${ckUrl}" target="_blank" rel="noopener">CK${ckPrice !== '—' ? ' ' + ckPrice : ''}</a>
+      </div>
+    `;
+  }
+
+  renderDetails(0);
+
+  // Flip button handler
+  modalFlipBtn.onclick = () => {
+    modalState.showingBack = !modalState.showingBack;
+    modalFlip.classList.toggle('flipped');
+    if (isDfc) renderDetails(modalState.showingBack ? 1 : 0);
+  };
 
   modalOverlay.classList.add('active');
 }
@@ -1288,11 +1375,15 @@ function renderCellContent(colKey, card, helpers) {
     case 'qty': return `${card.qty}`;
     case 'name': return `<div class="card-cell">${helpers.imgSrc ? `<img class="card-thumb" src="${helpers.imgSrc}" loading="lazy">` : ''}<span>${helpers.nameHtml}${helpers.tags}</span></div>`;
     case 'type': {
+      if (card.layout === 'art_series') return `<span class="type-cell" title="Art Series">Art Series</span>`;
       const full = card.type_line || '';
-      const parts = full.split(' \u2014 ');
-      const main = parts[0].replace(/Legendary /g, 'Lgdry. ');
-      const sub = parts[1] || '';
-      return `<span class="type-cell" title="${full}">${main}${sub ? `<span class="type-sub">${sub}</span>` : ''}</span>`;
+      const faces = full.split(' // ');
+      return `<span class="type-cell" title="${full}">${faces.map(face => {
+        const parts = face.split(' \u2014 ');
+        const main = parts[0].replace(/Legendary /g, 'Lgdry. ');
+        const sub = parts[1] || '';
+        return `<span class="card-face">${main}${sub ? `<span class="type-sub">${sub}</span>` : ''}</span>`;
+      }).join('')}</span>`;
     }
     case 'mana': return `<span class="mana-cost">${helpers.manaHtml}</span>`;
     case 'set': return `<div class="set-cell" title="${helpers.setName}">${helpers.setIcon} ${card.set_code.toUpperCase()}</div>`;

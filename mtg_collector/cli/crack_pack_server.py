@@ -642,6 +642,7 @@ class CrackPackHandler(BaseHTTPRequestHandler):
                 p.scryfall_id, p.image_uri, p.artist,
                 p.frame_effects, p.border_color, p.full_art, p.promo,
                 p.promo_types, p.finishes,
+                json_extract(p.raw_json, '$.layout') as layout,
                 c.finish, c.condition,
                 COUNT(*) as qty,
                 MAX(c.acquired_at) as acquired_at
@@ -679,6 +680,7 @@ class CrackPackHandler(BaseHTTPRequestHandler):
                 "promo": bool(row["promo"]),
                 "promo_types": row["promo_types"],
                 "finishes": row["finishes"],
+                "layout": row["layout"] or "normal",
                 "finish": row["finish"],
                 "condition": row["condition"],
                 "qty": row["qty"],
