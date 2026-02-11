@@ -18,6 +18,7 @@ class PackGenerator:
         self._data = None
         self._card_indexes: dict[str, dict[str, dict]] = {}  # set_code -> {uuid -> card}
         self._scryfall_to_uuid: dict[str, str] | None = None
+        self._scryfall_to_card: dict[str, dict] | None = None
 
     @property
     def data(self) -> dict:
@@ -72,21 +73,23 @@ class PackGenerator:
         return self._scryfall_to_uuid.get(scryfall_id)
 
     def get_ck_url(self, scryfall_id: str, foil: bool = False) -> str:
-        """Look up Card Kingdom purchase URL for a Scryfall ID."""
-        if not hasattr(self, "_scryfall_to_ck_urls"):
+        """Get Card Kingdom product URL for a card by Scryfall ID."""
+        if self._scryfall_to_card is None:
             index = {}
             for set_data in self.data["data"].values():
                 for card in set_data.get("cards", []):
                     sid = card.get("identifiers", {}).get("scryfallId", "")
                     if sid:
-                        urls = card.get("purchaseUrls", {})
-                        index[sid] = (urls.get("cardKingdom", ""), urls.get("cardKingdomFoil", ""))
-            self._scryfall_to_ck_urls = index
-        pair = self._scryfall_to_ck_urls.get(scryfall_id)
-        if not pair:
+                        index[sid] = card
+            self._scryfall_to_card = index
+        card = self._scryfall_to_card.get(scryfall_id)
+        if not card:
             return ""
-        url = pair[1] if foil else pair[0]
-        return url or pair[0]
+        purchase_urls = card.get("purchaseUrls", {})
+        ck_url = purchase_urls.get("cardKingdomFoil" if foil else "cardKingdom", "")
+        if not ck_url:
+            ck_url = purchase_urls.get("cardKingdom", "")
+        return ck_url
 
     def list_sets(self) -> list[tuple[str, str]]:
         """Return (code, name) for sets that have booster data, sorted by name."""
