@@ -81,7 +81,7 @@ Both feed into `resolve_and_add_ids()` which:
 - Claude API retries with exponential backoff (3s, 6s, 12s, 24s) but bails immediately on 400 errors
 - JSON arrays stored as TEXT in SQLite (colors, finishes, promo_types)
 - Schema version tracked in `schema_version` table for auto-migrations (current: v3)
-- RARITY_MAP: C (common), U (uncommon), R (rare), M (mythic), P (promo)
+- RARITY_MAP: C (common), U (uncommon), R (rare), M (mythic), P (promo), L (land, treated as common), T (token)
 - Fuzzy match threshold: 0.75 (difflib, used for name matching against cached set lists)
 - Tests use a pre-populated `tests/fixtures/scryfall-cache.sqlite` for offline testing
 

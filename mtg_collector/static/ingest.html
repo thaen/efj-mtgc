@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<link rel="icon" href="/static/favicon.ico" type="image/x-icon">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Ingestor - OCR Card Identification</title>
 <link href="https://cdn.jsdelivr.net/npm/keyrune@latest/css/keyrune.min.css" rel="stylesheet">
@@ -680,7 +681,7 @@ button.secondary:hover { background: #444; }
 <body>
 
 <header>
-  <h1>Ingestor</h1>
+  <h1><a href="/" style="color:inherit;text-decoration:none">Ingestor</a></h1>
   <a href="/">Home</a>
   <div id="status-bar"></div>
 </header>
@@ -846,7 +847,7 @@ function applyIngestSettings() {
     css += '.card-img-grid { object-fit: contain !important; object-position: center !important; }\n';
   }
   if (_settings.icon_background === 'none') {
-    css += '.candidate-row .set-icon { background: transparent !important; }\n';
+    css += '.candidate-row .set-icon { color: transparent !important; }\n';
   }
   style.textContent = css;
 }

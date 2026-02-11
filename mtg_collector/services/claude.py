@@ -407,9 +407,36 @@ OCR FRAGMENTS:
         return [], None
 
     def encode_image(self, image_path: str) -> str:
-        """Encode image to base64."""
+        """Encode image to base64, compressing if base64 would exceed 5MB."""
+        # Base64 inflates by 4/3, so raw limit is 5MB * 3/4 = 3.75MB
+        MAX_RAW = 5 * 1024 * 1024 * 3 // 4
+
         with open(image_path, "rb") as f:
-            return base64.b64encode(f.read()).decode("utf-8")
+            data = f.read()
+
+        if len(data) <= MAX_RAW:
+            return base64.b64encode(data).decode("utf-8")
+
+        from PIL import Image
+        import io
+
+        print(f"  Compressing image ({len(data)/1024/1024:.1f}MB raw, ~{len(data)*4/3/1024/1024:.1f}MB base64)...")
+        img = Image.open(image_path)
+        quality = 85
+        while quality >= 30:
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=quality)
+            if buf.tell() <= MAX_RAW:
+                print(f"  Compressed to {buf.tell()/1024/1024:.1f}MB (quality={quality})")
+                return base64.b64encode(buf.getvalue()).decode("utf-8")
+            quality -= 10
+
+        # Last resort: scale down
+        img.thumbnail((img.width // 2, img.height // 2), Image.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=60)
+        print(f"  Scaled down to {buf.tell()/1024/1024:.1f}MB")
+        return base64.b64encode(buf.getvalue()).decode("utf-8")
 
     def _get_media_type(self, image_path: str) -> str:
         """Determine media type from file extension."""
@@ -505,25 +532,19 @@ OCR FRAGMENTS:
                                     "type": "text",
                                     "text": """This image shows the bottom-left corners of Magic: The Gathering cards.
 
-Each corner has tiny printed text with collector info. Look for the pattern:
-  RARITY  COLLECTOR_NUMBER
-  SET · EN    (nonfoil)
-  SET ★ EN    (foil)
+Each corner has TWO LINES of tiny printed text:
+  LINE 1:  RARITY  COLLECTOR_NUMBER   (optional text after — ignore it)
+  LINE 2:  SET · EN   or   SET ★ EN
+
+CRITICAL: The set code is on LINE 2, directly before the separator (· or ★). It is always 3 characters. Any text on line 1 after the collector number is NOT the set code — ignore it.
 
 Where:
-- RARITY: a single letter — C (common), U (uncommon), R (rare), M (mythic rare), P (promo)
-- COLLECTOR_NUMBER: 3-4 digits, often with leading zeros (e.g. 0075, 0187, 0200)
-- SET: 3-4 letter set code (e.g. EOE, ECL, MKM) — appears BEFORE "EN"
-- "EN" is the language marker (English) — NOT part of the set code
+- RARITY: a single letter — C, U, R, M, P, L (land), or T (token)
+- COLLECTOR_NUMBER: 3-4 digits with leading zeros (e.g. 0075, 0200)
+- SET: exactly 3 letters on line 2, before · or ★ (e.g. FIN, EOE, MKM)
+- Dot (·) = nonfoil, star (★) = foil
 
-FOIL DETECTION — look at the symbol between SET and EN:
-- A dot/circle (·) means NONFOIL
-- A star (★) means FOIL
-This is the ONLY reliable way to detect foil from corner photos.
-
-TIP: Find "EN" first as a landmark, then read the set code before it, check the separator symbol for foil, and read rarity + collector number on the line above.
-
-For EACH distinct card corner visible, extract the rarity letter, collector number, set code, and foil status.
+For EACH card corner, return rarity, collector_number, set (from line 2), and foil status.
 
 Return ONLY a JSON array:
 [{"rarity": "C", "collector_number": "0075", "set": "EOE", "foil": false}, ...]""",

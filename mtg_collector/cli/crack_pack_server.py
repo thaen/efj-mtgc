@@ -449,6 +449,7 @@ class CrackPackHandler(BaseHTTPRequestHandler):
 
     _CONTENT_TYPES = {
         ".html": "text/html; charset=utf-8",
+        ".ico": "image/x-icon",
         ".jpeg": "image/jpeg",
         ".jpg": "image/jpeg",
         ".png": "image/png",
@@ -549,7 +550,8 @@ class CrackPackHandler(BaseHTTPRequestHandler):
         sql_params = []
 
         if q:
-            where_clauses.append("card.name LIKE ?")
+            where_clauses.append("(card.name LIKE ? OR card.type_line LIKE ?)")
+            sql_params.append(f"%{q}%")
             sql_params.append(f"%{q}%")
 
         if filter_colors:
@@ -627,6 +629,7 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             "qty": "qty",
             "price": "card.name",  # sorted client-side since prices are attached after
             "collector_number": "CAST(p.collector_number AS INTEGER)",
+            "date_added": "c.acquired_at",
         }
         sort_col = sort_map.get(sort, "card.name")
         order_dir = "DESC" if order == "desc" else "ASC"
@@ -639,8 +642,12 @@ class CrackPackHandler(BaseHTTPRequestHandler):
                 p.scryfall_id, p.image_uri, p.artist,
                 p.frame_effects, p.border_color, p.full_art, p.promo,
                 p.promo_types, p.finishes,
+                json_extract(p.raw_json, '$.layout') as layout,
+                json_extract(p.raw_json, '$.card_faces[0].mana_cost') as face0_mana,
+                json_extract(p.raw_json, '$.card_faces[1].mana_cost') as face1_mana,
                 c.finish, c.condition,
-                COUNT(*) as qty
+                COUNT(*) as qty,
+                MAX(c.acquired_at) as acquired_at
             FROM collection c
             JOIN printings p ON c.scryfall_id = p.scryfall_id
             JOIN cards card ON p.oracle_id = card.oracle_id
@@ -655,10 +662,16 @@ class CrackPackHandler(BaseHTTPRequestHandler):
 
         results = []
         for row in rows:
+            mana_cost = row["mana_cost"]
+            if not mana_cost:
+                face0 = row["face0_mana"] or ""
+                face1 = row["face1_mana"] or ""
+                if face0 or face1:
+                    mana_cost = " // ".join(p for p in [face0, face1] if p)
             card = {
                 "name": row["name"],
                 "type_line": row["type_line"],
-                "mana_cost": row["mana_cost"],
+                "mana_cost": mana_cost,
                 "cmc": row["cmc"],
                 "colors": row["colors"],
                 "color_identity": row["color_identity"],
@@ -675,28 +688,23 @@ class CrackPackHandler(BaseHTTPRequestHandler):
                 "promo": bool(row["promo"]),
                 "promo_types": row["promo_types"],
                 "finishes": row["finishes"],
+                "layout": row["layout"] or "normal",
                 "finish": row["finish"],
                 "condition": row["condition"],
                 "qty": row["qty"],
+                "acquired_at": row["acquired_at"],
             }
             card["tcg_price"] = None
             card["ck_price"] = None
+            card["ck_url"] = ""
             results.append(card)
 
-        # Batch fetch Scryfall prices
-        scryfall_ids = list({r["scryfall_id"] for r in results})
-        prices = _fetch_prices(scryfall_ids)
+        # Prices via local MTGJSON data (no network calls)
         for card in results:
-            card_prices = prices.get(card["scryfall_id"], {})
             foil = card["finish"] in ("foil", "etched")
-            if foil:
-                card["tcg_price"] = card_prices.get("usd_foil") or card_prices.get("usd")
-            else:
-                card["tcg_price"] = card_prices.get("usd") or card_prices.get("usd_foil")
-
-            # CK price and URL via MTGJSON uuid lookup
             uuid = self.generator.get_uuid_for_scryfall_id(card["scryfall_id"])
             if uuid:
+                card["tcg_price"] = _get_tcg_price(uuid, foil)
                 card["ck_price"] = _get_ck_price(uuid, foil)
             card["ck_url"] = self.generator.get_ck_url(card["scryfall_id"], foil)
 
