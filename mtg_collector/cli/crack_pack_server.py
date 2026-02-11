@@ -422,7 +422,8 @@ class CrackPackHandler(BaseHTTPRequestHandler):
         sql_params = []
 
         if q:
-            where_clauses.append("card.name LIKE ?")
+            where_clauses.append("(card.name LIKE ? OR card.type_line LIKE ?)")
+            sql_params.append(f"%{q}%")
             sql_params.append(f"%{q}%")
 
         if filter_colors:

@@ -18,11 +18,11 @@ from mtg_collector.services.scryfall import (
 )
 from mtg_collector.utils import normalize_condition, normalize_finish, store_source_image
 
-RARITY_MAP = {"C": "common", "U": "uncommon", "R": "rare", "M": "mythic", "P": "promo"}
+RARITY_MAP = {"C": "common", "U": "uncommon", "R": "rare", "M": "mythic", "P": "promo", "L": "common", "T": "token"}
 
 
 def lookup_card(set_code, cn_raw, cn_stripped, rarity_expected, printing_repo, scryfall):
-    """Look up a card by set/CN, with promo set fallback for promo cards."""
+    """Look up a card by set/CN, with promo/token set fallback."""
     card_data = None
 
     # Promo cards: try p{set_code} set with {cn}p collector number first
@@ -38,7 +38,20 @@ def lookup_card(set_code, cn_raw, cn_stripped, rarity_expected, printing_repo, s
         if not card_data:
             card_data = scryfall.get_card_by_set_cn(promo_set, cn_stripped)
 
-    # Regular lookup (also fallback for promo)
+    # Token cards: try t{set_code} set
+    if rarity_expected == "token":
+        token_set = f"t{set_code}"
+        printing = printing_repo.get_by_set_cn(token_set, cn_stripped)
+        if not printing:
+            printing = printing_repo.get_by_set_cn(token_set, cn_raw)
+        if printing and printing.raw_json:
+            card_data = printing.get_scryfall_data()
+        if not card_data:
+            card_data = scryfall.get_card_by_set_cn(token_set, cn_stripped)
+        if not card_data:
+            card_data = scryfall.get_card_by_set_cn(token_set, cn_raw)
+
+    # Regular lookup (also fallback for promo/token)
     if not card_data:
         printing = printing_repo.get_by_set_cn(set_code, cn_stripped)
         if not printing:
@@ -106,7 +119,8 @@ def resolve_and_add_ids(
             failed.append(label)
             continue
 
-        # Warn on rarity mismatch (promos use a separate boolean, not a rarity string)
+        # Warn on rarity mismatch (promos use a separate boolean, not a rarity string;
+        # tokens are labeled "common" by Scryfall which is expected)
         actual_rarity = card_data.get("rarity", "")
         if rarity_expected == "promo":
             if not card_data.get("promo", False):
@@ -114,6 +128,8 @@ def resolve_and_add_ids(
                     f"  Warning: {label} — expected promo, "
                     f"Scryfall reports non-promo '{actual_rarity}'"
                 )
+        elif rarity_expected == "token":
+            pass  # Scryfall labels tokens as "common", no mismatch to warn about
         elif actual_rarity != rarity_expected:
             print(
                 f"  Warning: {label} — expected rarity '{rarity_expected}', "
