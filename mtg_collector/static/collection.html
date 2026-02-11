@@ -756,6 +756,13 @@ a.badge.link:hover { color: #fff; background: #555; border-color: #777; }
       <div class="selected-pills" id="subtype-pills"></div>
     </div>
 
+    <h3>Collector #</h3>
+    <div class="range-row">
+      <input type="number" id="cn-min" min="1" placeholder="Min">
+      <span>&ndash;</span>
+      <input type="number" id="cn-max" min="1" placeholder="Max">
+    </div>
+
     <h3>Mana Value</h3>
     <div class="range-row">
       <input type="number" id="cmc-min" min="0" placeholder="Min">
@@ -828,6 +835,8 @@ const colConfigBtn = document.getElementById('col-config-btn');
 const colConfigDropdown = document.getElementById('col-config-dropdown');
 
 // Range inputs
+const cnMinEl = document.getElementById('cn-min');
+const cnMaxEl = document.getElementById('cn-max');
 const cmcMinEl = document.getElementById('cmc-min');
 const cmcMaxEl = document.getElementById('cmc-max');
 const priceMinEl = document.getElementById('price-min');
@@ -1390,6 +1399,18 @@ async function fetchCollection() {
     });
   }
 
+  // Client-side collector number filtering
+  const cnMin = parseInt(cnMinEl.value);
+  const cnMax = parseInt(cnMaxEl.value);
+  if (!isNaN(cnMin) || !isNaN(cnMax)) {
+    allCards = allCards.filter(card => {
+      const cn = parseInt(card.collector_number) || 0;
+      if (!isNaN(cnMin) && cn < cnMin) return false;
+      if (!isNaN(cnMax) && cn > cnMax) return false;
+      return true;
+    });
+  }
+
   // Client-side price filtering
   const pMin = parseFloat(priceMinEl.value);
   const pMax = parseFloat(priceMaxEl.value);
@@ -1633,6 +1654,16 @@ document.querySelectorAll('#color-filters input, #rarity-filters input, #finish-
   cb.addEventListener('change', fetchCollection);
 });
 
+// Collector number range inputs
+cnMinEl.addEventListener('input', () => {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(fetchCollection, 300);
+});
+cnMaxEl.addEventListener('input', () => {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(fetchCollection, 300);
+});
+
 // CMC range inputs
 cmcMinEl.addEventListener('input', () => {
   clearTimeout(debounceTimer);
@@ -1662,6 +1693,8 @@ clearFiltersBtn.addEventListener('click', () => {
   setMultiSelect.renderPills();
   subtypeMultiSelect.renderPills();
   searchInput.value = '';
+  cnMinEl.value = '';
+  cnMaxEl.value = '';
   cmcMinEl.value = '';
   cmcMaxEl.value = '';
   priceMinEl.value = '';
