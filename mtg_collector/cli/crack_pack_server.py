@@ -628,6 +628,7 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             "qty": "qty",
             "price": "card.name",  # sorted client-side since prices are attached after
             "collector_number": "CAST(p.collector_number AS INTEGER)",
+            "date_added": "c.acquired_at",
         }
         sort_col = sort_map.get(sort, "card.name")
         order_dir = "DESC" if order == "desc" else "ASC"
@@ -641,7 +642,8 @@ class CrackPackHandler(BaseHTTPRequestHandler):
                 p.frame_effects, p.border_color, p.full_art, p.promo,
                 p.promo_types, p.finishes,
                 c.finish, c.condition,
-                COUNT(*) as qty
+                COUNT(*) as qty,
+                MAX(c.acquired_at) as acquired_at
             FROM collection c
             JOIN printings p ON c.scryfall_id = p.scryfall_id
             JOIN cards card ON p.oracle_id = card.oracle_id
@@ -679,26 +681,19 @@ class CrackPackHandler(BaseHTTPRequestHandler):
                 "finish": row["finish"],
                 "condition": row["condition"],
                 "qty": row["qty"],
+                "acquired_at": row["acquired_at"],
             }
             card["tcg_price"] = None
             card["ck_price"] = None
             card["ck_url"] = ""
             results.append(card)
 
-        # Batch fetch Scryfall prices
-        scryfall_ids = list({r["scryfall_id"] for r in results})
-        prices = _fetch_prices(scryfall_ids)
+        # Prices via local MTGJSON data (no network calls)
         for card in results:
-            card_prices = prices.get(card["scryfall_id"], {})
             foil = card["finish"] in ("foil", "etched")
-            if foil:
-                card["tcg_price"] = card_prices.get("usd_foil") or card_prices.get("usd")
-            else:
-                card["tcg_price"] = card_prices.get("usd") or card_prices.get("usd_foil")
-
-            # CK price and URL via MTGJSON uuid lookup
             uuid = self.generator.get_uuid_for_scryfall_id(card["scryfall_id"])
             if uuid:
+                card["tcg_price"] = _get_tcg_price(uuid, foil)
                 card["ck_price"] = _get_ck_price(uuid, foil)
             card["ck_url"] = self.generator.get_ck_url(card["scryfall_id"], foil)
 

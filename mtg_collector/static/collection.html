@@ -561,6 +561,34 @@ a.badge.link:hover { color: #fff; background: #555; border-color: #777; }
   .card-modal-details { width: auto; }
 }
 
+/* Column config dropdown */
+.col-config-wrap { position: relative; }
+.col-config-dropdown {
+  display: none;
+  position: absolute;
+  top: 100%;
+  right: 0;
+  background: #16213e;
+  border: 1px solid #0f3460;
+  border-radius: 6px;
+  padding: 6px 0;
+  z-index: 60;
+  min-width: 160px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+.col-config-dropdown.open { display: block; }
+.col-config-dropdown label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 14px;
+  font-size: 0.82rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.col-config-dropdown label:hover { background: #0f3460; }
+.col-config-dropdown input[type="checkbox"] { accent-color: #e94560; }
+
 /* Sort arrow */
 .sort-arrow { font-size: 0.7rem; margin-left: 2px; }
 
@@ -617,6 +645,10 @@ a.badge.link:hover { color: #fff; background: #555; border-color: #777; }
     <button class="secondary" id="view-table-btn" title="Table view">Table</button>
     <button class="secondary" id="view-grid-btn" title="Grid view">Grid</button>
     <button class="secondary" id="sidebar-toggle-btn" title="Toggle filters">Filters</button>
+    <div class="col-config-wrap">
+      <button class="secondary" id="col-config-btn" title="Configure columns">Columns</button>
+      <div class="col-config-dropdown" id="col-config-dropdown"></div>
+    </div>
     <div class="size-slider-wrap" id="grid-size-wrap" style="display:none"><span>Size</span><input type="range" id="grid-size-slider" min="100" max="500" value="264"></div>
   </div>
   <div id="status"></div>
@@ -729,6 +761,8 @@ const modalImg = document.getElementById('modal-img');
 const modalDetails = document.getElementById('modal-details');
 const modalClose = document.getElementById('modal-close');
 const clearFiltersBtn = document.getElementById('clear-filters-btn');
+const colConfigBtn = document.getElementById('col-config-btn');
+const colConfigDropdown = document.getElementById('col-config-dropdown');
 
 // Range inputs
 const cmcMinEl = document.getElementById('cmc-min');
@@ -775,21 +809,67 @@ let selectedSubtypes = new Set();
 let allSetOptions = [];         // [{code, name}]
 let allSubtypeOptions = [];     // [string]
 
-const SORT_COLS = [
-  { key: 'qty', label: 'Qty' },
-  { key: 'name', label: 'Card' },
-  { key: 'type', label: 'Type' },
-  { key: 'mana', label: 'Cost' },
-  { key: 'set', label: 'Set' },
-  { key: 'collector_number', label: '#' },
-  { key: 'price', label: 'Price' },
+// --- Column definitions ---
+const ALL_COLUMNS = [
+  { key: 'qty', label: 'Qty', sort: 'qty', defaultOn: true },
+  { key: 'name', label: 'Card', sort: 'name', defaultOn: true },
+  { key: 'type', label: 'Type', sort: 'name', defaultOn: true },
+  { key: 'mana', label: 'Cost', sort: 'cmc', defaultOn: true },
+  { key: 'set', label: 'Set', sort: 'set', defaultOn: true },
+  { key: 'collector_number', label: '#', sort: 'collector_number', defaultOn: true },
+  { key: 'price', label: 'Price', sort: 'price', defaultOn: true },
+  { key: 'condition', label: 'Cond.', sort: 'name', defaultOn: false },
+  { key: 'date_added', label: 'Added', sort: 'date_added', defaultOn: false },
+  { key: 'ck_price', label: 'CK $', sort: 'price', defaultOn: false },
+  { key: 'tcg_price', label: 'TCG $', sort: 'price', defaultOn: false },
 ];
 
-const COL_SORT_MAP = {
-  qty: 'qty', name: 'name', type: 'name', mana: 'cmc',
-  set: 'set', collector_number: 'collector_number',
-  price: 'price',
-};
+const DEFAULT_COLS = ALL_COLUMNS.filter(c => c.defaultOn).map(c => c.key);
+let enabledCols = JSON.parse(localStorage.getItem('collectionCols') || 'null') || DEFAULT_COLS;
+
+function getVisibleColumns() {
+  return ALL_COLUMNS.filter(c => enabledCols.includes(c.key));
+}
+
+function saveColumns() {
+  localStorage.setItem('collectionCols', JSON.stringify(enabledCols));
+}
+
+const COL_SORT_MAP = Object.fromEntries(ALL_COLUMNS.map(c => [c.key, c.sort]));
+
+// --- Column config dropdown ---
+function renderColConfig() {
+  colConfigDropdown.innerHTML = '';
+  for (const col of ALL_COLUMNS) {
+    const label = document.createElement('label');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = enabledCols.includes(col.key);
+    cb.addEventListener('change', () => {
+      if (cb.checked) {
+        if (!enabledCols.includes(col.key)) enabledCols.push(col.key);
+      } else {
+        enabledCols = enabledCols.filter(k => k !== col.key);
+      }
+      saveColumns();
+      render();
+    });
+    label.appendChild(cb);
+    label.appendChild(document.createTextNode(col.label));
+    colConfigDropdown.appendChild(label);
+  }
+}
+renderColConfig();
+
+colConfigBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  colConfigDropdown.classList.toggle('open');
+});
+document.addEventListener('click', (e) => {
+  if (!colConfigDropdown.contains(e.target) && e.target !== colConfigBtn) {
+    colConfigDropdown.classList.remove('open');
+  }
+});
 
 function handleSortClick(colKey) {
   if (sortColumn === colKey) {
@@ -1183,21 +1263,59 @@ function render() {
   else renderGrid();
 }
 
+const CONDITION_ABBREV = {
+  'Near Mint': 'NM', 'Lightly Played': 'LP', 'Moderately Played': 'MP',
+  'Heavily Played': 'HP', 'Damaged': 'D',
+};
+
+function formatDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const m = d.getMonth() + 1, day = d.getDate();
+  return `${m}/${day}`;
+}
+
+function renderCellContent(colKey, card, helpers) {
+  switch (colKey) {
+    case 'qty': return `${card.qty}`;
+    case 'name': return `<div class="card-cell">${helpers.imgSrc ? `<img class="card-thumb" src="${helpers.imgSrc}" loading="lazy">` : ''}<span>${helpers.nameHtml}${helpers.tags}</span></div>`;
+    case 'type': {
+      const full = card.type_line || '';
+      const parts = full.split(' \u2014 ');
+      const main = parts[0].replace(/Legendary /g, 'Lgdry. ');
+      const sub = parts[1] || '';
+      return `<span class="type-cell" title="${full}">${main}${sub ? `<span class="type-sub">${sub}</span>` : ''}</span>`;
+    }
+    case 'mana': return `<span class="mana-cost">${helpers.manaHtml}</span>`;
+    case 'set': return `<div class="set-cell" title="${helpers.setName}">${helpers.setIcon} ${card.set_code.toUpperCase()}</div>`;
+    case 'collector_number': return (card.collector_number || '').padStart(4, '0');
+    case 'price': return buildPriceBadges(card);
+    case 'condition': return CONDITION_ABBREV[card.condition] || card.condition || '';
+    case 'date_added': return formatDate(card.acquired_at);
+    case 'ck_price': return card.ck_price ? `$${parseFloat(card.ck_price).toFixed(2)}` : '';
+    case 'tcg_price': return card.tcg_price ? `$${parseFloat(card.tcg_price).toFixed(2)}` : '';
+    default: return '';
+  }
+}
+
 function renderTable() {
   if (allCards.length === 0) {
     main.innerHTML = '<div class="empty-state">No cards found</div>';
     return;
   }
 
+  const visCols = getVisibleColumns();
+
   let html = '<table class="collection-table"><thead><tr>';
-  for (const col of SORT_COLS) {
+  for (const col of visCols) {
     const isActive = col.key === sortColumn;
     const arrow = isActive ? `<span class="sort-arrow">${sortOrder === 'asc' ? '\u25B2' : '\u25BC'}</span>` : '';
     html += `<th class="${isActive ? 'sorted' : ''}" data-col="${col.key}">${col.label}${arrow}</th>`;
   }
   html += '</tr></thead><tbody>';
 
-  for (const card of allCards) {
+  for (let idx = 0; idx < allCards.length; idx++) {
+    const card = allCards[idx];
     const imgFull = card.image_uri || '';
     const imgSrc = imgFull.replace('/normal/', '/small/');
     const rawMana = card.mana_cost || '';
@@ -1212,26 +1330,18 @@ function renderTable() {
       nameHtml = `<span class="card-name">${card.name}</span>`;
       manaHtml = renderMana(rawMana);
     }
-    const priceBadges = buildPriceBadges(card);
     const setCode = keyruneSetCode(card.set_code);
     const rarityClass = `ss-${card.rarity || 'common'}`;
     const setName = card.set_name || card.set_code.toUpperCase();
     const setIcon = `<i class="ss ss-${setCode} ${rarityClass} ss-grad ss-fw"></i>`;
     const tags = buildInlineTags(card);
-    const idx = allCards.indexOf(card);
+    const helpers = { imgSrc, nameHtml, manaHtml, setCode, setName, setIcon, tags };
 
     html += `<tr data-idx="${idx}">`;
-    html += `<td>${card.qty}</td>`;
-    html += `<td><div class="card-cell">${imgSrc ? `<img class="card-thumb" src="${imgSrc}" loading="lazy">` : ''}<span>${nameHtml}${tags}</span></div></td>`;
-    const fullType = card.type_line || '';
-    const typeParts = fullType.split(' \u2014 ');
-    const mainType = typeParts[0].replace(/Legendary /g, 'Lgdry. ');
-    const subType = typeParts[1] || '';
-    html += `<td class="type-cell" title="${fullType}">${mainType}${subType ? `<span class="type-sub">${subType}</span>` : ''}</td>`;
-    html += `<td class="mana-cost">${manaHtml}</td>`;
-    html += `<td title="${setName}"><div class="set-cell">${setIcon} ${card.set_code.toUpperCase()}</div></td>`;
-    html += `<td>${(card.collector_number || '').padStart(4, '0')}</td>`;
-    html += `<td class="price-cell">${priceBadges}</td>`;
+    for (const col of visCols) {
+      const cls = col.key === 'price' || col.key === 'ck_price' || col.key === 'tcg_price' ? ' class="price-cell"' : '';
+      html += `<td${cls}>${renderCellContent(col.key, card, helpers)}</td>`;
+    }
     html += '</tr>';
   }
 
@@ -1261,7 +1371,7 @@ function renderGrid() {
   // Sort bar
   const bar = document.createElement('div');
   bar.className = 'sort-bar';
-  for (const col of SORT_COLS) {
+  for (const col of ALL_COLUMNS) {
     const btn = document.createElement('span');
     btn.className = 'sort-btn' + (col.key === sortColumn ? ' active' : '');
     const arrow = col.key === sortColumn ? ` ${sortOrder === 'asc' ? '\u25B2' : '\u25BC'}` : '';
