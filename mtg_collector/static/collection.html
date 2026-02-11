@@ -325,13 +325,13 @@ button.secondary.active { background: #0f3460; border-color: #e94560; }
 }
 
 .sheet-card {
-  width: 264px;
+  width: var(--grid-card-width, 264px);
   position: relative;
   cursor: pointer;
 }
 
 .sheet-card-img-wrap {
-  width: 264px;
+  width: var(--grid-card-width, 264px);
   aspect-ratio: 488 / 680;
   border-radius: 8px;
   position: relative;
@@ -510,10 +510,21 @@ a.badge.link:hover { color: #fff; background: #555; border-color: #777; }
 .sort-btn:hover { color: #e94560; border-color: #e94560; }
 .sort-btn.active { color: #e94560; border-color: #e94560; background: #1a1a2e; }
 
+.size-slider-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: #888;
+}
+
+.size-slider-wrap input[type="range"] {
+  width: 100px;
+  accent-color: #e94560;
+}
+
 @media (max-width: 768px) {
   .sidebar { display: none; }
-  .sheet-card { width: 168px; }
-  .sheet-card-img-wrap { width: 168px; }
   #search-input { width: 140px; }
 }
 </style>
@@ -528,6 +539,7 @@ a.badge.link:hover { color: #fff; background: #555; border-color: #777; }
     <button class="secondary" id="view-table-btn" title="Table view">Table</button>
     <button class="secondary" id="view-grid-btn" title="Grid view">Grid</button>
     <button class="secondary" id="sidebar-toggle-btn" title="Toggle filters">Filters</button>
+    <div class="size-slider-wrap" id="grid-size-wrap" style="display:none"><span>Size</span><input type="range" id="grid-size-slider" min="100" max="500" value="264"></div>
   </div>
   <div id="status"></div>
 </header>
@@ -637,12 +649,38 @@ const cmcMaxEl = document.getElementById('cmc-max');
 const priceMinEl = document.getElementById('price-min');
 const priceMaxEl = document.getElementById('price-max');
 
+const gridSizeWrap = document.getElementById('grid-size-wrap');
+const gridSizeSlider = document.getElementById('grid-size-slider');
+
 let currentView = 'table';
 let sortOrder = 'asc';
 let sortColumn = 'name';
 let allCards = [];
 let debounceTimer = null;
 let _settings = {};
+
+// Grid size slider
+const savedGridSize = localStorage.getItem('collectionGridCardSize');
+if (savedGridSize) {
+  gridSizeSlider.value = savedGridSize;
+  document.documentElement.style.setProperty('--grid-card-width', savedGridSize + 'px');
+}
+
+gridSizeSlider.addEventListener('input', () => {
+  const w = gridSizeSlider.value;
+  document.documentElement.style.setProperty('--grid-card-width', w + 'px');
+  localStorage.setItem('collectionGridCardSize', w);
+});
+
+const KEYRUNE_FALLBACKS = {
+  tsb: 'tsp',
+  pspm: 'spm',
+  cst: 'csp',   // Coldsnap Theme Decks → Coldsnap
+};
+function keyruneSetCode(code) {
+  const lc = (code || '').toLowerCase();
+  return KEYRUNE_FALLBACKS[lc] || lc;
+}
 
 // Multi-select state
 let selectedSets = new Map();   // code -> name
@@ -697,9 +735,9 @@ function buildPriceBadges(card) {
     html += `<a class="badge link" href="https://scryfall.com/card/${card.set_code.toLowerCase()}/${card.collector_number}" target="_blank" rel="noopener" onclick="event.stopPropagation()">SF${sfPrice}</a>`;
   }
   if (sources.includes('ck')) {
-    const ckSearch = encodeURIComponent(card.name.split(' // ')[0]);
     const ckPrice = card.ck_price ? ` $${parseFloat(card.ck_price).toFixed(2)}` : '';
-    html += `<a class="badge link" href="https://www.cardkingdom.com/catalog/search?search=header&filter%5Bname%5D=${ckSearch}" target="_blank" rel="noopener" onclick="event.stopPropagation()">CK${ckPrice}</a>`;
+    const ckHref = card.ck_url || `https://www.cardkingdom.com/catalog/search?search=header&filter%5Bname%5D=${encodeURIComponent(card.name.split(' // ')[0])}`;
+    html += `<a class="badge link" href="${ckHref}" target="_blank" rel="noopener" onclick="event.stopPropagation()">CK${ckPrice}</a>`;
   }
   return html;
 }
@@ -713,9 +751,9 @@ function buildCardBadges(card) {
     html += `<a class="badge link" href="https://scryfall.com/card/${card.set_code.toLowerCase()}/${card.collector_number}" target="_blank" rel="noopener" onclick="event.stopPropagation()">SF${sfPrice}</a>`;
   }
   if (sources.includes('ck')) {
-    const ckSearch = encodeURIComponent(card.name.split(' // ')[0]);
     const ckPrice = card.ck_price ? ` $${parseFloat(card.ck_price).toFixed(2)}` : '';
-    html += `<a class="badge link" href="https://www.cardkingdom.com/catalog/search?search=header&filter%5Bname%5D=${ckSearch}" target="_blank" rel="noopener" onclick="event.stopPropagation()">CK${ckPrice}</a>`;
+    const ckHref = card.ck_url || `https://www.cardkingdom.com/catalog/search?search=header&filter%5Bname%5D=${encodeURIComponent(card.name.split(' // ')[0])}`;
+    html += `<a class="badge link" href="${ckHref}" target="_blank" rel="noopener" onclick="event.stopPropagation()">CK${ckPrice}</a>`;
   }
   const fe = parseJsonField(card.frame_effects);
   if (card.border_color === 'borderless') html += '<span class="badge treatment">BL</span>';
@@ -857,6 +895,7 @@ viewGridBtn.addEventListener('click', () => { currentView = 'grid'; updateViewBu
 function updateViewButtons() {
   viewTableBtn.classList.toggle('active', currentView === 'table');
   viewGridBtn.classList.toggle('active', currentView === 'grid');
+  gridSizeWrap.style.display = currentView === 'grid' ? '' : 'none';
 }
 updateViewButtons();
 
@@ -1010,7 +1049,7 @@ function renderTable() {
     }
     const priceBadges = buildPriceBadges(card);
     const condAbbrev = CONDITION_ABBREV[card.condition] || card.condition;
-    const setCode = card.set_code.toLowerCase();
+    const setCode = keyruneSetCode(card.set_code);
     const rarityClass = `ss-${card.rarity || 'common'}`;
     const setName = card.set_name || card.set_code.toUpperCase();
     const setIcon = `<i class="ss ss-${setCode} ${rarityClass} ss-grad ss-fw"></i>`;
