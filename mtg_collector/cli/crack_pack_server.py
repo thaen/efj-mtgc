@@ -564,7 +564,7 @@ class CrackPackHandler(BaseHTTPRequestHandler):
                 else:
                     color_conditions.append("card.colors LIKE ?")
                     sql_params.append(f'%"{color}"%')
-            where_clauses.append(f"({' OR '.join(color_conditions)})")
+            where_clauses.append(f"({' AND '.join(color_conditions)})")
 
         if filter_rarities:
             placeholders = ",".join("?" * len(filter_rarities))
