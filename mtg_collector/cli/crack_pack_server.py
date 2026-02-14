@@ -574,17 +574,40 @@ class CrackPackHandler(BaseHTTPRequestHandler):
         filter_date_min = params.get("filter_date_min", [""])[0]
         filter_date_max = params.get("filter_date_max", [""])[0]
         filter_status = params.get("status", ["owned"])[0]
+        _unowned_raw = params.get("include_unowned", [""])[0]
+        include_unowned = _unowned_raw if _unowned_raw in ("base", "full") and filter_sets else ""
 
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
+
+        # When including unowned cards, ensure each selected set is fully cached
+        if include_unowned:
+            from mtg_collector.services.scryfall import ScryfallAPI, ensure_set_cached
+            from mtg_collector.db.models import CardRepository, SetRepository, PrintingRepository
+            api = ScryfallAPI()
+            card_repo = CardRepository(conn)
+            set_repo = SetRepository(conn)
+            printing_repo = PrintingRepository(conn)
+            for sc in filter_sets:
+                ensure_set_cached(api, sc, card_repo, set_repo, printing_repo, conn)
 
         where_clauses = []
         sql_params = []
 
         # Status filter (default: owned)
-        if filter_status != "all":
+        # For include_unowned: applied in the LEFT JOIN ON clause (see query below)
+        # so unowned cards (c.* IS NULL) aren't filtered out
+        if not include_unowned and filter_status != "all":
             where_clauses.append("c.status = ?")
             sql_params.append(filter_status)
+
+        # Exclude non-collectible cards (digital-only, meld backs)
+        if include_unowned:
+            where_clauses.append("json_extract(p.raw_json, '$.digital') = 0")
+            where_clauses.append(
+                "NOT (json_extract(p.raw_json, '$.layout') = 'meld'"
+                " AND p.collector_number LIKE '%b')"
+            )
 
         if q:
             where_clauses.append("(card.name LIKE ? OR card.type_line LIKE ? OR json_extract(p.raw_json, '$.flavor_name') LIKE ?)")
@@ -628,8 +651,15 @@ class CrackPackHandler(BaseHTTPRequestHandler):
 
         if filter_finish:
             placeholders = ",".join("?" * len(filter_finish))
-            where_clauses.append(f"c.finish IN ({placeholders})")
-            sql_params.extend(filter_finish)
+            if include_unowned == "full":
+                # Full mode: filter on the expanded finish value
+                where_clauses.append(f"f.value IN ({placeholders})")
+                sql_params.extend(filter_finish)
+            elif not include_unowned:
+                # Normal mode: filter on collection finish
+                where_clauses.append(f"c.finish IN ({placeholders})")
+                sql_params.extend(filter_finish)
+            # Base mode: skip finish filter (rows span all finishes)
 
         if filter_badges:
             badge_conditions = []
@@ -655,10 +685,10 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             where_clauses.append("card.cmc <= ?")
             sql_params.append(float(filter_cmc_max))
 
-        if filter_date_min:
+        if filter_date_min and not include_unowned:
             where_clauses.append("c.acquired_at >= ?")
             sql_params.append(filter_date_min)
-        if filter_date_max:
+        if filter_date_max and not include_unowned:
             where_clauses.append("c.acquired_at < date(?, '+1 day')")
             sql_params.append(filter_date_max)
 
@@ -679,29 +709,88 @@ class CrackPackHandler(BaseHTTPRequestHandler):
         sort_col = sort_map.get(sort, "card.name")
         order_dir = "DESC" if order == "desc" else "ASC"
 
-        query = f"""
-            SELECT
-                card.name, card.type_line, card.mana_cost, card.cmc,
-                card.colors, card.color_identity,
-                p.set_code, s.set_name, p.collector_number, p.rarity,
-                p.scryfall_id, p.image_uri, p.artist,
-                p.frame_effects, p.border_color, p.full_art, p.promo,
-                p.promo_types, p.finishes,
-                COALESCE(json_extract(p.raw_json, '$.flavor_name'), json_extract(p.raw_json, '$.card_faces[0].flavor_name')) as flavor_name,
-                json_extract(p.raw_json, '$.layout') as layout,
-                json_extract(p.raw_json, '$.card_faces[0].mana_cost') as face0_mana,
-                json_extract(p.raw_json, '$.card_faces[1].mana_cost') as face1_mana,
-                c.finish, c.condition, c.status,
-                COUNT(*) as qty,
-                MAX(c.acquired_at) as acquired_at
-            FROM collection c
-            JOIN printings p ON c.scryfall_id = p.scryfall_id
-            JOIN cards card ON p.oracle_id = card.oracle_id
-            JOIN sets s ON p.set_code = s.set_code
-            WHERE {where_sql}
-            GROUP BY p.scryfall_id, c.finish, c.condition, c.status
-            ORDER BY {sort_col} {order_dir}, card.name ASC
-        """
+        if include_unowned:
+            join_status_sql = " AND c.status = ?" if filter_status != "all" else ""
+            join_params = [filter_status] if filter_status != "all" else []
+            if include_unowned == "full":
+                # Full set: one row per (scryfall_id, finish) via json_each
+                query = f"""
+                    SELECT
+                        card.name, card.type_line, card.mana_cost, card.cmc,
+                        card.colors, card.color_identity,
+                        p.set_code, s.set_name, p.collector_number, p.rarity,
+                        p.scryfall_id, p.image_uri, p.artist,
+                        p.frame_effects, p.border_color, p.full_art, p.promo,
+                        p.promo_types, p.finishes,
+                        COALESCE(json_extract(p.raw_json, '$.flavor_name'), json_extract(p.raw_json, '$.card_faces[0].flavor_name')) as flavor_name,
+                        json_extract(p.raw_json, '$.layout') as layout,
+                        json_extract(p.raw_json, '$.card_faces[0].mana_cost') as face0_mana,
+                        json_extract(p.raw_json, '$.card_faces[1].mana_cost') as face1_mana,
+                        COALESCE(c.finish, f.value) as finish,
+                        c.condition, c.status,
+                        COALESCE(COUNT(c.id), 0) as qty,
+                        MAX(c.acquired_at) as acquired_at,
+                        CASE WHEN c.id IS NOT NULL THEN 1 ELSE 0 END as owned
+                    FROM printings p
+                    JOIN cards card ON p.oracle_id = card.oracle_id
+                    JOIN sets s ON p.set_code = s.set_code
+                    CROSS JOIN json_each(p.finishes) AS f
+                    LEFT JOIN collection c ON p.scryfall_id = c.scryfall_id AND c.finish = f.value{join_status_sql}
+                    WHERE {where_sql}
+                    GROUP BY p.scryfall_id, f.value
+                    ORDER BY {sort_col} {order_dir}, card.name ASC
+                """
+            else:
+                # Base set: one row per scryfall_id
+                query = f"""
+                    SELECT
+                        card.name, card.type_line, card.mana_cost, card.cmc,
+                        card.colors, card.color_identity,
+                        p.set_code, s.set_name, p.collector_number, p.rarity,
+                        p.scryfall_id, p.image_uri, p.artist,
+                        p.frame_effects, p.border_color, p.full_art, p.promo,
+                        p.promo_types, p.finishes,
+                        COALESCE(json_extract(p.raw_json, '$.flavor_name'), json_extract(p.raw_json, '$.card_faces[0].flavor_name')) as flavor_name,
+                        json_extract(p.raw_json, '$.layout') as layout,
+                        json_extract(p.raw_json, '$.card_faces[0].mana_cost') as face0_mana,
+                        json_extract(p.raw_json, '$.card_faces[1].mana_cost') as face1_mana,
+                        c.finish, c.condition, c.status,
+                        COALESCE(COUNT(c.id), 0) as qty,
+                        MAX(c.acquired_at) as acquired_at,
+                        CASE WHEN c.id IS NOT NULL THEN 1 ELSE 0 END as owned
+                    FROM printings p
+                    JOIN cards card ON p.oracle_id = card.oracle_id
+                    JOIN sets s ON p.set_code = s.set_code
+                    LEFT JOIN collection c ON p.scryfall_id = c.scryfall_id{join_status_sql}
+                    WHERE {where_sql}
+                    GROUP BY p.scryfall_id
+                    ORDER BY {sort_col} {order_dir}, card.name ASC
+                """
+            sql_params = join_params + sql_params
+        else:
+            query = f"""
+                SELECT
+                    card.name, card.type_line, card.mana_cost, card.cmc,
+                    card.colors, card.color_identity,
+                    p.set_code, s.set_name, p.collector_number, p.rarity,
+                    p.scryfall_id, p.image_uri, p.artist,
+                    p.frame_effects, p.border_color, p.full_art, p.promo,
+                    p.promo_types, p.finishes,
+                    COALESCE(json_extract(p.raw_json, '$.flavor_name'), json_extract(p.raw_json, '$.card_faces[0].flavor_name')) as flavor_name,
+                    json_extract(p.raw_json, '$.layout') as layout,
+                    json_extract(p.raw_json, '$.card_faces[0].mana_cost') as face0_mana,
+                    json_extract(p.raw_json, '$.card_faces[1].mana_cost') as face1_mana,
+                    c.finish, c.condition, c.status,
+                    COUNT(*) as qty,
+                    MAX(c.acquired_at) as acquired_at
+                FROM collection c
+                JOIN printings p ON c.scryfall_id = p.scryfall_id
+                JOIN cards card ON p.oracle_id = card.oracle_id
+                JOIN sets s ON p.set_code = s.set_code
+                WHERE {where_sql}
+                GROUP BY p.scryfall_id, c.finish, c.condition, c.status
+                ORDER BY {sort_col} {order_dir}, card.name ASC
+            """
 
         cursor = conn.execute(query, sql_params)
         rows = cursor.fetchall()
@@ -741,6 +830,7 @@ class CrackPackHandler(BaseHTTPRequestHandler):
                 "status": row["status"],
                 "qty": row["qty"],
                 "acquired_at": row["acquired_at"],
+                "owned": bool(row["owned"]) if include_unowned else True,
             }
             card["tcg_price"] = None
             card["ck_price"] = None

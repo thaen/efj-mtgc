@@ -754,6 +754,24 @@ a.badge.link:hover { color: #fff; background: #555; border-color: #777; }
   cursor: pointer;
 }
 
+.sheet-card.unowned .sheet-card-img-wrap {
+  filter: grayscale(85%) brightness(0.55);
+  opacity: 0.6;
+}
+.sheet-card.unowned .sheet-card-img-wrap.foil::before,
+.sheet-card.unowned .sheet-card-img-wrap.foil::after {
+  display: none;
+}
+tr.unowned td { opacity: 0.45; }
+#include-unowned-btn.active {
+  background: #e94560;
+  color: #fff;
+}
+#include-unowned-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
 @media (max-width: 768px) {
   .sidebar { display: none; }
   #search-input { width: 140px; }
@@ -780,6 +798,7 @@ a.badge.link:hover { color: #fff; background: #555; border-color: #777; }
         <button class="menu-item" id="toggle-multiselect-btn">Toggle Multi-Select</button>
       </div>
     </div>
+    <button class="secondary" id="include-unowned-btn" disabled title="Select a set first">+ Unowned</button>
     <div class="size-slider-wrap" id="grid-size-wrap" style="display:none"><span>Size</span><input type="range" id="grid-size-slider" min="100" max="500" value="264"></div>
   </div>
   <div id="status"></div>
@@ -944,6 +963,9 @@ const dateMaxEl = document.getElementById('date-max');
 
 const gridSizeWrap = document.getElementById('grid-size-wrap');
 const gridSizeSlider = document.getElementById('grid-size-slider');
+
+const includeUnownedBtn = document.getElementById('include-unowned-btn');
+let includeUnowned = '';  // '' | 'base' | 'full'
 
 let currentView = 'table';
 let sortOrder = 'asc';
@@ -1528,6 +1550,28 @@ sidebarToggleBtn.addEventListener('click', () => {
 });
 sidebarToggleBtn.classList.add('active');
 
+// --- Include Unowned toggle (cycles: '' -> 'base' -> 'full' -> '') ---
+const UNOWNED_CYCLE = ['', 'base', 'full'];
+const UNOWNED_LABELS = { '': '+ Unowned', 'base': '+ Unowned', 'full': '+ Full Set' };
+
+includeUnownedBtn.addEventListener('click', () => {
+  if (!selectedSets.size) return;
+  const idx = UNOWNED_CYCLE.indexOf(includeUnowned);
+  includeUnowned = UNOWNED_CYCLE[(idx + 1) % UNOWNED_CYCLE.length];
+  updateUnownedBtn();
+  fetchCollection();
+});
+
+function updateUnownedBtn() {
+  const hasSets = selectedSets.size > 0;
+  includeUnownedBtn.disabled = !hasSets;
+  if (!hasSets && includeUnowned) {
+    includeUnowned = '';
+  }
+  includeUnownedBtn.classList.toggle('active', !!includeUnowned);
+  includeUnownedBtn.textContent = UNOWNED_LABELS[includeUnowned] || '+ Unowned';
+}
+
 // --- Fetch ---
 function getFilterParams() {
   const params = new URLSearchParams();
@@ -1568,10 +1612,13 @@ function getFilterParams() {
   if (dateMin) params.set('filter_date_min', dateMin);
   if (dateMax) params.set('filter_date_max', dateMax);
 
+  if (includeUnowned && selectedSets.size) params.set('include_unowned', includeUnowned);
+
   return params.toString();
 }
 
 async function fetchCollection() {
+  updateUnownedBtn();
   const params = getFilterParams();
   statusEl.textContent = 'Loading...';
   const res = await fetch(`/api/collection?${params}`);
@@ -1624,12 +1671,20 @@ async function fetchCollection() {
   // Populate subtype options from data
   populateSubtypeOptions();
 
-  const totalQty = allCards.reduce((s, c) => s + c.qty, 0);
   const sources = (_settings.price_sources || 'tcg,ck').split(',');
   const priceField = sources[0] === 'ck' ? 'ck_price' : 'tcg_price';
   const priceLabel = sources[0] === 'ck' ? 'CK' : 'TCG';
-  const totalValue = allCards.reduce((s, c) => s + (parseFloat(c[priceField]) || 0) * c.qty, 0);
-  statusEl.textContent = `${allCards.length} entries, ${totalQty} cards \u2014 ${priceLabel} $${totalValue.toFixed(2)}`;
+  if (includeUnowned && selectedSets.size) {
+    const ownedCards = allCards.filter(c => c.owned);
+    const missingCards = allCards.filter(c => !c.owned);
+    const ownedValue = ownedCards.reduce((s, c) => s + (parseFloat(c[priceField]) || 0) * c.qty, 0);
+    const modeLabel = includeUnowned === 'full' ? 'full' : 'base';
+    statusEl.textContent = `${ownedCards.length} owned, ${missingCards.length} missing (${modeLabel}) \u2014 ${priceLabel} $${ownedValue.toFixed(2)}`;
+  } else {
+    const totalQty = allCards.reduce((s, c) => s + c.qty, 0);
+    const totalValue = allCards.reduce((s, c) => s + (parseFloat(c[priceField]) || 0) * c.qty, 0);
+    statusEl.textContent = `${allCards.length} entries, ${totalQty} cards \u2014 ${priceLabel} $${totalValue.toFixed(2)}`;
+  }
   render();
 }
 
@@ -1680,7 +1735,7 @@ function formatDate(iso) {
 
 function renderCellContent(colKey, card, helpers) {
   switch (colKey) {
-    case 'qty': return `${card.qty}`;
+    case 'qty': return card.owned ? `${card.qty}` : '\u2014';
     case 'name': return `<div class="card-cell">${helpers.imgSrc ? `<img class="card-thumb" src="${helpers.imgSrc}" loading="lazy">` : ''}<span class="filterable" data-filter-type="name" data-filter-value="${(card.name.split(' // ')[0]).replace(/"/g, '&quot;')}">${helpers.nameHtml}${helpers.tags}</span></div>`;
     case 'type': {
       if (card.layout === 'art_series') return `<span class="type-cell" title="Art Series">Art Series</span>`;
@@ -1766,7 +1821,9 @@ function renderTable() {
     const helpers = { imgSrc, nameHtml, manaHtml, setCode, setName, setIcon, tags };
 
     const isSelected = selectedCards.has(idx);
-    html += `<tr data-idx="${idx}"${isSelected ? ' class="selected"' : ''}>`;
+    const isUnowned = !card.owned;
+    const trClasses = [isSelected ? 'selected' : '', isUnowned ? 'unowned' : ''].filter(Boolean).join(' ');
+    html += `<tr data-idx="${idx}"${trClasses ? ` class="${trClasses}"` : ''}>`;
     if (multiSelectMode) {
       html += `<td class="select-col"><input type="checkbox" class="row-sel-cb" data-idx="${idx}" ${isSelected ? 'checked' : ''}></td>`;
     }
@@ -1847,13 +1904,14 @@ function renderGrid() {
 
   for (let idx = 0; idx < allCards.length; idx++) {
     const card = allCards[idx];
+    const isUnowned = !card.owned;
     const cardEl = document.createElement('div');
-    cardEl.className = 'sheet-card';
+    cardEl.className = 'sheet-card' + (isUnowned ? ' unowned' : '');
 
     const rarityColor = getRarityColor(card.rarity);
-    const foilClass = (card.finish === 'foil' || card.finish === 'etched') ? ' foil' : '';
+    const foilClass = (!isUnowned && (card.finish === 'foil' || card.finish === 'etched')) ? ' foil' : '';
     const badges = buildCardBadges(card);
-    const qtyBadge = card.qty > 1 ? `<span class="qty-badge">${card.qty}x</span>` : '';
+    const qtyBadge = !isUnowned && card.qty > 1 ? `<span class="qty-badge">${card.qty}x</span>` : '';
     const selectCb = multiSelectMode ? `<input type="checkbox" class="select-checkbox" data-idx="${idx}" ${selectedCards.has(idx) ? 'checked' : ''}>` : '';
 
     cardEl.innerHTML = `
@@ -1943,6 +2001,8 @@ clearFiltersBtn.addEventListener('click', () => {
   });
   selectedSets.clear();
   selectedSubtypes.clear();
+  includeUnowned = '';
+  updateUnownedBtn();
   setMultiSelect.renderPills();
   subtypeMultiSelect.renderPills();
   searchInput.value = '';
