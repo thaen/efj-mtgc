@@ -206,7 +206,7 @@ button.secondary.active { background: #0f3460; border-color: #e94560; }
   gap: 6px;
   align-items: center;
 }
-.range-row input[type="number"] {
+.range-row input[type="number"], .range-row input[type="date"] {
   width: 60px;
   padding: 4px 6px;
   border: 1px solid #0f3460;
@@ -215,7 +215,9 @@ button.secondary.active { background: #0f3460; border-color: #e94560; }
   color: #e0e0e0;
   font-size: 0.8rem;
 }
-.range-row input[type="number"]:focus { outline: 2px solid #e94560; }
+.range-row input[type="date"] { width: auto; }
+.range-row input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
+.range-row input[type="number"]:focus, .range-row input[type="date"]:focus { outline: 2px solid #e94560; }
 .range-row span { font-size: 0.8rem; color: #888; }
 
 /* Main content */
@@ -686,6 +688,72 @@ a.badge.link:hover { color: #fff; background: #555; border-color: #777; }
   accent-color: #e94560;
 }
 
+.filterable { cursor: pointer; }
+.filterable:hover { text-decoration: underline; text-decoration-color: #e94560; }
+
+/* More dropdown menu items */
+.menu-item {
+  display: block;
+  width: 100%;
+  padding: 6px 14px;
+  font-size: 0.82rem;
+  cursor: pointer;
+  white-space: nowrap;
+  background: none;
+  border: none;
+  color: #e0e0e0;
+  text-align: left;
+  font-weight: 400;
+}
+.menu-item:hover { background: #0f3460; }
+
+/* Selection bar */
+.selection-bar {
+  display: none;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 24px;
+  background: #0f3460;
+  border-bottom: 1px solid #1a5276;
+  font-size: 0.85rem;
+  color: #e0e0e0;
+}
+.selection-bar.active { display: flex; }
+.selection-bar .sel-count { font-weight: 600; }
+.selection-bar .sel-link {
+  color: #e94560;
+  cursor: pointer;
+  text-decoration: underline;
+  background: none;
+  border: none;
+  font-size: 0.85rem;
+  padding: 0;
+}
+.selection-bar .sel-link:hover { color: #fff; }
+.selection-bar .sel-actions { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.sel-share-link { color: #7ec8e3; text-decoration: underline; font-size: 0.85rem; }
+.sel-share-link:hover { color: #fff; }
+
+/* Select column in table */
+.select-col { width: 32px; text-align: center; }
+.select-col input[type="checkbox"] { accent-color: #e94560; cursor: pointer; }
+
+/* Selected row highlight */
+.collection-table tr.selected { background: rgba(233, 69, 96, 0.1); }
+.collection-table tr.selected:hover { background: rgba(233, 69, 96, 0.18); }
+
+/* Select checkbox on grid cards */
+.select-checkbox {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 4;
+  accent-color: #e94560;
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
 @media (max-width: 768px) {
   .sidebar { display: none; }
   #search-input { width: 140px; }
@@ -706,10 +774,25 @@ a.badge.link:hover { color: #fff; background: #555; border-color: #777; }
       <button class="secondary" id="col-config-btn" title="Configure columns">Columns</button>
       <div class="col-config-dropdown" id="col-config-dropdown"></div>
     </div>
+    <div class="col-config-wrap">
+      <button class="secondary" id="more-menu-btn">More</button>
+      <div class="col-config-dropdown" id="more-menu-dropdown">
+        <button class="menu-item" id="toggle-multiselect-btn">Toggle Multi-Select</button>
+      </div>
+    </div>
     <div class="size-slider-wrap" id="grid-size-wrap" style="display:none"><span>Size</span><input type="range" id="grid-size-slider" min="100" max="500" value="264"></div>
   </div>
   <div id="status"></div>
 </header>
+
+<div class="selection-bar" id="selection-bar">
+  <span class="sel-count" id="sel-count">0 selected</span>
+  (<button class="sel-link" id="sel-all">All</button> / <button class="sel-link" id="sel-none">None</button>)
+  <div class="sel-actions">
+    <span id="sel-share-result"></span>
+    <button id="sel-share-btn">Share</button>
+  </div>
+</div>
 
 <div class="layout">
   <aside class="sidebar" id="sidebar">
@@ -759,6 +842,13 @@ a.badge.link:hover { color: #fff; background: #555; border-color: #777; }
       <div class="selected-pills" id="subtype-pills"></div>
     </div>
 
+    <h3>Collector #</h3>
+    <div class="range-row">
+      <input type="number" id="cn-min" min="1" placeholder="Min">
+      <span>&ndash;</span>
+      <input type="number" id="cn-max" min="1" placeholder="Max">
+    </div>
+
     <h3>Mana Value</h3>
     <div class="range-row">
       <input type="number" id="cmc-min" min="0" placeholder="Min">
@@ -787,6 +877,13 @@ a.badge.link:hover { color: #fff; background: #555; border-color: #777; }
       <input type="number" id="price-min" min="0" step="0.01" placeholder="Min">
       <span>&ndash;</span>
       <input type="number" id="price-max" min="0" step="0.01" placeholder="Max">
+    </div>
+
+    <h3>Date Added</h3>
+    <div class="range-row">
+      <input type="date" id="date-min">
+      <span>&ndash;</span>
+      <input type="date" id="date-max">
     </div>
 
     <button style="margin-top:16px;width:100%" id="clear-filters-btn">Clear Filters</button>
@@ -829,12 +926,21 @@ const modalClose = document.getElementById('modal-close');
 const clearFiltersBtn = document.getElementById('clear-filters-btn');
 const colConfigBtn = document.getElementById('col-config-btn');
 const colConfigDropdown = document.getElementById('col-config-dropdown');
+const moreMenuBtn = document.getElementById('more-menu-btn');
+const moreMenuDropdown = document.getElementById('more-menu-dropdown');
+const selectionBar = document.getElementById('selection-bar');
+const selCountEl = document.getElementById('sel-count');
+const selShareBtn = document.getElementById('sel-share-btn');
 
 // Range inputs
+const cnMinEl = document.getElementById('cn-min');
+const cnMaxEl = document.getElementById('cn-max');
 const cmcMinEl = document.getElementById('cmc-min');
 const cmcMaxEl = document.getElementById('cmc-max');
 const priceMinEl = document.getElementById('price-min');
 const priceMaxEl = document.getElementById('price-max');
+const dateMinEl = document.getElementById('date-min');
+const dateMaxEl = document.getElementById('date-max');
 
 const gridSizeWrap = document.getElementById('grid-size-wrap');
 const gridSizeSlider = document.getElementById('grid-size-slider');
@@ -845,6 +951,9 @@ let sortColumn = 'name';
 let allCards = [];
 let debounceTimer = null;
 let _settings = {};
+let multiSelectMode = false;
+let selectedCards = new Set();
+let lastSelectedIdx = null;
 
 // Grid size slider
 const savedGridSize = localStorage.getItem('collectionGridCardSize');
@@ -930,12 +1039,92 @@ renderColConfig();
 colConfigBtn.addEventListener('click', (e) => {
   e.stopPropagation();
   colConfigDropdown.classList.toggle('open');
+  moreMenuDropdown.classList.remove('open');
+});
+moreMenuBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  moreMenuDropdown.classList.toggle('open');
+  colConfigDropdown.classList.remove('open');
 });
 document.addEventListener('click', (e) => {
   if (!colConfigDropdown.contains(e.target) && e.target !== colConfigBtn) {
     colConfigDropdown.classList.remove('open');
   }
+  if (!moreMenuDropdown.contains(e.target) && e.target !== moreMenuBtn) {
+    moreMenuDropdown.classList.remove('open');
+  }
 });
+
+// --- Multi-select ---
+const selShareResult = document.getElementById('sel-share-result');
+
+document.getElementById('toggle-multiselect-btn').addEventListener('click', () => {
+  moreMenuDropdown.classList.remove('open');
+  multiSelectMode = !multiSelectMode;
+  selectedCards.clear();
+  lastSelectedIdx = null;
+  updateSelectionBar();
+  render();
+});
+
+document.getElementById('sel-all').addEventListener('click', () => {
+  for (let i = 0; i < allCards.length; i++) selectedCards.add(i);
+  updateSelectionBar();
+  render();
+});
+
+document.getElementById('sel-none').addEventListener('click', () => {
+  selectedCards.clear();
+  lastSelectedIdx = null;
+  updateSelectionBar();
+  render();
+});
+
+selShareBtn.addEventListener('click', async () => {
+  if (selectedCards.size === 0) return;
+  const terms = Array.from(selectedCards).map(i => {
+    const c = allCards[i];
+    return `(s:${c.set_code.toLowerCase()} cn:${c.collector_number})`;
+  });
+  const q = terms.join(' or ');
+  const sfUrl = `https://scryfall.com/search?unique=prints&q=${encodeURIComponent(q)}`;
+  if (sfUrl.length > 8000) {
+    alert(`URL is ${sfUrl.length} characters (limit ~8000). Select fewer cards.`);
+    return;
+  }
+  selShareBtn.disabled = true;
+  selShareBtn.textContent = 'Shortening...';
+  try {
+    const res = await fetch(`/api/shorten?url=${encodeURIComponent(sfUrl)}`);
+    if (!res.ok) throw new Error();
+    const data = await res.json();
+    const shortUrl = data.short_url;
+    selShareResult.innerHTML = `<a class="sel-share-link" href="${shortUrl}" target="_blank" rel="noopener">Open in Scryfall</a>`;
+  } catch {
+    selShareResult.innerHTML = `<a class="sel-share-link" href="${sfUrl}" target="_blank" rel="noopener">Open on Scryfall</a>`;
+  }
+  selShareBtn.disabled = false;
+  selShareBtn.textContent = 'Share';
+});
+
+function updateSelectionBar() {
+  selectionBar.classList.toggle('active', multiSelectMode);
+  selCountEl.textContent = `${selectedCards.size} selected`;
+  selShareResult.innerHTML = '';
+}
+
+function toggleCardSelection(idx, shiftKey) {
+  if (shiftKey && lastSelectedIdx != null) {
+    const lo = Math.min(lastSelectedIdx, idx);
+    const hi = Math.max(lastSelectedIdx, idx);
+    for (let i = lo; i <= hi; i++) selectedCards.add(i);
+  } else {
+    if (selectedCards.has(idx)) selectedCards.delete(idx);
+    else selectedCards.add(idx);
+  }
+  lastSelectedIdx = idx;
+  updateSelectionBar();
+}
 
 function handleSortClick(colKey) {
   if (sortColumn === colKey) {
@@ -958,6 +1147,17 @@ modalOverlay.addEventListener('click', (e) => {
 modalClose.addEventListener('click', () => modalOverlay.classList.remove('active'));
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') modalOverlay.classList.remove('active');
+});
+
+// Modal filter click handler (delegated, added once)
+modalDetails.addEventListener('click', (e) => {
+  if (e.target.closest('a')) return;
+  const filterEl = e.target.closest('[data-filter-type]');
+  if (filterEl) {
+    e.stopPropagation();
+    modalOverlay.classList.remove('active');
+    applyFilter(filterEl.dataset.filterType, filterEl.dataset.filterValue);
+  }
 });
 
 const DFC_LAYOUTS = ['transform', 'modal_dfc', 'reversible_card', 'double_faced_token', 'art_series'];
@@ -998,14 +1198,14 @@ function showCardModal(card) {
   // Tags
   const fe = parseJsonField(card.frame_effects);
   let tagsHtml = '';
-  if (card.finish === 'foil') tagsHtml += '<span class="foil-tag">Foil</span>';
-  if (card.finish === 'etched') tagsHtml += '<span class="foil-tag">Etched</span>';
-  if (card.border_color === 'borderless') tagsHtml += '<span class="treat-tag">Borderless</span>';
-  if (fe.includes('showcase')) tagsHtml += '<span class="treat-tag">Showcase</span>';
-  if (fe.includes('extendedart')) tagsHtml += '<span class="treat-tag">Extended Art</span>';
-  if (card.full_art) tagsHtml += '<span class="treat-tag">Full Art</span>';
+  if (card.finish === 'foil') tagsHtml += '<span class="foil-tag filterable" data-filter-type="finish" data-filter-value="foil">Foil</span>';
+  if (card.finish === 'etched') tagsHtml += '<span class="foil-tag filterable" data-filter-type="finish" data-filter-value="etched">Etched</span>';
+  if (card.border_color === 'borderless') tagsHtml += '<span class="treat-tag filterable" data-filter-type="badge" data-filter-value="borderless">Borderless</span>';
+  if (fe.includes('showcase')) tagsHtml += '<span class="treat-tag filterable" data-filter-type="badge" data-filter-value="showcase">Showcase</span>';
+  if (fe.includes('extendedart')) tagsHtml += '<span class="treat-tag filterable" data-filter-type="badge" data-filter-value="extendedart">Extended Art</span>';
+  if (card.full_art) tagsHtml += '<span class="treat-tag filterable" data-filter-type="badge" data-filter-value="fullart">Full Art</span>';
   if (fe.includes('inverted')) tagsHtml += '<span class="treat-tag">Inverted</span>';
-  if (card.promo) tagsHtml += '<span class="promo-tag">Promo</span>';
+  if (card.promo) tagsHtml += '<span class="promo-tag filterable" data-filter-type="badge" data-filter-value="promo">Promo</span>';
 
   // Set info
   const setCode = card.set_code.toLowerCase();
@@ -1034,25 +1234,32 @@ function showCardModal(card) {
     const manaHtml = faceMana ? renderMana(faceMana) : '';
     const cmcText = card.cmc != null ? card.cmc : '';
 
+    const faceMainType = faceType.split(' \u2014 ')[0] || '';
+    const facePrimary = getPrimaryType(faceMainType);
+    const typeValueHtml = facePrimary
+      ? `<span class="filterable" data-filter-type="type" data-filter-value="${facePrimary}">${faceType}</span>`
+      : faceType;
+
     modalDetails.innerHTML = `
-      <h2>${faceName}</h2>
+      <h2 class="filterable" data-filter-type="name" data-filter-value="${faceName.replace(/"/g, '&quot;')}">${faceName}</h2>
+      ${card.oracle_name ? `<div style="font-size:0.85rem;color:#888;margin-top:2px">${card.oracle_name}</div>` : ''}
       ${manaHtml ? `<div class="modal-mana">${manaHtml}</div>` : ''}
       <div class="modal-section">
         <span class="modal-section-title">Type</span>
-        <span class="value">${faceType}</span>
+        <span class="value">${typeValueHtml}</span>
         ${cmcText !== '' ? `<div class="modal-row"><span class="label">Mana Value</span><span class="value">${cmcText}</span></div>` : ''}
       </div>
       <div class="modal-section">
         <span class="modal-section-title">Printing</span>
-        <div class="modal-row"><span class="label">Set</span><span class="value">${setIcon} ${setName}</span></div>
+        <div class="modal-row"><span class="label">Set</span><span class="value filterable" data-filter-type="set" data-filter-value="${card.set_code}">${setIcon} ${setName} (${card.set_code.toUpperCase()})</span></div>
         <div class="modal-row"><span class="label">Number</span><span class="value">${card.collector_number || ''}</span></div>
-        <div class="modal-row"><span class="label">Rarity</span><span class="value">${rarity}</span></div>
+        <div class="modal-row"><span class="label">Rarity</span><span class="value filterable" data-filter-type="rarity" data-filter-value="${card.rarity || 'common'}">${rarity}</span></div>
       </div>
       <div class="modal-section">
         <span class="modal-section-title">Collection</span>
         <div class="modal-row"><span class="label">Quantity</span><span class="value">${card.qty}</span></div>
         <div class="modal-row"><span class="label">Condition</span><span class="value">${condition}</span></div>
-        <div class="modal-row"><span class="label">Finish</span><span class="value">${finish}</span></div>
+        <div class="modal-row"><span class="label">Finish</span><span class="value filterable" data-filter-type="finish" data-filter-value="${card.finish || 'nonfoil'}">${finish}</span></div>
       </div>
       ${tagsHtml ? `<div class="modal-section"><span class="modal-section-title">Treatments</span><div class="modal-tags">${tagsHtml}</div></div>` : ''}
       <div class="modal-links">
@@ -1109,12 +1316,12 @@ function buildCardBadges(card) {
     html += `<a class="badge link" href="${getCkUrl(card)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">CK${ckPrice}</a>`;
   }
   const fe = parseJsonField(card.frame_effects);
-  if (card.border_color === 'borderless') html += '<span class="badge treatment">BL</span>';
-  if (fe.includes('showcase')) html += '<span class="badge treatment">SC</span>';
-  if (fe.includes('extendedart')) html += '<span class="badge treatment">EA</span>';
-  if (card.full_art) html += '<span class="badge treatment">FA</span>';
-  if (card.finish === 'foil') html += '<span class="foil-tag">Foil</span>';
-  if (card.finish === 'etched') html += '<span class="foil-tag">Etched</span>';
+  if (card.border_color === 'borderless') html += '<span class="badge treatment filterable" data-filter-type="badge" data-filter-value="borderless">BL</span>';
+  if (fe.includes('showcase')) html += '<span class="badge treatment filterable" data-filter-type="badge" data-filter-value="showcase">SC</span>';
+  if (fe.includes('extendedart')) html += '<span class="badge treatment filterable" data-filter-type="badge" data-filter-value="extendedart">EA</span>';
+  if (card.full_art) html += '<span class="badge treatment filterable" data-filter-type="badge" data-filter-value="fullart">FA</span>';
+  if (card.finish === 'foil') html += '<span class="foil-tag filterable" data-filter-type="finish" data-filter-value="foil">Foil</span>';
+  if (card.finish === 'etched') html += '<span class="foil-tag filterable" data-filter-type="finish" data-filter-value="etched">Etched</span>';
   return html;
 }
 
@@ -1241,6 +1448,67 @@ const subtypeMultiSelect = initMultiSelect({
   getSelected: () => Array.from(selectedSubtypes).map(s => [s, s]),
 });
 
+// --- Filterable click helpers ---
+const TYPE_KEYWORDS = ['Creature','Instant','Sorcery','Enchantment','Artifact','Planeswalker','Land','Battle','Kindred','Token'];
+function getPrimaryType(mainType) {
+  const words = mainType.split(/\s+/);
+  for (let i = words.length - 1; i >= 0; i--) {
+    if (TYPE_KEYWORDS.includes(words[i])) return words[i];
+  }
+  return null;
+}
+
+function applyFilter(type, value) {
+  switch (type) {
+    case 'name':
+      searchInput.value = value;
+      break;
+    case 'set': {
+      const opt = allSetOptions.find(s => s.code === value);
+      if (opt && !selectedSets.has(value)) {
+        selectedSets.set(value, opt.name);
+        setMultiSelect.renderPills();
+      }
+      break;
+    }
+    case 'rarity': {
+      const cb = document.getElementById(`rf-${value}`);
+      if (cb) cb.checked = true;
+      break;
+    }
+    case 'type': {
+      const cb = document.getElementById(`tf-${value.toLowerCase()}`);
+      if (cb) cb.checked = true;
+      break;
+    }
+    case 'subtype':
+      if (!selectedSubtypes.has(value)) {
+        selectedSubtypes.add(value);
+        subtypeMultiSelect.renderPills();
+      }
+      break;
+    case 'cmc':
+      cmcMinEl.value = value;
+      cmcMaxEl.value = value;
+      break;
+    case 'finish': {
+      const cb = document.getElementById(`ff-${value}`);
+      if (cb) cb.checked = true;
+      break;
+    }
+    case 'badge': {
+      const cb = document.getElementById(`bf-${value}`);
+      if (cb) cb.checked = true;
+      break;
+    }
+    case 'date_added':
+      dateMinEl.value = value;
+      dateMaxEl.value = value;
+      break;
+  }
+  fetchCollection();
+}
+
 // --- View toggle ---
 viewTableBtn.addEventListener('click', () => { currentView = 'table'; updateViewButtons(); render(); });
 viewGridBtn.addEventListener('click', () => { currentView = 'grid'; updateViewButtons(); render(); });
@@ -1295,6 +1563,11 @@ function getFilterParams() {
   if (cmcMin !== '') params.set('filter_cmc_min', cmcMin);
   if (cmcMax !== '') params.set('filter_cmc_max', cmcMax);
 
+  const dateMin = dateMinEl.value;
+  const dateMax = dateMaxEl.value;
+  if (dateMin) params.set('filter_date_min', dateMin);
+  if (dateMax) params.set('filter_date_max', dateMax);
+
   return params.toString();
 }
 
@@ -1303,6 +1576,9 @@ async function fetchCollection() {
   statusEl.textContent = 'Loading...';
   const res = await fetch(`/api/collection?${params}`);
   allCards = await res.json();
+  selectedCards.clear();
+  lastSelectedIdx = null;
+  updateSelectionBar();
 
   // Client-side price sort if needed
   if (sortColumn === 'price' || sortColumn === 'tcg_price') {
@@ -1316,6 +1592,18 @@ async function fetchCollection() {
       const pa = parseFloat(a.ck_price) || 0;
       const pb = parseFloat(b.ck_price) || 0;
       return sortOrder === 'asc' ? pa - pb : pb - pa;
+    });
+  }
+
+  // Client-side collector number filtering
+  const cnMin = parseInt(cnMinEl.value);
+  const cnMax = parseInt(cnMaxEl.value);
+  if (!isNaN(cnMin) || !isNaN(cnMax)) {
+    allCards = allCards.filter(card => {
+      const cn = parseInt(card.collector_number) || 0;
+      if (!isNaN(cnMin) && cn < cnMin) return false;
+      if (!isNaN(cnMax) && cn > cnMax) return false;
+      return true;
     });
   }
 
@@ -1336,7 +1624,12 @@ async function fetchCollection() {
   // Populate subtype options from data
   populateSubtypeOptions();
 
-  statusEl.textContent = `${allCards.length} entries, ${allCards.reduce((s, c) => s + c.qty, 0)} cards`;
+  const totalQty = allCards.reduce((s, c) => s + c.qty, 0);
+  const sources = (_settings.price_sources || 'tcg,ck').split(',');
+  const priceField = sources[0] === 'ck' ? 'ck_price' : 'tcg_price';
+  const priceLabel = sources[0] === 'ck' ? 'CK' : 'TCG';
+  const totalValue = allCards.reduce((s, c) => s + (parseFloat(c[priceField]) || 0) * c.qty, 0);
+  statusEl.textContent = `${allCards.length} entries, ${totalQty} cards \u2014 ${priceLabel} $${totalValue.toFixed(2)}`;
   render();
 }
 
@@ -1388,24 +1681,33 @@ function formatDate(iso) {
 function renderCellContent(colKey, card, helpers) {
   switch (colKey) {
     case 'qty': return `${card.qty}`;
-    case 'name': return `<div class="card-cell">${helpers.imgSrc ? `<img class="card-thumb" src="${helpers.imgSrc}" loading="lazy">` : ''}<span>${helpers.nameHtml}${helpers.tags}</span></div>`;
+    case 'name': return `<div class="card-cell">${helpers.imgSrc ? `<img class="card-thumb" src="${helpers.imgSrc}" loading="lazy">` : ''}<span class="filterable" data-filter-type="name" data-filter-value="${(card.name.split(' // ')[0]).replace(/"/g, '&quot;')}">${helpers.nameHtml}${helpers.tags}</span></div>`;
     case 'type': {
       if (card.layout === 'art_series') return `<span class="type-cell" title="Art Series">Art Series</span>`;
       const full = card.type_line || '';
       const faces = full.split(' // ');
       return `<span class="type-cell" title="${full}">${faces.map(face => {
         const parts = face.split(' \u2014 ');
-        const main = parts[0].replace(/Legendary /g, 'Lgdry. ');
+        const mainText = parts[0];
+        const main = mainText.replace(/Legendary /g, 'Lgdry. ');
+        const primaryType = getPrimaryType(mainText);
+        const mainHtml = primaryType ? `<span class="filterable" data-filter-type="type" data-filter-value="${primaryType}">${main}</span>` : main;
         const sub = parts[1] || '';
-        return `<span class="card-face">${main}${sub ? `<span class="type-sub">${sub}</span>` : ''}</span>`;
+        const subHtml = sub ? `<span class="type-sub">${sub.split(/\s+/).map(s => s ? `<span class="filterable" data-filter-type="subtype" data-filter-value="${s}">${s}</span>` : '').join(' ')}</span>` : '';
+        return `<span class="card-face">${mainHtml}${subHtml}</span>`;
       }).join('')}</span>`;
     }
-    case 'mana': return `<span class="mana-cost">${helpers.manaHtml}</span>`;
-    case 'set': return `<div class="set-cell" title="${helpers.setName}">${helpers.setIcon} ${card.set_code.toUpperCase()}</div>`;
+    case 'mana': return card.cmc != null ? `<span class="mana-cost filterable" data-filter-type="cmc" data-filter-value="${card.cmc}">${helpers.manaHtml}</span>` : `<span class="mana-cost">${helpers.manaHtml}</span>`;
+    case 'set': return `<div class="set-cell" title="${helpers.setName}"><span class="filterable" data-filter-type="rarity" data-filter-value="${card.rarity || 'common'}">${helpers.setIcon}</span> <span class="filterable" data-filter-type="set" data-filter-value="${card.set_code}">${card.set_code.toUpperCase()}</span></div>`;
     case 'collector_number': return (card.collector_number || '').padStart(4, '0');
     case 'price': return buildPriceBadges(card);
     case 'condition': return CONDITION_ABBREV[card.condition] || card.condition || '';
-    case 'date_added': return formatDate(card.acquired_at);
+    case 'date_added': {
+      const dateStr = formatDate(card.acquired_at);
+      if (!dateStr) return '';
+      const isoDate = card.acquired_at.slice(0, 10);
+      return `<span class="filterable" data-filter-type="date_added" data-filter-value="${isoDate}">${dateStr}</span>`;
+    }
     case 'ck_price': {
       const p = card.ck_price ? `$${parseFloat(card.ck_price).toFixed(2)}` : '';
       return p ? `<a class="badge link" href="${getCkUrl(card)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${p}</a>` : '';
@@ -1427,6 +1729,10 @@ function renderTable() {
   const visCols = getVisibleColumns();
 
   let html = '<table class="collection-table"><thead><tr>';
+  if (multiSelectMode) {
+    const allChecked = selectedCards.size === allCards.length && allCards.length > 0;
+    html += `<th class="select-col"><input type="checkbox" class="sel-all-cb" ${allChecked ? 'checked' : ''}></th>`;
+  }
   for (const col of visCols) {
     const isActive = col.key === sortColumn;
     const arrow = isActive ? `<span class="sort-arrow">${sortOrder === 'asc' ? '\u25B2' : '\u25BC'}</span>` : '';
@@ -1459,7 +1765,11 @@ function renderTable() {
     const tags = buildInlineTags(card);
     const helpers = { imgSrc, nameHtml, manaHtml, setCode, setName, setIcon, tags };
 
-    html += `<tr data-idx="${idx}">`;
+    const isSelected = selectedCards.has(idx);
+    html += `<tr data-idx="${idx}"${isSelected ? ' class="selected"' : ''}>`;
+    if (multiSelectMode) {
+      html += `<td class="select-col"><input type="checkbox" class="row-sel-cb" data-idx="${idx}" ${isSelected ? 'checked' : ''}></td>`;
+    }
     for (const col of visCols) {
       const cls = col.key === 'price' || col.key === 'ck_price' || col.key === 'tcg_price' ? ' class="price-cell"' : '';
       html += `<td${cls}>${renderCellContent(col.key, card, helpers)}</td>`;
@@ -1470,12 +1780,42 @@ function renderTable() {
   html += '</tbody></table>';
   main.innerHTML = html;
 
-  // Row click -> modal
-  main.querySelectorAll('.collection-table tbody tr[data-idx]').forEach(tr => {
-    tr.addEventListener('click', (e) => {
-      if (e.target.closest('a')) return;
-      showCardModal(allCards[parseInt(tr.dataset.idx)]);
-    });
+  // Delegated click handler for checkboxes, filterable elements and row->modal
+  main.querySelector('.collection-table').addEventListener('click', (e) => {
+    // Select-all checkbox
+    if (e.target.classList.contains('sel-all-cb')) {
+      if (e.target.checked) {
+        for (let i = 0; i < allCards.length; i++) selectedCards.add(i);
+      } else {
+        selectedCards.clear();
+      }
+      updateSelectionBar();
+      render();
+      return;
+    }
+    // Per-row checkbox
+    if (e.target.classList.contains('row-sel-cb')) {
+      const idx = parseInt(e.target.dataset.idx);
+      toggleCardSelection(idx, e.shiftKey);
+      if (e.shiftKey) { render(); return; }
+      e.target.closest('tr').classList.toggle('selected', selectedCards.has(idx));
+      // Update select-all checkbox state
+      const allCb = main.querySelector('.sel-all-cb');
+      if (allCb) allCb.checked = selectedCards.size === allCards.length;
+      return;
+    }
+    // External links pass through
+    if (e.target.closest('a')) return;
+    // Filterable element click
+    const filterEl = e.target.closest('[data-filter-type]');
+    if (filterEl) {
+      e.stopPropagation();
+      applyFilter(filterEl.dataset.filterType, filterEl.dataset.filterValue);
+      return;
+    }
+    // Row click -> modal
+    const tr = e.target.closest('tr[data-idx]');
+    if (tr) showCardModal(allCards[parseInt(tr.dataset.idx)]);
   });
 
   // Column header click sorting
@@ -1505,7 +1845,8 @@ function renderGrid() {
   const grid = document.createElement('div');
   grid.className = 'card-grid';
 
-  for (const card of allCards) {
+  for (let idx = 0; idx < allCards.length; idx++) {
+    const card = allCards[idx];
     const cardEl = document.createElement('div');
     cardEl.className = 'sheet-card';
 
@@ -1513,16 +1854,29 @@ function renderGrid() {
     const foilClass = (card.finish === 'foil' || card.finish === 'etched') ? ' foil' : '';
     const badges = buildCardBadges(card);
     const qtyBadge = card.qty > 1 ? `<span class="qty-badge">${card.qty}x</span>` : '';
+    const selectCb = multiSelectMode ? `<input type="checkbox" class="select-checkbox" data-idx="${idx}" ${selectedCards.has(idx) ? 'checked' : ''}>` : '';
 
     cardEl.innerHTML = `
       <div class="sheet-card-img-wrap${foilClass}" style="--rarity-color:${rarityColor};--set-color:#111">
         <img src="${card.image_uri || ''}" alt="${card.name}" loading="lazy">
         ${qtyBadge}
+        ${selectCb}
       </div>
       <div class="sheet-card-info">${badges}</div>
     `;
     cardEl.addEventListener('click', (e) => {
+      if (e.target.classList.contains('select-checkbox')) {
+        toggleCardSelection(idx, e.shiftKey);
+        if (e.shiftKey) render();
+        return;
+      }
       if (e.target.closest('a')) return;
+      const filterEl = e.target.closest('[data-filter-type]');
+      if (filterEl) {
+        e.stopPropagation();
+        applyFilter(filterEl.dataset.filterType, filterEl.dataset.filterValue);
+        return;
+      }
       showCardModal(card);
     });
     grid.appendChild(cardEl);
@@ -1541,6 +1895,16 @@ searchInput.addEventListener('input', () => {
 
 document.querySelectorAll('#color-filters input, #rarity-filters input, #finish-filters input, #badge-filters input, #type-filters input').forEach(cb => {
   cb.addEventListener('change', fetchCollection);
+});
+
+// Collector number range inputs
+cnMinEl.addEventListener('input', () => {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(fetchCollection, 300);
+});
+cnMaxEl.addEventListener('input', () => {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(fetchCollection, 300);
 });
 
 // CMC range inputs
@@ -1563,6 +1927,16 @@ priceMaxEl.addEventListener('input', () => {
   debounceTimer = setTimeout(fetchCollection, 300);
 });
 
+// Date range inputs
+dateMinEl.addEventListener('input', () => {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(fetchCollection, 300);
+});
+dateMaxEl.addEventListener('input', () => {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(fetchCollection, 300);
+});
+
 clearFiltersBtn.addEventListener('click', () => {
   document.querySelectorAll('#color-filters input, #rarity-filters input, #finish-filters input, #badge-filters input, #type-filters input').forEach(cb => {
     cb.checked = false;
@@ -1572,10 +1946,14 @@ clearFiltersBtn.addEventListener('click', () => {
   setMultiSelect.renderPills();
   subtypeMultiSelect.renderPills();
   searchInput.value = '';
+  cnMinEl.value = '';
+  cnMaxEl.value = '';
   cmcMinEl.value = '';
   cmcMaxEl.value = '';
   priceMinEl.value = '';
   priceMaxEl.value = '';
+  dateMinEl.value = '';
+  dateMaxEl.value = '';
   fetchCollection();
 });
 
