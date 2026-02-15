@@ -389,12 +389,6 @@ button.secondary.active { background: #0f3460; border-color: #e94560; }
   15%, 100% { background-position: 0 0; }
 }
 
-.sheet-card-info {
-  display: flex;
-  gap: 3px;
-  flex-wrap: wrap;
-  margin-top: 2px;
-}
 
 .qty-badge {
   position: absolute;
@@ -1005,6 +999,7 @@ let selectedSets = new Map();   // code -> name
 let selectedSubtypes = new Set();
 let allSetOptions = [];         // [{code, name}]
 let allSubtypeOptions = [];     // [string]
+let cachedSets = [];            // [{code, name}] from /api/cached-sets
 
 // --- Column definitions ---
 const ALL_COLUMNS = [
@@ -1690,6 +1685,11 @@ async function fetchCollection() {
 
 function populateSetOptions() {
   const sets = new Map();
+  // Include all cached sets so users can browse sets they don't own cards from
+  for (const s of cachedSets) {
+    sets.set(s.code, s.name);
+  }
+  // Overlay with sets from current data (ensures owned sets always appear)
   for (const card of allCards) {
     if (!sets.has(card.set_code)) {
       sets.set(card.set_code, card.set_name);
@@ -1910,7 +1910,6 @@ function renderGrid() {
 
     const rarityColor = getRarityColor(card.rarity);
     const foilClass = (!isUnowned && (card.finish === 'foil' || card.finish === 'etched')) ? ' foil' : '';
-    const badges = buildCardBadges(card);
     const qtyBadge = !isUnowned && card.qty > 1 ? `<span class="qty-badge">${card.qty}x</span>` : '';
     const selectCb = multiSelectMode ? `<input type="checkbox" class="select-checkbox" data-idx="${idx}" ${selectedCards.has(idx) ? 'checked' : ''}>` : '';
 
@@ -1920,19 +1919,11 @@ function renderGrid() {
         ${qtyBadge}
         ${selectCb}
       </div>
-      <div class="sheet-card-info">${badges}</div>
     `;
     cardEl.addEventListener('click', (e) => {
       if (e.target.classList.contains('select-checkbox')) {
         toggleCardSelection(idx, e.shiftKey);
         if (e.shiftKey) render();
-        return;
-      }
-      if (e.target.closest('a')) return;
-      const filterEl = e.target.closest('[data-filter-type]');
-      if (filterEl) {
-        e.stopPropagation();
-        applyFilter(filterEl.dataset.filterType, filterEl.dataset.filterValue);
         return;
       }
       showCardModal(card);
@@ -2029,8 +2020,12 @@ function applySettings() {
 
 // --- Init ---
 (async () => {
-  const res = await fetch('/api/settings');
-  _settings = await res.json();
+  const [settingsRes, cachedSetsRes] = await Promise.all([
+    fetch('/api/settings'),
+    fetch('/api/cached-sets'),
+  ]);
+  _settings = await settingsRes.json();
+  cachedSets = await cachedSetsRes.json();
   applySettings();
   fetchCollection();
 })();

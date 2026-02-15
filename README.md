@@ -1,23 +1,27 @@
 # MTG Collection Builder
 
-A CLI tool for managing Magic: The Gathering card collections. Add cards by reading their corner info (rarity, collector number, set code) either manually or from photos using Claude Vision. Your collection is stored locally in SQLite and can be exported to Moxfield, Archidekt, or Deckbox.
+A CLI + web UI tool for managing Magic: The Gathering card collections. Add cards by reading their corner info from photos (Claude Vision), full card photos (local OCR + Claude), or manual ID entry. Your collection is stored locally in SQLite and can be exported to Moxfield, Archidekt, or Deckbox. Includes a web UI for browsing your collection, cracking virtual booster packs, and image-based card ingestion.
 
 ## Features
 
 - **Corner photo ingestion**: Photograph card corners and Claude Vision extracts rarity, collector number, set code, and foil status
+- **Full card photo ingestion**: Upload full card images via the web UI — local OCR + Claude identifies card names
 - **Manual ID entry**: Add cards directly by rarity/collector-number/set (no API key needed)
+- **Bulk Scryfall caching**: Download all card data from Scryfall in 3 API calls for offline browsing
+- **Web UI**: Browse collection, crack virtual booster packs, explore sheet layouts, ingest cards from images
+- **Card lifecycle tracking**: Track card status (owned → ordered → listed → sold → removed) with audit log
+- **Wishlist**: Track cards you want, with priority and price alerts
 - **Local caching**: Scryfall data cached in SQLite to minimize API calls
 - **Multi-platform import/export**: Moxfield, Archidekt, Deckbox CSV formats
-- **Individual card tracking**: Each physical card is a separate entry with condition, finish, purchase price
+- **Price data**: TCGplayer and CardKingdom prices via MTGJSON
 
 ## Quick Start
 
 ```bash
 # Clone and setup
-git clone https://github.com/ryangantt/efj-mtgc.git
+git clone https://github.com/thaen/efj-mtgc.git
 cd efj-mtgc
-make setup
-source .venv/bin/activate
+uv sync
 
 # Initialize database
 mtg db init
@@ -28,6 +32,13 @@ mtg ingest-ids --id R 0200 EOE --id C 0075 EOE foil
 # Or set your Anthropic API key and add cards from corner photos
 export ANTHROPIC_API_KEY="sk-ant-..."
 mtg ingest-corners ~/photos/corners.jpg
+
+# Cache all Scryfall data for offline browsing
+mtg cache all
+
+# Start the web UI
+mtg data fetch          # Download MTGJSON data (for booster packs)
+mtg crack-pack-server   # Open http://localhost:8080
 
 # See what you've got
 mtg list
@@ -40,28 +51,21 @@ mtg export -f moxfield -o collection.csv
 ## Requirements
 
 - Python 3.10+
-- [Anthropic API key](https://console.anthropic.com/) (only needed for `ingest-corners`)
-
-## Installation
-
-```bash
-# Using Make (recommended)
-make setup
-source .venv/bin/activate
-
-# Manual
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e .
-```
+- [uv](https://docs.astral.sh/uv/) for dependency management
+- [Anthropic API key](https://console.anthropic.com/) (only needed for `ingest-corners` and OCR ingestion)
 
 ## Configuration
 
-**API Key**: Set `ANTHROPIC_API_KEY` environment variable or add to your shell profile. Only required for the `ingest-corners` command.
+**API Key**: Set `ANTHROPIC_API_KEY` environment variable or add to your shell profile. Only required for photo-based ingestion commands.
 
 **Database**: Default location is `~/.mtgc/collection.sqlite`. Override with:
 - `--db /path/to/db.sqlite` flag
 - `MTGC_DB` environment variable
+
+**Data files**: Stored in `~/.mtgc/` (override with `MTGC_HOME` env):
+- `collection.sqlite` — card collection database
+- `AllPrintings.json` — MTGJSON card data (for booster simulation)
+- `AllPricesToday.json` — MTGJSON price data
 
 ## Usage
 
@@ -77,7 +81,7 @@ mtg ingest-ids --id P 0012 SPG --source "promo pack"   # With source tag
 mtg ingest-ids --id R 0200 EOE --condition LP          # Set condition
 ```
 
-Rarity codes: C (common), U (uncommon), R (rare), M (mythic), P (promo)
+Rarity codes: C (common), U (uncommon), R (rare), M (mythic), P (promo), L (land), T (token)
 
 ### Ingest cards from corner photos
 
@@ -133,6 +137,7 @@ mtg edit 42 --source "trade"      # Set source
 mtg edit 42 --notes "SP card"     # Set notes
 mtg edit 42 --tags "modern,staple" # Set tags
 mtg edit 42 --tradelist 1         # Flag as tradelist (also: --alter, --proxy, --signed, --misprint)
+mtg edit 42 --status sold         # Update status (owned/ordered/listed/sold/removed)
 
 # Delete entries
 mtg delete 42                     # Remove entry (with confirmation)
@@ -142,14 +147,46 @@ mtg delete 42 -y                  # Skip confirmation
 mtg stats                         # Collection summary
 ```
 
-### Database management
+### Wishlist
 
 ```bash
+mtg wishlist add "Lightning Bolt"             # Add by card name
+mtg wishlist list                             # List all wishlist entries
+mtg wishlist fulfill 1                        # Mark entry as fulfilled
+mtg wishlist remove 1                         # Delete entry
+```
+
+### Caching and data management
+
+```bash
+# Cache all Scryfall card data (bulk download, 3 API calls)
+mtg cache all                     # First run: downloads ~300MB, caches ~80k cards
+mtg cache all                     # Subsequent: skips cached sets, processes only new ones
+mtg cache all --force             # Reprocess all sets
+
+# MTGJSON data (for booster pack simulation and prices)
+mtg data fetch                    # Download AllPrintings.json
+mtg data fetch-prices             # Download AllPricesToday.json
+
+# Database management
 mtg db init                       # Initialize database
 mtg db init --force               # Recreate tables
 mtg db refresh                    # Re-fetch Scryfall data for cached printings
 mtg db refresh --all              # Refresh all printings
 ```
+
+### Web UI
+
+```bash
+mtg crack-pack-server                        # Start on default port 8080
+mtg crack-pack-server --port 3000            # Custom port
+```
+
+Pages available at `http://localhost:8080`:
+- **Collection** (`/collection`) — Browse, filter, and manage your collection with grid/table views, set browsing, and "include unowned" mode
+- **Crack-a-Pack** (`/crack`) — Virtual booster pack simulator with price data
+- **Explore Sheets** (`/sheets`) — Browse booster sheet layouts by set and product type
+- **Card Ingestor** (`/ingestor-ocr`) — Upload card images for OCR-based identification and collection entry
 
 ## Data Model
 
@@ -158,28 +195,29 @@ Each physical card you own is stored as a separate row with:
 | Field | Description |
 |-------|-------------|
 | Printing | Scryfall ID linking to specific set/collector number |
+| Status | owned, ordered, listed, sold, removed (with audit log) |
 | Condition | Near Mint, Lightly Played, Moderately Played, Heavily Played, Damaged |
 | Finish | nonfoil, foil, etched |
 | Language | Default: English |
 | Purchase price | Optional |
+| Sale price | Optional (for sold cards) |
 | Acquired date | Auto-set on import |
 | Source | corner_ingest, manual_id, moxfield_import, etc. |
 | Flags | tradelist, alter, proxy, signed, misprint |
 
 ## How It Works
 
-1. **Card Identification**: Either manual entry (rarity/CN/set) or Claude Vision reads card corners
+1. **Card Identification**: Manual entry (rarity/CN/set), Claude Vision (corner photos), or local OCR + Claude (full card photos)
 2. **Scryfall Lookup**: Cards resolved by set code + collector number via Scryfall API
-3. **Local Caching**: Full card data cached in SQLite to avoid repeated API calls
-4. **Collection Storage**: Cards added to your collection with finish, condition, and source metadata
+3. **Local Caching**: Full card data cached in SQLite to avoid repeated API calls. `mtg cache all` bulk-caches all ~80k cards from Scryfall's bulk data endpoint.
+4. **Collection Storage**: Cards added to your collection with finish, condition, source metadata, and lifecycle status tracking
 
 ## Development
 
 ```bash
-make dev          # Install with dev dependencies
-make test         # Run tests (corner identification tests need ANTHROPIC_API_KEY)
-make lint         # Run ruff + black
-make clean        # Remove venv and build artifacts
+uv sync                   # Install dependencies
+uv run pytest             # Run tests (some require ANTHROPIC_API_KEY)
+uv run ruff check mtg_collector/  # Lint
 ```
 
 ## License
