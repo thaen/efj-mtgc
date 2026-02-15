@@ -1,6 +1,6 @@
 """Setup command: mtg setup — bootstrap a working installation."""
 
-from mtg_collector.db import SCHEMA_VERSION, get_connection, init_db
+from mtg_collector.db import SCHEMA_VERSION, get_connection, init_db, close_connection
 
 
 def register(subparsers):
@@ -39,7 +39,7 @@ def run(args):
         print(f"  Database initialized (v{SCHEMA_VERSION}) at: {db_path}")
     else:
         print(f"  Database already up to date (v{SCHEMA_VERSION})")
-    conn.close()
+    close_connection()
 
     # Step 2: Cache Scryfall data
     if args.skip_cache:
