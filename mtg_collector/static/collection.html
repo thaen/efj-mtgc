@@ -83,17 +83,31 @@ button.secondary.active { background: #0f3460; border-color: #e94560; }
   min-height: calc(100vh - 70px);
 }
 
-/* Sidebar */
+/* Sidebar (slide-in panel from left) */
+.sidebar-backdrop {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.4);
+  z-index: 90;
+}
+.sidebar-backdrop.active { display: block; }
+
 .sidebar {
-  width: 260px;
+  position: fixed;
+  top: 0; left: -320px;
+  width: 300px;
+  height: 100vh;
   background: #16213e;
-  border-right: 1px solid #0f3460;
+  border-right: 2px solid #0f3460;
   padding: 16px;
-  flex-shrink: 0;
   overflow-y: auto;
+  z-index: 91;
+  transition: left 0.25s ease;
+  box-shadow: 4px 0 20px rgba(0,0,0,0.5);
 }
 
-.sidebar.collapsed { display: none; }
+.sidebar.open { left: 0; }
 
 .sidebar h3 {
   font-size: 0.85rem;
@@ -935,8 +949,8 @@ tr.ordered td:first-child { border-left: 3px solid #f0a030; }
 .buy-missing-dropdown.open { display: block; }
 
 @media (max-width: 768px) {
-  .sidebar { display: none; }
   #search-input { width: 140px; }
+  .sidebar { width: 280px; left: -300px; }
   .wishlist-panel { width: 280px; right: -300px; }
 }
 </style>
@@ -985,6 +999,7 @@ tr.ordered td:first-child { border-left: 3px solid #f0a030; }
   </div>
 </div>
 
+<div class="sidebar-backdrop" id="sidebar-backdrop"></div>
 <div class="layout">
   <aside class="sidebar" id="sidebar">
     <h3>Color</h3>
@@ -1856,12 +1871,16 @@ function updateViewButtons() {
 }
 updateViewButtons();
 
-// --- Sidebar toggle ---
-sidebarToggleBtn.addEventListener('click', () => {
-  sidebar.classList.toggle('collapsed');
-  sidebarToggleBtn.classList.toggle('active', !sidebar.classList.contains('collapsed'));
-});
-sidebarToggleBtn.classList.add('active');
+// --- Sidebar toggle (slide-in panel) ---
+const sidebarBackdrop = document.getElementById('sidebar-backdrop');
+function toggleSidebar(open) {
+  if (open === undefined) open = !sidebar.classList.contains('open');
+  sidebar.classList.toggle('open', open);
+  sidebarBackdrop.classList.toggle('active', open);
+  sidebarToggleBtn.classList.toggle('active', open);
+}
+sidebarToggleBtn.addEventListener('click', () => toggleSidebar());
+sidebarBackdrop.addEventListener('click', () => toggleSidebar(false));
 
 // --- Include Unowned toggle (cycles: '' -> 'base' -> 'full' -> '') ---
 const UNOWNED_CYCLE = ['', 'base', 'full'];
@@ -2450,6 +2469,7 @@ function updateWishlistCount() {
   const btn = document.getElementById('wishlist-toggle-btn');
   if (btn) btn.textContent = `Wishlist (${n})`;
 }
+
 
 function renderWishlistPanel() {
   const list = document.getElementById('wishlist-panel-list');
