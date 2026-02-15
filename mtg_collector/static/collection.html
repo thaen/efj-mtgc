@@ -1171,18 +1171,28 @@ let _settings = {};
 let multiSelectMode = false;
 let selectedCards = new Set();
 let lastSelectedIdx = null;
-let wishlistMap = {};  // oracle_id → {id, scryfall_id, name, set_code, collector_number, ...}
+let wishlistMap = {};  // wishlist_id → {id, oracle_id, scryfall_id, name, set_code, collector_number, ...}
 let wishlistByScryfall = {};  // scryfall_id → entry (only for printing-specific wants)
+let wishlistByOracle = {};  // oracle_id → entry (only for card-level wants where scryfall_id is null)
+
+function _addWishlistEntry(e) {
+  wishlistMap[e.id] = e;
+  if (e.scryfall_id) wishlistByScryfall[e.scryfall_id] = e;
+  else wishlistByOracle[e.oracle_id] = e;
+}
+function _removeWishlistEntry(e) {
+  delete wishlistMap[e.id];
+  if (e.scryfall_id) delete wishlistByScryfall[e.scryfall_id];
+  else delete wishlistByOracle[e.oracle_id];
+}
 
 // If entry has scryfall_id, only that printing is wanted; otherwise all printings of the oracle_id
 function isCardWanted(card) {
   if (wishlistByScryfall[card.scryfall_id]) return true;
-  const wl = wishlistMap[card.oracle_id];
-  return !!wl && !wl.scryfall_id;
+  return !!wishlistByOracle[card.oracle_id];
 }
 function getWishlistEntry(card) {
-  return wishlistByScryfall[card.scryfall_id] ||
-    (wishlistMap[card.oracle_id] && !wishlistMap[card.oracle_id].scryfall_id ? wishlistMap[card.oracle_id] : null);
+  return wishlistByScryfall[card.scryfall_id] || wishlistByOracle[card.oracle_id] || null;
 }
 
 // Grid size slider
@@ -1361,8 +1371,7 @@ document.getElementById('sel-want-btn').addEventListener('click', async () => {
   });
   const result = await res.json();
   for (const entry of result.added) {
-    wishlistMap[entry.oracle_id] = entry;
-    if (entry.scryfall_id) wishlistByScryfall[entry.scryfall_id] = entry;
+    _addWishlistEntry(entry);
   }
   updateWishlistCount();
   renderWishlistPanel();
@@ -1564,8 +1573,7 @@ function showCardModal(card) {
     if (existing) {
       // Remove from wishlist
       await fetch(`/api/wishlist/${existing.id}`, { method: 'DELETE' });
-      if (existing.scryfall_id) delete wishlistByScryfall[existing.scryfall_id];
-      delete wishlistMap[card.oracle_id];
+      _removeWishlistEntry(existing);
       btn.classList.remove('wanted');
       btn.textContent = 'Want';
     } else {
@@ -1584,8 +1592,7 @@ function showCardModal(card) {
           id: result.id, oracle_id: card.oracle_id, scryfall_id: result.scryfall_id,
           name: card.name, set_code: card.set_code, collector_number: card.collector_number,
         };
-        wishlistMap[card.oracle_id] = entry;
-        if (result.scryfall_id) wishlistByScryfall[result.scryfall_id] = entry;
+        _addWishlistEntry(entry);
         btn.classList.add('wanted');
         btn.textContent = 'Wanted';
       }
@@ -2433,10 +2440,8 @@ async function loadWishlist() {
   const entries = await res.json();
   wishlistMap = {};
   wishlistByScryfall = {};
-  for (const e of entries) {
-    wishlistMap[e.oracle_id] = e;
-    if (e.scryfall_id) wishlistByScryfall[e.scryfall_id] = e;
-  }
+  wishlistByOracle = {};
+  for (const e of entries) _addWishlistEntry(e);
   updateWishlistCount();
 }
 
@@ -2479,17 +2484,11 @@ document.getElementById('wishlist-backdrop').addEventListener('click', () => tog
 document.getElementById('wishlist-panel-list').addEventListener('click', async (e) => {
   const removeBtn = e.target.closest('.wl-remove');
   if (!removeBtn) return;
-  const entry = removeBtn.closest('.wl-entry');
-  const wlId = parseInt(entry.dataset.wlId);
+  const entryEl = removeBtn.closest('.wl-entry');
+  const wlId = parseInt(entryEl.dataset.wlId);
   await fetch(`/api/wishlist/${wlId}`, { method: 'DELETE' });
-  // Remove from maps
-  for (const [oracleId, wl] of Object.entries(wishlistMap)) {
-    if (wl.id === wlId) {
-      if (wl.scryfall_id) delete wishlistByScryfall[wl.scryfall_id];
-      delete wishlistMap[oracleId];
-      break;
-    }
-  }
+  const wl = wishlistMap[wlId];
+  if (wl) _removeWishlistEntry(wl);
   updateWishlistCount();
   renderWishlistPanel();
 });
@@ -2515,6 +2514,7 @@ document.getElementById('wl-clear-all').addEventListener('click', async () => {
   }
   wishlistMap = {};
   wishlistByScryfall = {};
+  wishlistByOracle = {};
   updateWishlistCount();
   renderWishlistPanel();
 });
