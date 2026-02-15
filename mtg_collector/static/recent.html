@@ -179,8 +179,9 @@ header a:hover { color: #e94560; }
   word-break: break-word;
 }
 .img-card.error:hover .error-tooltip { display: block; }
-.img-card.done { cursor: pointer; }
+.img-card.done, .img-card.needs_disambiguation { cursor: pointer; }
 .img-card.done:hover { border-color: #66bb6a; }
+.img-card.needs_disambiguation:hover { border-color: #f06080; }
 
 /* Detail modal */
 .detail-modal {
@@ -282,11 +283,117 @@ header a:hover { color: #e94560; }
   font-weight: 400;
   font-size: 0.8rem;
 }
+.detail-modal .card-row.pending {
+  opacity: 0.6;
+}
+.detail-modal .card-row.pending .card-name::after {
+  content: ' (pending)';
+  color: #e94560;
+  font-weight: 400;
+  font-size: 0.8rem;
+}
 .detail-modal .loading {
   padding: 40px;
   text-align: center;
   color: #888;
 }
+.detail-modal .add-card-section {
+  padding: 10px 16px;
+  border-top: 1px solid #0f3460;
+}
+.detail-modal .add-card-section h3 {
+  font-size: 0.85rem;
+  color: #888;
+  margin-bottom: 8px;
+}
+.detail-modal .add-search-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.detail-modal .add-search-row input {
+  flex: 1;
+  padding: 5px 8px;
+  border-radius: 4px;
+  border: 1px solid #0f3460;
+  background: #0d1117;
+  color: #e0e0e0;
+  font-size: 0.85rem;
+}
+.detail-modal .add-search-row button {
+  padding: 5px 12px;
+  border: 1px solid #555;
+  border-radius: 6px;
+  background: #333;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+.detail-modal .add-search-row button:hover { background: #444; }
+.detail-modal .add-results {
+  max-height: 240px;
+  overflow-y: auto;
+  margin-bottom: 8px;
+}
+.detail-modal .add-result-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border: 2px solid transparent;
+  border-radius: 5px;
+  cursor: pointer;
+  margin-bottom: 2px;
+}
+.detail-modal .add-result-row:hover { background: #1a1a3e; border-color: #0f3460; }
+.detail-modal .add-result-row.selected { border-color: #e94560; background: #1a1a3e; }
+.detail-modal .add-result-row img {
+  width: 40px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.detail-modal .add-result-row .result-name {
+  font-weight: 600;
+  font-size: 0.8rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+.detail-modal .add-result-row .result-set {
+  font-size: 0.7rem;
+  color: #888;
+  flex-shrink: 0;
+}
+.detail-modal .add-confirm-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.detail-modal .add-confirm-row select {
+  padding: 4px 8px;
+  border: 1px solid #0f3460;
+  border-radius: 4px;
+  background: #1a1a2e;
+  color: #e0e0e0;
+  font-size: 0.8rem;
+}
+.detail-modal .add-confirm-row button {
+  padding: 6px 14px;
+  border: 1px solid #e94560;
+  border-radius: 6px;
+  background: #e94560;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.detail-modal .add-confirm-row button:hover { background: #c73651; }
+.detail-modal .add-confirm-row button:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>
 </head>
 <body>
@@ -394,7 +501,7 @@ async function loadRecent() {
         ).join('')}</div>`
       : '';
 
-    const clickable = img.border_status === 'done' ? `onclick="showImageDetail(${img.id})"` : '';
+    const clickable = (img.border_status === 'done' || img.border_status === 'needs_disambiguation') ? `onclick="showImageDetail(${img.id})"` : '';
 
     return `
       <div class="img-card ${img.border_status}" ${clickable}>
@@ -457,8 +564,7 @@ async function showImageDetail(imageId) {
     const sid = disambiguated[i];
     const claudeCard = claude[i] || {};
 
-    if (sid === null || sid === 'skipped') {
-      // Skipped card
+    if (sid === 'skipped') {
       html += `
         <div class="card-row skipped">
           <div style="width:60px;height:84px;background:#0d1117;border-radius:4px;flex-shrink:0;"></div>
@@ -466,6 +572,19 @@ async function showImageDetail(imageId) {
             <div class="card-name">${escapeHtml(claudeCard.name || 'Unknown')}</div>
             <div class="card-set">${escapeHtml(claudeCard.set_code ? claudeCard.set_code.toUpperCase() : '')}</div>
           </div>
+        </div>
+      `;
+      continue;
+    }
+    if (sid === null) {
+      html += `
+        <div class="card-row pending">
+          <div style="width:60px;height:84px;background:#0d1117;border-radius:4px;flex-shrink:0;"></div>
+          <div class="card-details">
+            <div class="card-name">${escapeHtml(claudeCard.name || 'Unknown')}</div>
+            <div class="card-set">${escapeHtml(claudeCard.set_code ? claudeCard.set_code.toUpperCase() : '')}</div>
+          </div>
+          <a href="/disambiguate" style="color:#e94560;font-size:0.7rem;text-decoration:none;flex-shrink:0;padding:4px 6px;">Disambiguate</a>
         </div>
       `;
       continue;
@@ -495,8 +614,117 @@ async function showImageDetail(imageId) {
     `;
   }
 
+  // Add card section
+  html += `
+    <div class="add-card-section">
+      <h3>Add a card</h3>
+      <div class="add-search-row">
+        <input type="text" id="add-card-search" placeholder="Search by card name...">
+        <button id="add-card-search-btn">Search</button>
+      </div>
+      <div class="add-results" id="add-card-results"></div>
+      <div class="add-confirm-row">
+        <select id="add-card-finish">
+          <option value="nonfoil">Nonfoil</option>
+          <option value="foil">Foil</option>
+          <option value="etched">Etched</option>
+        </select>
+        <button id="add-card-btn" disabled>Add</button>
+      </div>
+    </div>
+  `;
+
   content.innerHTML = html;
   content.querySelector('.modal-close').addEventListener('click', () => modal.remove());
+
+  // Add card search + confirm wiring
+  let _addSelectedCandidate = null;
+
+  const addSearchBtn = content.querySelector('#add-card-search-btn');
+  const addSearchInput = content.querySelector('#add-card-search');
+  const addResults = content.querySelector('#add-card-results');
+  const addBtn = content.querySelector('#add-card-btn');
+
+  async function doAddSearch() {
+    const query = addSearchInput.value.trim();
+    if (!query) return;
+    addSearchBtn.disabled = true;
+    addSearchBtn.textContent = '...';
+    const resp = await fetch('/api/ingest2/search-card', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ query }),
+    });
+    const data = await resp.json();
+    addSearchBtn.disabled = false;
+    addSearchBtn.textContent = 'Search';
+    _addSelectedCandidate = null;
+    addBtn.disabled = true;
+    addResults.innerHTML = '';
+    for (const c of (data.candidates || [])) {
+      const row = document.createElement('div');
+      row.className = 'add-result-row';
+      const imgTag = c.image_uri ? `<img src="${c.image_uri}" loading="lazy">` : `<div style="width:40px;height:56px;background:#0d1117;border-radius:3px;flex-shrink:0;"></div>`;
+      row.innerHTML = `${imgTag}<span class="result-name">${escapeHtml(c.name)}</span><span class="result-set">${escapeHtml(c.set_code ? c.set_code.toUpperCase() : '')}</span>`;
+      row.addEventListener('click', () => {
+        addResults.querySelectorAll('.add-result-row').forEach(r => r.classList.remove('selected'));
+        row.classList.add('selected');
+        _addSelectedCandidate = c;
+        addBtn.disabled = false;
+        // Auto-set finish
+        if (c.foil && !(c.finishes || []).includes('nonfoil')) {
+          content.querySelector('#add-card-finish').value = 'foil';
+        } else {
+          content.querySelector('#add-card-finish').value = 'nonfoil';
+        }
+      });
+      addResults.appendChild(row);
+    }
+  }
+
+  addSearchBtn.addEventListener('click', doAddSearch);
+  addSearchInput.addEventListener('keydown', e => { if (e.key === 'Enter') doAddSearch(); });
+
+  addBtn.addEventListener('click', async () => {
+    if (!_addSelectedCandidate) return;
+    addBtn.disabled = true;
+    addBtn.textContent = '...';
+    const finish = content.querySelector('#add-card-finish').value;
+    const resp = await fetch('/api/ingest2/add-card', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        image_id: imageId,
+        scryfall_id: _addSelectedCandidate.scryfall_id,
+        finish,
+      }),
+    });
+    const result = await resp.json();
+    addBtn.textContent = 'Add';
+    addBtn.disabled = false;
+    if (result.ok) {
+      // Append new card row to modal
+      const imgUri = (_addSelectedCandidate.image_uri || '').replace('/small/', '/normal/');
+      const priceHtml = _addSelectedCandidate.price ? `<span class="card-price">$${_addSelectedCandidate.price}</span>` : '';
+      const newRow = document.createElement('div');
+      newRow.className = 'card-row';
+      newRow.innerHTML = `
+        ${imgUri ? `<img src="${imgUri}" loading="lazy">` : `<div style="width:60px;height:84px;background:#0d1117;border-radius:4px;flex-shrink:0;"></div>`}
+        <div class="card-details">
+          <div class="card-name">${escapeHtml(result.name)}</div>
+          <div class="card-set">${escapeHtml(_addSelectedCandidate.set_name || '')}${result.set_code ? ` (${result.set_code.toUpperCase()})` : ''}</div>
+        </div>
+        ${priceHtml}
+      `;
+      // Insert before the add-card-section
+      content.querySelector('.add-card-section').insertAdjacentElement('beforebegin', newRow);
+      // Clear search
+      _addSelectedCandidate = null;
+      addResults.innerHTML = '';
+      addSearchInput.value = '';
+      addBtn.disabled = true;
+    }
+  });
 }
 
 // Auto-poll

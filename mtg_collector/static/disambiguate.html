@@ -81,8 +81,8 @@ button.secondary:hover { background: #444; }
   border-bottom: 1px solid #0f3460;
 }
 .card-header .crop-thumb {
-  width: 70px;
-  height: 98px;
+  width: 140px;
+  height: 196px;
   background: #0d1117;
   border-radius: 4px;
   overflow: hidden;
@@ -421,8 +421,7 @@ function renderCandidates(idx, candidates) {
     return;
   }
 
-  const gridMode = candidates.length > 20;
-  list.className = 'candidates-list' + (gridMode ? ' grid-mode' : '');
+  list.className = 'candidates-list grid-mode';
 
   for (const c of candidates) {
     const row = document.createElement('div');
@@ -435,22 +434,11 @@ function renderCandidates(idx, candidates) {
     const sources = (_settings.price_sources || 'tcg,ck').split(',');
     const showPrice = sources.includes('tcg') && c.price;
 
-    if (gridMode) {
-      row.innerHTML = `
-        <i class="ss ss-${setCode} ${rarityClass} ss-grad ss-fw set-icon"></i>
-        ${c.image_uri ? `<img class="card-img-grid" src="${c.image_uri}" loading="lazy">` : `<div style="width:100%;aspect-ratio:63/88;background:#0d1117;border-radius:3px;"></div>`}
-      `;
-      row.title = `${c.name} — ${c.set_name}${showPrice ? ' ($' + c.price + ')' : ''}`;
-    } else {
-      const priceHtml = showPrice ? `<span class="card-price">$${c.price}</span>` : '';
-      row.innerHTML = `
-        <i class="ss ss-${setCode} ${rarityClass} ss-grad ss-fw set-icon"></i>
-        <span class="card-name">${escapeHtml(c.name)}</span>
-        <span class="card-set-name">${escapeHtml(c.set_name)}</span>
-        ${priceHtml}
-        ${c.image_uri ? `<img class="card-img-crop" src="${c.image_uri}" loading="lazy">` : ''}
-      `;
-    }
+    row.innerHTML = `
+      <i class="ss ss-${setCode} ${rarityClass} ss-grad ss-fw set-icon"></i>
+      ${c.image_uri ? `<img class="card-img-grid" src="${c.image_uri}" loading="lazy">` : `<div style="width:100%;aspect-ratio:63/88;background:#0d1117;border-radius:3px;"></div>`}
+    `;
+    row.title = `${c.name} — ${c.set_name}${showPrice ? ' ($' + c.price + ')' : ''}`;
 
     row.addEventListener('click', () => {
       // Deselect others in same block

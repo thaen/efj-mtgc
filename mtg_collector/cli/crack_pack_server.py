@@ -739,6 +739,8 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             self._api_ingest2_search_card()
         elif path == "/api/ingest2/update-cards":
             self._api_ingest2_update_cards()
+        elif path == "/api/ingest2/add-card":
+            self._api_ingest2_add_card()
         elif path == "/api/ingest2/delete":
             self._api_ingest2_delete()
         elif path == "/api/ingest/session":
@@ -1639,6 +1641,102 @@ class CrackPackHandler(BaseHTTPRequestHandler):
         _log_ingest(f"Confirmed2: {name} ({set_code.upper()} #{cn}) -> collection ID {entry_id}")
 
         self._send_json({"ok": True, "entry_id": entry_id, "name": name, "set_code": set_code, "collector_number": cn})
+
+    def _api_ingest2_add_card(self):
+        """Add a new card slot to an existing image and confirm it."""
+        from mtg_collector.services.scryfall import ScryfallAPI, cache_scryfall_data
+        from mtg_collector.db.models import (
+            CardRepository, SetRepository, PrintingRepository, CollectionRepository, CollectionEntry,
+        )
+        from mtg_collector.utils import now_iso
+
+        data = self._read_json_body()
+        if data is None:
+            return
+
+        image_id = data["image_id"]
+        scryfall_id = data["scryfall_id"]
+        finish = data.get("finish", "nonfoil")
+
+        conn = self._ingest2_db()
+        img = self._ingest2_load_image(conn, image_id)
+        if not img:
+            conn.close()
+            self._send_json({"error": "Image not found"}, 404)
+            return
+
+        # Append to all parallel arrays
+        disambiguated = json.loads(img["disambiguated"]) if img.get("disambiguated") else []
+        scryfall_matches = json.loads(img["scryfall_matches"]) if img.get("scryfall_matches") else []
+        claude_result = json.loads(img["claude_result"]) if img.get("claude_result") else []
+        crops = json.loads(img["crops"]) if img.get("crops") else []
+
+        disambiguated.append(None)
+        scryfall_matches.append([])
+        claude_result.append({})
+        crops.append(None)
+
+        card_idx = len(disambiguated) - 1
+
+        # Fetch from Scryfall and cache
+        scryfall = ScryfallAPI()
+        card_repo = CardRepository(conn)
+        set_repo = SetRepository(conn)
+        printing_repo = PrintingRepository(conn)
+        collection_repo = CollectionRepository(conn)
+
+        card_data = scryfall.get_card_by_id(scryfall_id)
+        if not card_data:
+            conn.close()
+            self._send_json({"error": "Card not found on Scryfall"}, 404)
+            return
+
+        cache_scryfall_data(scryfall, card_repo, set_repo, printing_repo, card_data)
+
+        # Create collection entry
+        entry = CollectionEntry(
+            id=None,
+            scryfall_id=scryfall_id,
+            finish=finish,
+            condition="Near Mint",
+            source="ocr_ingest",
+        )
+        entry_id = collection_repo.add(entry)
+
+        # Insert ingest_lineage
+        md5 = img["md5"]
+        conn.execute(
+            """INSERT INTO ingest_lineage (collection_id, image_md5, image_path, card_index, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (entry_id, md5, img["stored_name"], card_idx, now_iso()),
+        )
+
+        # Update disambiguated and prepend to scryfall_matches
+        disambiguated[card_idx] = scryfall_id
+        scryfall_matches[card_idx] = _format_candidates([card_data])
+
+        # Check if all done
+        status_update = {}
+        if all(d is not None for d in disambiguated):
+            status_update["status"] = "DONE"
+
+        self._ingest2_update_image(
+            conn, image_id,
+            disambiguated=json.dumps(disambiguated),
+            scryfall_matches=json.dumps(scryfall_matches),
+            claude_result=json.dumps(claude_result),
+            crops=json.dumps(crops),
+            **status_update,
+        )
+
+        conn.commit()
+        conn.close()
+
+        name = card_data.get("name", "???")
+        set_code = card_data.get("set", "???")
+        _log_ingest(f"AddCard: {name} ({set_code.upper()}) -> collection ID {entry_id}, image {image_id} slot {card_idx}")
+
+        self._send_json({"ok": True, "entry_id": entry_id, "name": name, "set_code": set_code, "card_idx": card_idx})
 
     def _api_ingest2_skip(self):
         """Skip a card."""
