@@ -1,0 +1,16 @@
+[Unit]
+Description=MTG Card Collection Web Server
+After=network.target
+
+[Service]
+Type=simple
+User=ryangantt
+Group=ryangantt
+WorkingDirectory=/home/ryangantt/workspace/efj-mtgc
+Environment=MTGC_HOME=/var/lib/mtgc
+ExecStart=/home/ryangantt/.local/bin/uv run mtg crack-pack-server --port 8081
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
