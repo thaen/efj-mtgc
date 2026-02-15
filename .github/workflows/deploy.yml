@@ -1,0 +1,16 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    steps:
+      - name: Pull latest code
+        run: sudo -u mtgc git -C /opt/mtgc pull --ff-only origin main
+
+      - name: Run deploy script
+        run: bash /opt/mtgc/deploy/deploy.sh
