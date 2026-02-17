@@ -488,7 +488,25 @@ async function loadRecent() {
     disambigBtn.style.display = 'none';
   }
 
-  grid.innerHTML = images.map(img => {
+  // Build a map of existing cards by image ID for in-place updates
+  const existingCards = {};
+  grid.querySelectorAll('.img-card[data-id]').forEach(el => {
+    existingCards[el.dataset.id] = el;
+  });
+
+  const newIds = new Set(images.map(img => String(img.id)));
+
+  // Remove cards no longer in the response
+  for (const [id, el] of Object.entries(existingCards)) {
+    if (!newIds.has(id)) el.remove();
+  }
+
+  // Update or create cards in order
+  let prevEl = null;
+  for (const img of images) {
+    const id = String(img.id);
+    let card = existingCards[id];
+
     let badgeText = '';
     if (img.border_status === 'processing') {
       badgeText = '<span class="spinner-icon"></span>';
@@ -500,31 +518,94 @@ async function loadRecent() {
       badgeText = '!';
     }
 
-    const errorTooltip = img.border_status === 'error' && img.error_message
-      ? `<div class="error-tooltip">${escapeHtml(img.error_message.substring(0, 200))}</div>`
-      : '';
-
-    const errorIcon = img.border_status === 'error' ? '<div class="error-icon">&times;</div>' : '';
-
     const cardsHtml = (img.cards || []).length > 0
       ? `<div class="card-list">${img.cards.map(c =>
           `<div class="card-entry">${escapeHtml(c.name)}${c.set_code ? `<span class="set-tag">${escapeHtml(c.set_code)}</span>` : ''}</div>`
         ).join('')}</div>`
       : '';
 
-    const clickable = (img.border_status === 'done' || img.border_status === 'needs_disambiguation') ? `onclick="showImageDetail(${img.id})"` : '';
+    if (card) {
+      // Update existing card in-place (preserve the <img> element)
+      card.className = `img-card ${img.border_status}`;
+      card.onclick = (img.border_status === 'done' || img.border_status === 'needs_disambiguation')
+        ? () => showImageDetail(img.id) : null;
+      card.querySelector('.badge').innerHTML = badgeText;
+      card.querySelector('.info').textContent = img.filename;
 
-    return `
-      <div class="img-card ${img.border_status}" ${clickable}>
+      // Update error icon
+      let errorIcon = card.querySelector('.error-icon');
+      if (img.border_status === 'error') {
+        if (!errorIcon) {
+          errorIcon = document.createElement('div');
+          errorIcon.className = 'error-icon';
+          errorIcon.innerHTML = '&times;';
+          card.appendChild(errorIcon);
+        }
+      } else if (errorIcon) {
+        errorIcon.remove();
+      }
+
+      // Update error tooltip
+      let tooltip = card.querySelector('.error-tooltip');
+      if (img.border_status === 'error' && img.error_message) {
+        if (!tooltip) {
+          tooltip = document.createElement('div');
+          tooltip.className = 'error-tooltip';
+          card.appendChild(tooltip);
+        }
+        tooltip.textContent = img.error_message.substring(0, 200);
+      } else if (tooltip) {
+        tooltip.remove();
+      }
+
+      // Update card list
+      let cardList = card.querySelector('.card-list');
+      if (cardsHtml) {
+        if (cardList) {
+          cardList.outerHTML = cardsHtml;
+        } else {
+          card.insertAdjacentHTML('beforeend', cardsHtml);
+        }
+      } else if (cardList) {
+        cardList.remove();
+      }
+    } else {
+      // Create new card
+      const errorTooltip = img.border_status === 'error' && img.error_message
+        ? `<div class="error-tooltip">${escapeHtml(img.error_message.substring(0, 200))}</div>`
+        : '';
+      const errorIcon = img.border_status === 'error' ? '<div class="error-icon">&times;</div>' : '';
+      const clickable = (img.border_status === 'done' || img.border_status === 'needs_disambiguation') ? `onclick="showImageDetail(${img.id})"` : '';
+
+      card = document.createElement('div');
+      card.className = `img-card ${img.border_status}`;
+      card.dataset.id = id;
+      card.innerHTML = `
         <img src="/api/ingest/image/${img.stored_name}" alt="${escapeHtml(img.filename)}" loading="lazy">
         <div class="badge">${badgeText}</div>
         ${errorIcon}
         <div class="info">${escapeHtml(img.filename)}</div>
         ${cardsHtml}
         ${errorTooltip}
-      </div>
-    `;
-  }).join('');
+      `;
+      if (img.border_status === 'done' || img.border_status === 'needs_disambiguation') {
+        card.onclick = () => showImageDetail(img.id);
+      }
+
+      if (prevEl) {
+        prevEl.after(card);
+      } else {
+        grid.prepend(card);
+      }
+    }
+
+    // Ensure correct order
+    if (prevEl && card.previousElementSibling !== prevEl) {
+      prevEl.after(card);
+    }
+
+    prevEl = card;
+  }
 }
 
 function escapeHtml(s) {
