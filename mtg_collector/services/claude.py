@@ -200,6 +200,8 @@ Known hints:
 {hint_block}
 
 Return one object per card. Each object should consolidate ALL fragments from that card.
+Only return cards you can actually identify from the OCR text. Do NOT return empty or
+placeholder objects. Every card must have a non-empty fragment_indices array.
 Include only fields you can confidently identify. Always include fragment_indices.
 Omit any field you are not confident about. Do NOT guess or hallucinate.
 If a hint provides the set code, include "set_code" in every card object.
@@ -275,7 +277,7 @@ OCR FRAGMENTS:
 
                 _status("Parsing Claude response...")
                 result = json.loads(text_content)
-                cards = result["cards"]
+                cards = [c for c in result["cards"] if c.get("fragment_indices")]
 
                 return cards, response.usage
             except anthropic.BadRequestError as e:

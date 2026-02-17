@@ -409,6 +409,13 @@ def _process_image_core(conn, image_id, img, log_fn):
     all_crops = []
 
     for ci, card_info in enumerate(claude_cards):
+        # Skip cards with no identifying info (empty name + no fragments)
+        if not card_info.get("name") and not card_info.get("fragment_indices"):
+            all_matches.append([])
+            all_crops.append(None)
+            _log_ingest(f"Scryfall card {ci}: skipped (no identifying info)")
+            continue
+
         set_code, cn_or_query = _build_scryfall_query(card_info, {})
         candidates = []
 
@@ -2068,8 +2075,8 @@ class CrackPackHandler(BaseHTTPRequestHandler):
                 (md5, card_idx),
             ).fetchone()
             if lineage:
-                conn.execute("DELETE FROM collection WHERE id = ?", (lineage["collection_id"],))
                 conn.execute("DELETE FROM ingest_lineage WHERE image_md5 = ? AND card_index = ?", (md5, card_idx))
+                conn.execute("DELETE FROM collection WHERE id = ?", (lineage["collection_id"],))
                 removed_collection = True
 
         # Remove from all parallel arrays
@@ -2610,6 +2617,13 @@ class CrackPackHandler(BaseHTTPRequestHandler):
         all_crops = []
 
         for ci, card_info in enumerate(claude_cards):
+            # Skip cards with no identifying info (empty name + no fragments)
+            if not card_info.get("name") and not card_info.get("fragment_indices"):
+                all_matches.append([])
+                all_crops.append(None)
+                _log_ingest(f"Scryfall card {ci}: skipped (no identifying info)")
+                continue
+
             set_code, cn_or_query = _build_scryfall_query(card_info, {})
             candidates = []
 
@@ -3434,8 +3448,8 @@ def register(subparsers):
     parser.add_argument(
         "--port",
         type=int,
-        default=8081,
-        help="Port to serve on (default: 8081)",
+        default=8080,
+        help="Port to serve on (default: 8080)",
     )
     parser.add_argument(
         "--mtgjson",
