@@ -113,7 +113,6 @@ sed \
     "$REPO_DIR/deploy/mtgc.container" > "$QUADLET_FILE"
 
 systemctl --user daemon-reload
-systemctl --user enable "$SERVICE_NAME"
 
 echo ""
 echo "==> Setup complete!"
