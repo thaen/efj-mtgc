@@ -25,8 +25,15 @@ REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 cd "$REPO_DIR"
 
+# Ensure XDG_RUNTIME_DIR is set (required for systemctl --user).
+# CI runners and non-interactive sessions often lack this.
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+
 echo "==> Building container image (mtgc:$INSTANCE)..."
 podman build -t "mtgc:${INSTANCE}" -f Containerfile .
+
+echo "==> Reloading systemd (picks up Quadlet changes)..."
+systemctl --user daemon-reload
 
 echo "==> Restarting $SERVICE_NAME..."
 systemctl --user restart "$SERVICE_NAME"
