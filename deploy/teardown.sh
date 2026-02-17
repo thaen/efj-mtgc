@@ -10,6 +10,10 @@
 #
 set -euo pipefail
 
+# Ensure XDG_RUNTIME_DIR is set (required for systemctl --user).
+# CI runners and non-interactive sessions often lack this.
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+
 if [ $# -lt 1 ]; then
     echo "Usage: bash deploy/teardown.sh <instance> [--purge]"
     exit 1
