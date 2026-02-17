@@ -1464,7 +1464,8 @@ class CrackPackHandler(BaseHTTPRequestHandler):
         conn = self._ingest2_db()
         rows = conn.execute(
             """SELECT id, filename, stored_name, status, error_message,
-                      claude_result, disambiguated, created_at, updated_at
+                      claude_result, scryfall_matches, disambiguated,
+                      created_at, updated_at
                FROM ingest_images
                WHERE created_at >= strftime('%Y-%m-%dT%H:%M:%S', 'now', ?)
                ORDER BY id DESC""",
@@ -1495,13 +1496,25 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             else:
                 border_status = "processing"
 
-            # Extract card summaries (name + set_code) from claude_result
+            # Extract card summaries — use confirmed scryfall name when
+            # available so corrections are reflected on the recent page.
+            scryfall_matches = json.loads(d["scryfall_matches"]) if d.get("scryfall_matches") else []
             cards_summary = []
-            for card in claude_result:
-                cards_summary.append({
-                    "name": card.get("name", ""),
-                    "set_code": (card.get("set_code") or "").upper(),
-                })
+            for idx, card in enumerate(claude_result):
+                sid = disambiguated[idx] if idx < len(disambiguated) else None
+                resolved = None
+                if sid and sid != "skipped" and idx < len(scryfall_matches):
+                    resolved = next((c for c in scryfall_matches[idx] if c.get("scryfall_id") == sid), None)
+                if resolved:
+                    cards_summary.append({
+                        "name": resolved.get("name", card.get("name", "")),
+                        "set_code": (resolved.get("set_code") or card.get("set_code") or "").upper(),
+                    })
+                else:
+                    cards_summary.append({
+                        "name": card.get("name", ""),
+                        "set_code": (card.get("set_code") or "").upper(),
+                    })
 
             result.append({
                 "id": d["id"],
