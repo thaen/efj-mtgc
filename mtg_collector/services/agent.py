@@ -6,7 +6,7 @@ import sys
 
 import anthropic
 
-from mtg_collector.db.connection import get_connection
+from mtg_collector.db.connection import get_db_path
 from mtg_collector.services.claude import ClaudeVision
 from mtg_collector.services.ocr import run_ocr_with_boxes
 
@@ -251,7 +251,8 @@ def run_agent(
     agent_model = AGENT_MODEL_SONNET if n > LARGE_FRAGMENT_THRESHOLD else AGENT_MODEL_HAIKU
 
     client = anthropic.Anthropic()
-    conn = get_connection()
+    conn = sqlite3.connect(get_db_path())
+    conn.row_factory = sqlite3.Row
 
     _trace(f"[AGENT] Starting with {n} OCR fragments (max_calls={max_calls}, model={agent_model})", status_callback)
 
