@@ -246,7 +246,7 @@ def run_agent(
     ocr_fragments: list[dict],
     max_calls: int | None = None,
     status_callback=None,
-) -> list[dict]:
+) -> tuple[list[dict], list[str]]:
     """Run the tool-using agent to identify MTG cards from an image.
 
     Args:
@@ -257,7 +257,8 @@ def run_agent(
         status_callback: Optional callable for trace messages (replaces stderr).
 
     Returns:
-        List of card dicts with name, set_code, collector_number, fragment_indices, confidence.
+        (cards, trace) where cards is a list of card dicts and trace is the
+        list of all trace lines emitted during the run.
     """
     n = len(ocr_fragments)
     if max_calls is None:
@@ -268,7 +269,14 @@ def run_agent(
     conn = sqlite3.connect(get_db_path())
     conn.row_factory = sqlite3.Row
 
-    _trace(f"[AGENT] Starting with {n} OCR fragments (max_calls={max_calls}, model={agent_model})", status_callback)
+    trace_lines: list[str] = []
+
+    def _cb(msg: str) -> None:
+        trace_lines.append(msg)
+        if status_callback:
+            status_callback(msg)
+
+    _trace(f"[AGENT] Starting with {n} OCR fragments (max_calls={max_calls}, model={agent_model})", _cb)
 
     initial_content = (
         f"I have run OCR on the image `{image_path}`. "
@@ -286,7 +294,7 @@ def run_agent(
     while tool_call_count < max_calls:
         response = _call_api(
             client.messages.create,
-            status_callback,
+            _cb,
             model=agent_model,
             max_tokens=4000,
             system=SYSTEM_PROMPT,
@@ -296,9 +304,9 @@ def run_agent(
 
         for block in response.content:
             if block.type == "text":
-                _trace(f"[AGENT] {block.text.strip()}", status_callback)
+                _trace(f"[AGENT] {block.text.strip()}", _cb)
             elif block.type == "tool_use":
-                _trace(f"[TOOL CALL] {block.name}: {json.dumps(block.input)}", status_callback)
+                _trace(f"[TOOL CALL] {block.name}: {json.dumps(block.input)}", _cb)
 
         if response.stop_reason == "end_turn" or not _has_tool_use(response):
             break
@@ -331,7 +339,7 @@ def run_agent(
             _trace(
                 f"[TOOL RESULT] {name}: "
                 f"{result[:500]}{'...' if len(result) > 500 else ''}",
-                status_callback,
+                _cb,
             )
             tool_results.append(
                 {
@@ -344,7 +352,7 @@ def run_agent(
         messages.append({"role": "assistant", "content": response.content})
         messages.append({"role": "user", "content": tool_results})
 
-    _trace(f"[FINAL] Tool calls used: {tool_call_count}/{max_calls}", status_callback)
+    _trace(f"[FINAL] Tool calls used: {tool_call_count}/{max_calls}", _cb)
 
     # If the last response was end_turn it hasn't been appended to messages yet.
     # Add it so the conversation is complete, then ask for the final answer.
@@ -354,10 +362,10 @@ def run_agent(
     # Budget-exhausted case: messages already ends with the tool results (user turn),
     # so the structured output call below will naturally close the loop.
 
-    _trace("[FINAL] Requesting structured output...", status_callback)
+    _trace("[FINAL] Requesting structured output...", _cb)
     final_response = _call_api(
         client.messages.create,
-        status_callback,
+        _cb,
         model=agent_model,
         max_tokens=2000,
         system=SYSTEM_PROMPT,
@@ -370,4 +378,4 @@ def run_agent(
         },
     )
     result = json.loads(final_response.content[0].text)
-    return result["cards"]
+    return result["cards"], trace_lines

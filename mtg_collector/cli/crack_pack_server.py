@@ -466,10 +466,11 @@ def _process_image_core(conn, image_id, img, log_fn):
 
     ocr_fragments = None
     claude_cards = None
+    agent_trace = []
 
     # Check cache
     cache_row = conn.execute(
-        "SELECT ocr_result, claude_result FROM ingest_cache WHERE image_md5 = ?",
+        "SELECT ocr_result, claude_result, agent_trace FROM ingest_cache WHERE image_md5 = ?",
         (md5,),
     ).fetchone()
     if cache_row:
@@ -479,6 +480,7 @@ def _process_image_core(conn, image_id, img, log_fn):
         log_fn("ocr_complete", {"fragment_count": len(ocr_fragments), "fragments": ocr_fragments})
         if cache_row["claude_result"]:
             claude_cards = json.loads(cache_row["claude_result"])
+            agent_trace = json.loads(cache_row["agent_trace"]) if cache_row["agent_trace"] else []
             log_fn("cached", {"step": "claude"})
             log_fn("claude_complete", {"cards": claude_cards})
 
@@ -497,7 +499,7 @@ def _process_image_core(conn, image_id, img, log_fn):
     if claude_cards is None:
         log_fn("status", {"message": "Calling agent..."})
         t0 = time.time()
-        claude_cards = run_agent(
+        claude_cards, agent_trace = run_agent(
             image_path,
             ocr_fragments=ocr_fragments,
             status_callback=lambda msg: log_fn("status", {"message": msg}),
@@ -512,10 +514,10 @@ def _process_image_core(conn, image_id, img, log_fn):
     # Save to cache
     conn.execute(
         """INSERT OR REPLACE INTO ingest_cache
-           (image_md5, image_path, ocr_result, claude_result, created_at)
-           VALUES (?, ?, ?, ?, ?)""",
+           (image_md5, image_path, ocr_result, claude_result, agent_trace, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)""",
         (md5, image_path, json.dumps(ocr_fragments),
-         json.dumps(claude_cards), now_iso()),
+         json.dumps(claude_cards), json.dumps(agent_trace), now_iso()),
     )
     conn.commit()
 
@@ -603,7 +605,7 @@ def _process_image_core(conn, image_id, img, log_fn):
         else:
             disambiguated.append(None)
 
-    return ocr_fragments, claude_cards, all_matches, all_crops, disambiguated
+    return ocr_fragments, claude_cards, all_matches, all_crops, disambiguated, agent_trace
 
 
 def _auto_ingest_single_candidates(conn, img, disambiguated, scryfall_matches):
@@ -693,7 +695,7 @@ def _process_image_background(db_path, image_id):
             _log_ingest(f"[bg:{image_id}] {data_obj.get('message', '')}")
 
     try:
-        ocr_fragments, claude_cards, all_matches, all_crops, disambiguated = _process_image_core(
+        ocr_fragments, claude_cards, all_matches, all_crops, disambiguated, agent_trace = _process_image_core(
             conn, image_id, img, log_fn,
         )
 
@@ -711,12 +713,12 @@ def _process_image_background(db_path, image_id):
         # Save state
         conn.execute(
             """UPDATE ingest_images SET
-                status=?, ocr_result=?, claude_result=?, scryfall_matches=?,
+                status=?, ocr_result=?, claude_result=?, agent_trace=?, scryfall_matches=?,
                 crops=?, disambiguated=?, updated_at=?
                WHERE id=?""",
             (final_status, json.dumps(ocr_fragments), json.dumps(claude_cards),
-             json.dumps(all_matches), json.dumps(all_crops), json.dumps(disambiguated),
-             now_iso(), image_id),
+             json.dumps(agent_trace), json.dumps(all_matches), json.dumps(all_crops),
+             json.dumps(disambiguated), now_iso(), image_id),
         )
         conn.commit()
         _log_ingest(f"[bg:{image_id}] Finished -> {final_status}")
@@ -1712,7 +1714,7 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             self._send_json({"error": "Not found"}, 404)
             return
         # Parse JSON fields
-        for field in ("ocr_result", "claude_result", "scryfall_matches", "crops",
+        for field in ("ocr_result", "claude_result", "agent_trace", "scryfall_matches", "crops",
                       "disambiguated", "names_data", "names_disambiguated", "user_card_edits"):
             if img.get(field):
                 img[field] = json.loads(img[field])
@@ -1876,7 +1878,7 @@ class CrackPackHandler(BaseHTTPRequestHandler):
 
     def _process_image2_sse(self, conn, image_id, img, send_event):
         """Process a single image: OCR -> Claude -> Scryfall, streaming SSE events. DB-backed."""
-        ocr_fragments, claude_cards, all_matches, all_crops, disambiguated = _process_image_core(
+        ocr_fragments, claude_cards, all_matches, all_crops, disambiguated, agent_trace = _process_image_core(
             conn, image_id, img, send_event,
         )
 
@@ -1885,6 +1887,7 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             status="READY_FOR_DISAMBIGUATION",
             ocr_result=json.dumps(ocr_fragments),
             claude_result=json.dumps(claude_cards),
+            agent_trace=json.dumps(agent_trace),
             scryfall_matches=json.dumps(all_matches),
             crops=json.dumps(all_crops),
             disambiguated=json.dumps(disambiguated),

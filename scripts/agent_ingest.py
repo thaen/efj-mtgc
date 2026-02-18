@@ -39,7 +39,7 @@ def main():
         sys.exit(1)
 
     fragments = run_ocr_with_boxes(args.image)
-    cards = run_agent(args.image, ocr_fragments=fragments, max_calls=args.max_calls)
+    cards, _ = run_agent(args.image, ocr_fragments=fragments, max_calls=args.max_calls)
     print(json.dumps({"cards": cards}, indent=2))
 
 

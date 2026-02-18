@@ -217,6 +217,38 @@ button.secondary:hover { background: #444; }
   border-radius: 3px; flex-shrink: 0;
 }
 
+/* Agent trace */
+details.agent-trace {
+  margin: 0 16px 8px;
+  border: 1px solid #0f3460;
+  border-radius: 6px;
+  overflow: hidden;
+}
+details.agent-trace summary {
+  padding: 6px 12px;
+  background: #0d1117;
+  cursor: pointer;
+  font-size: 0.75rem;
+  color: #888;
+  user-select: none;
+}
+details.agent-trace summary:hover { color: #e0e0e0; }
+.trace-lines {
+  padding: 8px 12px;
+  background: #0a0a14;
+  font-family: monospace;
+  font-size: 0.7rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.trace-lines .tl-agent  { color: #7ec8e3; }
+.trace-lines .tl-tool   { color: #f0ad4e; }
+.trace-lines .tl-result { color: #888; }
+.trace-lines .tl-final  { color: #4caf50; }
+
 /* Grid mode */
 .candidates-list.grid-mode {
   display: grid;
@@ -423,6 +455,24 @@ async function init() {
       <div class="candidates-list" id="candidates"></div>
     </div>
   `;
+
+  // Agent trace
+  const traceLines = img.agent_trace || [];
+  if (traceLines.length) {
+    function traceClass(line) {
+      if (line.startsWith('[TOOL RESULT]')) return 'tl-result';
+      if (line.startsWith('[TOOL CALL]'))   return 'tl-tool';
+      if (line.startsWith('[FINAL]'))       return 'tl-final';
+      return 'tl-agent';
+    }
+    const traceHtml = traceLines.map(l =>
+      `<span class="${traceClass(l)}">${escapeHtml(l)}</span>`
+    ).join('\n');
+    const details = document.createElement('details');
+    details.className = 'agent-trace';
+    details.innerHTML = `<summary>Agent trace (${traceLines.length} lines)</summary><div class="trace-lines">${traceHtml}</div>`;
+    content.appendChild(details);
+  }
 
   // Set up crop thumbnail
   setupCropThumb(crop, imgSrc);
