@@ -90,6 +90,16 @@ button.secondary:hover { background: #444; }
   color: #555;
   margin-top: 2px;
 }
+.card-header .card-meta .name-compare {
+  font-size: 0.75rem;
+  color: #888;
+  margin-top: 4px;
+  line-height: 1.5;
+}
+.card-header .card-meta .name-compare .label {
+  color: #666;
+  font-size: 0.65rem;
+}
 
 /* Current identification */
 .current-card {
@@ -327,6 +337,7 @@ function showPhotoModal(imageSrc) {
   document.body.appendChild(modal);
 }
 
+
 async function init() {
   const params = new URLSearchParams(window.location.search);
   _imageId = parseInt(params.get('image_id'));
@@ -339,11 +350,14 @@ async function init() {
   const matches = img.scryfall_matches || [];
   const claude = img.claude_result || [];
   const crops = img.crops || [];
+  const cardNames = img.card_names || [];
 
   const currentSid = disambiguated[_cardIdx];
   const candidates = matches[_cardIdx] || [];
   const claudeCard = claude[_cardIdx] || {};
   const crop = crops[_cardIdx] || null;
+  const ocrName = (cardNames[_cardIdx] || {}).ocr_name || '';
+  const claudeName = (cardNames[_cardIdx] || {}).claude_name || '';
 
   // Find current card in candidates
   const currentCard = candidates.find(c => c.scryfall_id === currentSid) || {};
@@ -376,6 +390,10 @@ async function init() {
           <h3>${escapeHtml(claudeCard.name || 'Unknown')}</h3>
           <div class="meta-line">${escapeHtml(metaParts.join(' | '))}</div>
           <div class="image-source">${escapeHtml(img.filename || img.stored_name)}</div>
+          <div class="name-compare">
+            ${ocrName ? `<div><span class="label">OCR:</span> ${escapeHtml(ocrName)}</div>` : ''}
+            ${claudeName ? `<div><span class="label">Claude:</span> ${escapeHtml(claudeName)}</div>` : ''}
+          </div>
         </div>
         <div class="actions-col">
           <div style="display:flex;gap:4px;">

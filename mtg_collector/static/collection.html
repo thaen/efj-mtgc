@@ -608,6 +608,14 @@ a.badge.link:hover { color: #fff; background: #555; border-color: #777; }
   padding: 3px 8px;
 }
 
+a.lineage-link {
+  display: block;
+  margin-top: 8px;
+  font-size: 0.75rem;
+  color: #7ec8e3;
+  text-decoration: underline;
+}
+
 .modal-close {
   position: absolute;
   top: 12px;
@@ -1572,9 +1580,9 @@ function showCardModal(card) {
       <div class="modal-links">
         <a class="badge link" href="${sfUrl}" target="_blank" rel="noopener">SF${tcgPrice !== '—' ? ' ' + tcgPrice : ''}</a>
         <a class="badge link" href="${ckUrl}" target="_blank" rel="noopener">CK${ckPrice !== '—' ? ' ' + ckPrice : ''}</a>
-        ${card.ingest_image_id ? `<a class="badge link" href="/correct?image_id=${card.ingest_image_id}&card_idx=${card.ingest_card_idx}">Correct</a>` : ''}
         <button class="want-btn${getWishlistEntry(card) ? ' wanted' : ''}" id="modal-want-btn">${getWishlistEntry(card) ? 'Wanted' : 'Want'}</button>
       </div>
+      ${card.ingest_image_id ? `<a class="lineage-link" href="/correct?image_id=${card.ingest_image_id}&card_idx=${card.ingest_card_idx}">View or correct card lineage</a>` : ''}
     `;
   }
 
