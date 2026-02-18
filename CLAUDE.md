@@ -10,7 +10,9 @@ MTG Card Collection Builder - A Python CLI + web UI tool for managing Magic: The
 - **Always use `uv`** for all Python operations (not pip/venv/make). Examples:
   - `uv sync` to install deps
   - `uv run pytest ...` to run tests
+  - `uv run ruff check mtg_collector/` to lint
   - `uv run mtg ...` to run CLI
+- `ruff` is a dev dependency — always available via `uv run ruff`
 
 ## Error Handling Philosophy
 - **NEVER add fallback logic.** Errors should propagate to the user.
@@ -60,21 +62,23 @@ podman exec -it systemd-mtgc-my-feature mtg setup  # Init data inside container
 mtg_collector/
 ├── cli/           # Subcommands, each with register(subparsers) and run(args)
 │                  #   setup_cmd, ingest_ids, ingest_corners, ingest_ocr, ingest_order,
-│                  #   orders, import_cmd, export, list_cmd, show, edit, delete, stats,
-│                  #   db_cmd, cache_cmd, data_cmd, crack_pack, crack_pack_server, wishlist
+│                  #   ingest_retry, orders, import_cmd, export, list_cmd, show, edit,
+│                  #   delete, stats, db_cmd, cache_cmd, data_cmd, demo_data,
+│                  #   crack_pack, crack_pack_server, wishlist
 ├── db/            # SQLite layer (connection.py, schema.py, models.py with repositories)
 ├── services/      # claude.py (Vision API), scryfall.py (card data + caching),
 │                  #   ocr.py (EasyOCR), pack_generator.py (MTGJSON booster sim),
 │                  #   order_parser.py, order_resolver.py
 ├── static/        # Web UI: collection.html, crack_pack.html, explore_sheets.html,
-│                  #   ingest.html, ingest_order.html
+│                  #   ingest_order.html, upload.html, recent.html, process.html,
+│                  #   disambiguate.html, correct.html, index.html
 ├── importers/     # CSV parsers for moxfield, archidekt, deckbox
 └── exporters/     # CSV writers for moxfield, archidekt, deckbox
 ```
 
 ## Database Schema
 
-Schema version tracked in `schema_version` table with auto-migrations (current: v9).
+Schema version tracked in `schema_version` table with auto-migrations (current: v12).
 
 Core tables with foreign key relationships:
 - `cards` (oracle_id PK) → Oracle-level card identity
@@ -96,7 +100,7 @@ Four ingestion methods:
 
 1. **ingest-ids**: User provides rarity code, collector number, set code, and optional foil flag directly
 2. **ingest-corners**: Claude Vision reads card corner text (rarity/CN/set/foil) from photos
-3. **ingest-ocr** (web UI ingestor): EasyOCR extracts text, Claude identifies card names, Scryfall resolves
+3. **ingest-ocr** (CLI) / **ingest2** (web UI): EasyOCR extracts text, Claude identifies card names, Scryfall resolves. Web UI adds multi-step workflow: upload → process → disambiguate → correct → confirm
 4. **ingest-order**: Parses TCGPlayer HTML/text or Card Kingdom text orders, resolves items to Scryfall cards with treatment-aware matching (borderless, extended art, showcase), creates collection entries linked to order records
 
 Methods 1 and 2 feed into `resolve_and_add_ids()` which:
@@ -115,7 +119,9 @@ Method 4 uses `order_parser.py` → `order_resolver.py` → `commit_orders()`:
 
 Threaded HTTP server serving static HTML pages and JSON APIs. Start with `mtg crack-pack-server`.
 
-Key pages: `/collection` (browse/filter/manage collection), `/crack` (booster pack simulator), `/sheets` (explore booster sheet layouts), `/ingestor-ocr` (image-based card ingestion with SSE streaming), `/ingestor-order` (order ingestion from TCGPlayer/Card Kingdom).
+Key pages: `/collection` (browse/filter/manage collection), `/crack` (booster pack simulator), `/sheets` (explore booster sheet layouts), `/ingestor-order` (order ingestion from TCGPlayer/Card Kingdom).
+
+Ingest2 pages (image-based card ingestion pipeline): `/upload` (photo upload), `/recent` (recently ingested images), `/process` (OCR + Claude processing), `/disambiguate` (resolve ambiguous Scryfall matches), `/correct` (fix misidentified cards).
 
 Collection page filtering architecture: only search queries and include-unowned toggle trigger server fetches. All other filters (color, rarity, set, type, finish, status, CMC, date, price) and sorting are applied client-side for instant responsiveness.
 
@@ -124,7 +130,7 @@ Key API patterns:
 - `/api/cached-sets` — all sets with cached card lists (for set filter dropdown)
 - `/api/set-browse/{set_code}` — all printings in a set with owned/wanted annotations
 - `/api/fetch-prices` (POST) — batch price lookup from Scryfall
-- `/api/ingest/*` — stateful multi-step OCR ingestion workflow with SSE
+- `/api/ingest2/*` — DB-backed OCR ingestion pipeline (upload, process via SSE, confirm/skip/correct/disambiguate)
 - `/api/order/*` — order parse/resolve/commit pipeline
 - `/api/orders` — list orders, show order cards, receive (batch flip ordered→owned)
 

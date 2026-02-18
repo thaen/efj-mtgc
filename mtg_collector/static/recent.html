@@ -108,15 +108,24 @@ header a:hover { color: #e94560; }
   line-height: 1.4;
 }
 .img-card .card-list .card-entry {
+  color: #ccc;
+}
+.img-card .card-list .card-entry .card-name-line {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: #ccc;
 }
 .img-card .card-list .card-entry .set-tag {
   color: #888;
   font-size: 0.6rem;
   margin-left: 2px;
+}
+.img-card .card-list .card-entry .card-sub {
+  color: #666;
+  font-size: 0.6rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .img-card .badge {
   position: absolute;
@@ -239,7 +248,22 @@ header a:hover { color: #e94560; }
   border-bottom: 1px solid #0a0e1a;
 }
 .detail-modal .card-row:last-child { border-bottom: none; }
-.detail-modal .card-row img {
+.detail-modal .card-row .crop-thumb {
+  width: 60px;
+  height: 84px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  overflow: hidden;
+  position: relative;
+  background: #0d1117;
+}
+.detail-modal .card-row .crop-thumb img {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+.detail-modal .card-row .scryfall-thumb {
   width: 60px;
   height: 84px;
   object-fit: cover;
@@ -264,6 +288,24 @@ header a:hover { color: #e94560; }
   font-size: 0.7rem;
   color: #666;
   margin-top: 2px;
+}
+.detail-modal .card-row .card-details .claude-meta {
+  font-size: 0.65rem;
+  color: #555;
+  margin-top: 3px;
+  line-height: 1.4;
+}
+.detail-modal .card-row .card-details .claude-meta .label {
+  color: #666;
+}
+.detail-modal .modal-filename {
+  padding: 4px 16px 6px;
+  font-size: 0.75rem;
+  color: #666;
+  border-bottom: 1px solid #0f3460;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .detail-modal .card-row .card-price {
   font-size: 0.8rem;
@@ -519,9 +561,16 @@ async function loadRecent() {
     }
 
     const cardsHtml = (img.cards || []).length > 0
-      ? `<div class="card-list">${img.cards.map(c =>
-          `<div class="card-entry">${escapeHtml(c.name)}${c.set_code ? `<span class="set-tag">${escapeHtml(c.set_code)}</span>` : ''}</div>`
-        ).join('')}</div>`
+      ? `<div class="card-list">${img.cards.map(c => {
+          const ocrName = c.ocr_name || '';
+          const claudeName = c.claude_name || '';
+          const resolvedName = c.name || '';
+          const details = [];
+          if (ocrName) details.push(`OCR: ${escapeHtml(ocrName)}`);
+          if (claudeName) details.push(`Claude: ${escapeHtml(claudeName)}`);
+          const detailHtml = details.length > 0 ? `<div class="card-sub">${details.join(' · ')}</div>` : '';
+          return `<div class="card-entry"><div class="card-name-line">${escapeHtml(resolvedName)}${c.set_code ? `<span class="set-tag">${escapeHtml(c.set_code)}</span>` : ''}</div>${detailHtml}</div>`;
+        }).join('')}</div>`
       : '';
 
     if (card) {
@@ -635,6 +684,9 @@ async function showImageDetail(imageId) {
   const disambiguated = img.disambiguated || [];
   const matches = img.scryfall_matches || [];
   const claude = img.claude_result || [];
+  const crops = img.crops || [];
+  const cardNames = img.card_names || [];
+  const imgSrc = `/api/ingest/image/${encodeURIComponent(img.stored_name)}`;
   const content = modal.querySelector('.modal-content');
 
   // Build time info
@@ -642,44 +694,71 @@ async function showImageDetail(imageId) {
   const updated = new Date(img.updated_at);
   const fmt = d => d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 
+  // Helper: build Claude metadata HTML
+  function buildClaudeMeta(c, ocrName) {
+    const parts = [];
+    if (ocrName) parts.push(`<span class="label">OCR:</span> ${escapeHtml(ocrName)}`);
+    if (c.name) parts.push(`<span class="label">Claude:</span> ${escapeHtml(c.name)}`);
+    if (c.type) parts.push(`<span class="label">Type:</span> ${escapeHtml(c.type)}${c.subtype ? ' — ' + escapeHtml(c.subtype) : ''}`);
+    if (c.mana_cost) parts.push(`<span class="label">Mana:</span> ${escapeHtml(c.mana_cost)}`);
+    if (c.collector_number) parts.push(`<span class="label">CN:</span> ${escapeHtml(c.collector_number)}`);
+    if (c.set_code) parts.push(`<span class="label">Set:</span> ${escapeHtml(c.set_code.toUpperCase())}`);
+    if (c.power != null || c.toughness != null) parts.push(`<span class="label">P/T:</span> ${c.power ?? '?'}/${c.toughness ?? '?'}`);
+    if (c.artist) parts.push(`<span class="label">Artist:</span> ${escapeHtml(c.artist)}`);
+    if (c.rules_text) parts.push(`<span class="label">Rules:</span> ${escapeHtml(c.rules_text.length > 80 ? c.rules_text.slice(0, 80) + '…' : c.rules_text)}`);
+    return parts.length > 0 ? `<div class="claude-meta">${parts.join('<br>')}</div>` : '';
+  }
+
   let html = `
     <div class="modal-header">
       <h2>Ingested Cards</h2>
       <button class="modal-close">&times;</button>
     </div>
+    <div class="modal-filename">${escapeHtml(img.filename || '')}</div>
     <div class="modal-time">
       Uploaded ${fmt(created)} &middot; Completed ${fmt(updated)}
     </div>
   `;
 
+  // Track crop containers to set up after HTML is inserted
+  const cropSetups = [];
+
   for (let i = 0; i < disambiguated.length; i++) {
     const sid = disambiguated[i];
     const claudeCard = claude[i] || {};
+    const crop = crops[i] || null;
+    const ocrName = (cardNames[i] || {}).ocr_name || '';
+    const cropId = `modal-crop-${i}`;
+    const claudeMetaHtml = buildClaudeMeta(claudeCard, ocrName);
 
     if (sid === 'skipped') {
       html += `
         <div class="card-row skipped">
-          <div style="width:60px;height:84px;background:#0d1117;border-radius:4px;flex-shrink:0;"></div>
+          <div class="crop-thumb" id="${cropId}"></div>
           <div class="card-details">
             <div class="card-name">${escapeHtml(claudeCard.name || 'Unknown')}</div>
             <div class="card-set">${escapeHtml(claudeCard.set_code ? claudeCard.set_code.toUpperCase() : '')}</div>
+            ${claudeMetaHtml}
           </div>
         </div>
       `;
+      cropSetups.push({ id: cropId, crop });
       continue;
     }
     if (sid === null) {
       html += `
         <div class="card-row pending">
-          <div style="width:60px;height:84px;background:#0d1117;border-radius:4px;flex-shrink:0;"></div>
+          <div class="crop-thumb" id="${cropId}"></div>
           <div class="card-details">
             <div class="card-name">${escapeHtml(claudeCard.name || 'Unknown')}</div>
             <div class="card-set">${escapeHtml(claudeCard.set_code ? claudeCard.set_code.toUpperCase() : '')}</div>
+            ${claudeMetaHtml}
           </div>
           <a href="/disambiguate" style="color:#e94560;font-size:0.7rem;text-decoration:none;flex-shrink:0;padding:4px 6px;">Disambiguate</a>
           <button class="remove-card-btn" data-image-id="${imageId}" data-card-idx="${i}">&times;</button>
         </div>
       `;
+      cropSetups.push({ id: cropId, crop });
       continue;
     }
 
@@ -687,7 +766,6 @@ async function showImageDetail(imageId) {
     const candidates = matches[i] || [];
     const card = candidates.find(c => c.scryfall_id === sid) || {};
 
-    const imgUri = (card.image_uri || '').replace('/small/', '/normal/');
     const priceHtml = card.price ? `<span class="card-price">$${card.price}</span>` : '';
     const rarity = card.rarity ? card.rarity.charAt(0).toUpperCase() + card.rarity.slice(1) : '';
     const cn = card.collector_number ? `#${card.collector_number}` : '';
@@ -695,17 +773,19 @@ async function showImageDetail(imageId) {
 
     html += `
       <div class="card-row">
-        ${imgUri ? `<img src="${imgUri}" loading="lazy">` : `<div style="width:60px;height:84px;background:#0d1117;border-radius:4px;flex-shrink:0;"></div>`}
+        <div class="crop-thumb" id="${cropId}"></div>
         <div class="card-details">
           <div class="card-name">${escapeHtml(card.name || claudeCard.name || 'Unknown')}</div>
           <div class="card-set">${escapeHtml(card.set_name || '')}${card.set_code ? ` (${card.set_code.toUpperCase()})` : ''}</div>
           ${metaParts ? `<div class="card-meta">${escapeHtml(metaParts)}</div>` : ''}
+          ${claudeMetaHtml}
         </div>
         ${priceHtml}
         <a href="/correct?image_id=${imageId}&card_idx=${i}" style="color:#888;font-size:0.7rem;text-decoration:none;flex-shrink:0;padding:4px 6px;" onmouseover="this.style.color='#e94560'" onmouseout="this.style.color='#888'">Correct</a>
         <button class="remove-card-btn" data-image-id="${imageId}" data-card-idx="${i}">&times;</button>
       </div>
     `;
+    cropSetups.push({ id: cropId, crop });
   }
 
   // Add card section
@@ -730,6 +810,27 @@ async function showImageDetail(imageId) {
 
   content.innerHTML = html;
   content.querySelector('.modal-close').addEventListener('click', () => modal.remove());
+
+  // Set up crop thumbnails
+  for (const { id, crop } of cropSetups) {
+    const container = content.querySelector(`#${id}`);
+    if (!container) continue;
+    const cropImg = document.createElement('img');
+    cropImg.src = imgSrc;
+    container.appendChild(cropImg);
+    cropImg.onload = () => {
+      const cw = 60, ch = 84;
+      if (crop && crop.w > 0 && crop.h > 0) {
+        const scale = Math.min(cw / crop.w, ch / crop.h);
+        const tx = (cw / 2) - (crop.x + crop.w / 2) * scale;
+        const ty = (ch / 2) - (crop.y + crop.h / 2) * scale;
+        cropImg.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+      } else {
+        const scale = Math.min(cw / cropImg.naturalWidth, ch / cropImg.naturalHeight);
+        cropImg.style.transform = `scale(${scale})`;
+      }
+    };
+  }
 
   // Remove card buttons
   content.querySelectorAll('.remove-card-btn').forEach(btn => {
@@ -831,7 +932,7 @@ async function showImageDetail(imageId) {
       const newRow = document.createElement('div');
       newRow.className = 'card-row';
       newRow.innerHTML = `
-        ${imgUri ? `<img src="${imgUri}" loading="lazy">` : `<div style="width:60px;height:84px;background:#0d1117;border-radius:4px;flex-shrink:0;"></div>`}
+        ${imgUri ? `<img class="scryfall-thumb" src="${imgUri}" loading="lazy">` : `<div style="width:60px;height:84px;background:#0d1117;border-radius:4px;flex-shrink:0;"></div>`}
         <div class="card-details">
           <div class="card-name">${escapeHtml(result.name)}</div>
           <div class="card-set">${escapeHtml(_addSelectedCandidate.set_name || '')}${result.set_code ? ` (${result.set_code.toUpperCase()})` : ''}</div>

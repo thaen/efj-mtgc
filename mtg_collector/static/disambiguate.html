@@ -390,9 +390,26 @@ function buildCardBlock(pc, idx) {
   // Set up crop thumbnail
   setTimeout(() => setupCropThumb(idx, pc), 0);
 
-  // Render candidates
+  // Render candidates (narrowed by Claude metadata)
   setTimeout(() => {
-    renderCandidates(idx, pc.candidates || []);
+    const all = pc.candidates || [];
+    const narrowed = narrowCandidates(all, pc.card_info || {});
+    renderCandidates(idx, narrowed);
+    if (narrowed.length < all.length) {
+      const list = document.getElementById(`candidates-${idx}`);
+      if (list) {
+        const showAll = document.createElement('div');
+        showAll.style.cssText = 'padding:8px;text-align:center;';
+        const btn = document.createElement('button');
+        btn.textContent = `Show all ${all.length} candidates`;
+        btn.style.cssText = 'background:none;border:1px solid #555;color:#aaa;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:0.8rem;';
+        btn.addEventListener('click', () => {
+          renderCandidates(idx, all);
+        });
+        showAll.appendChild(btn);
+        list.appendChild(showAll);
+      }
+    }
   }, 0);
 
   // Event listeners
@@ -432,6 +449,34 @@ function setupCropThumb(idx, pc) {
       img.style.transform = `scale(${scale})`;
     }
   };
+}
+
+function narrowCandidates(candidates, cardInfo) {
+  if (candidates.length <= 1) return candidates;
+
+  let result = candidates;
+
+  const artist = cardInfo.artist;
+  if (artist) {
+    const al = artist.toLowerCase();
+    const matched = result.filter(c => (c.artist || '').toLowerCase().includes(al));
+    if (matched.length) result = matched;
+  }
+
+  const setCode = cardInfo.set_code;
+  if (setCode) {
+    const sl = setCode.toLowerCase();
+    const matched = result.filter(c => c.set_code.toLowerCase() === sl);
+    if (matched.length) result = matched;
+  }
+
+  const cn = cardInfo.collector_number;
+  if (cn) {
+    const matched = result.filter(c => c.collector_number === cn);
+    if (matched.length) result = matched;
+  }
+
+  return result;
 }
 
 function renderCandidates(idx, candidates) {

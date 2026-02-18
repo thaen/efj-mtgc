@@ -568,6 +568,7 @@ a.badge.link:hover { color: #fff; background: #555; border-color: #777; }
   display: flex;
   flex-direction: column;
   gap: 6px;
+  padding: 8px 0;
 }
 
 .modal-section-title {
@@ -587,6 +588,8 @@ a.badge.link:hover { color: #fff; background: #555; border-color: #777; }
 
 .modal-row .label { color: #888; }
 .modal-row .value { color: #e0e0e0; font-weight: 500; }
+.modal-row .value a { color: #7ec8e3; text-decoration: none; }
+.modal-row .value a:hover { text-decoration: underline; }
 
 .modal-mana { margin-top: 2px; }
 .modal-mana .ms { font-size: 1rem; }
@@ -606,6 +609,14 @@ a.badge.link:hover { color: #fff; background: #555; border-color: #777; }
 .modal-links a.badge.link {
   font-size: 0.75rem;
   padding: 3px 8px;
+}
+
+a.lineage-link {
+  display: block;
+  margin-top: 8px;
+  font-size: 0.75rem;
+  color: #7ec8e3;
+  text-decoration: underline;
 }
 
 .modal-close {
@@ -1572,9 +1583,11 @@ function showCardModal(card) {
       <div class="modal-links">
         <a class="badge link" href="${sfUrl}" target="_blank" rel="noopener">SF${tcgPrice !== '—' ? ' ' + tcgPrice : ''}</a>
         <a class="badge link" href="${ckUrl}" target="_blank" rel="noopener">CK${ckPrice !== '—' ? ' ' + ckPrice : ''}</a>
-        ${card.ingest_image_id ? `<a class="badge link" href="/correct?image_id=${card.ingest_image_id}&card_idx=${card.ingest_card_idx}">Correct</a>` : ''}
         <button class="want-btn${getWishlistEntry(card) ? ' wanted' : ''}" id="modal-want-btn">${getWishlistEntry(card) ? 'Wanted' : 'Want'}</button>
       </div>
+      ${card.ingest_lineage ? `<div class="modal-section"><span class="modal-section-title">Lineage</span>
+        ${card.ingest_lineage.map(l => `<div class="modal-row"><span class="label">${new Date(l.created_at).toLocaleDateString()}</span><span class="value"><a href="/correct?image_id=${l.image_id}&card_idx=${l.card_idx}">View image</a></span></div>`).join('')}
+      </div>` : ''}
     `;
   }
 
