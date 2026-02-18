@@ -150,7 +150,9 @@ TOOLS = [
 ]
 
 
-def _trace(msg: str, status_callback) -> None:
+def _trace(msg: str, status_callback, trace_lines: list[str] | None = None) -> None:
+    if trace_lines is not None:
+        trace_lines.append(msg)
     if status_callback:
         status_callback(msg)
     else:
@@ -228,7 +230,7 @@ def _has_tool_use(response) -> bool:
     return any(block.type == "tool_use" for block in response.content)
 
 
-def _call_api(fn, status_callback, **kwargs):
+def _call_api(fn, status_callback, trace_lines=None, **kwargs):
     """Call fn(**kwargs) with exponential backoff on 529 Overloaded errors."""
     for attempt in range(5):
         try:
@@ -237,7 +239,7 @@ def _call_api(fn, status_callback, **kwargs):
             if e.status_code != 529 or attempt == 4:
                 raise
             wait = 3 * (2 ** attempt)
-            _trace(f"[AGENT] Overloaded (529), retrying in {wait}s...", status_callback)
+            _trace(f"[AGENT] Overloaded (529), retrying in {wait}s...", status_callback, trace_lines)
             time.sleep(wait)
 
 
@@ -271,12 +273,7 @@ def run_agent(
 
     trace_lines: list[str] = []
 
-    def _cb(msg: str) -> None:
-        trace_lines.append(msg)
-        if status_callback:
-            status_callback(msg)
-
-    _trace(f"[AGENT] Starting with {n} OCR fragments (max_calls={max_calls}, model={agent_model})", _cb)
+    _trace(f"[AGENT] Starting with {n} OCR fragments (max_calls={max_calls}, model={agent_model})", status_callback, trace_lines)
 
     initial_content = (
         f"I have run OCR on the image `{image_path}`. "
@@ -294,7 +291,8 @@ def run_agent(
     while tool_call_count < max_calls:
         response = _call_api(
             client.messages.create,
-            _cb,
+            status_callback,
+            trace_lines=trace_lines,
             model=agent_model,
             max_tokens=4000,
             system=SYSTEM_PROMPT,
@@ -304,9 +302,9 @@ def run_agent(
 
         for block in response.content:
             if block.type == "text":
-                _trace(f"[AGENT] {block.text.strip()}", _cb)
+                _trace(f"[AGENT] {block.text.strip()}", status_callback, trace_lines)
             elif block.type == "tool_use":
-                _trace(f"[TOOL CALL] {block.name}: {json.dumps(block.input)}", _cb)
+                _trace(f"[TOOL CALL] {block.name}: {json.dumps(block.input)}", status_callback, trace_lines)
 
         if response.stop_reason == "end_turn" or not _has_tool_use(response):
             break
@@ -339,7 +337,8 @@ def run_agent(
             _trace(
                 f"[TOOL RESULT] {name}: "
                 f"{result[:500]}{'...' if len(result) > 500 else ''}",
-                _cb,
+                status_callback,
+                trace_lines,
             )
             tool_results.append(
                 {
@@ -352,7 +351,7 @@ def run_agent(
         messages.append({"role": "assistant", "content": response.content})
         messages.append({"role": "user", "content": tool_results})
 
-    _trace(f"[FINAL] Tool calls used: {tool_call_count}/{max_calls}", _cb)
+    _trace(f"[FINAL] Tool calls used: {tool_call_count}/{max_calls}", status_callback, trace_lines)
 
     # If the last response was end_turn it hasn't been appended to messages yet.
     # Add it so the conversation is complete, then ask for the final answer.
@@ -362,10 +361,11 @@ def run_agent(
     # Budget-exhausted case: messages already ends with the tool results (user turn),
     # so the structured output call below will naturally close the loop.
 
-    _trace("[FINAL] Requesting structured output...", _cb)
+    _trace("[FINAL] Requesting structured output...", status_callback, trace_lines)
     final_response = _call_api(
         client.messages.create,
-        _cb,
+        status_callback,
+        trace_lines=trace_lines,
         model=agent_model,
         max_tokens=2000,
         system=SYSTEM_PROMPT,
