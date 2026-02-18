@@ -1246,8 +1246,7 @@ class CrackPackHandler(BaseHTTPRequestHandler):
                         o.order_number as order_number,
                         o.order_date as order_date,
                         c.purchase_price,
-                        MAX(ii.id) as ingest_image_id,
-                        MAX(il.card_index) as ingest_card_idx
+                        GROUP_CONCAT(DISTINCT ii.id || '|' || il.card_index || '|' || ii.filename || '|' || ii.created_at) as ingest_lineage_raw
                     FROM printings p
                     JOIN cards card ON p.oracle_id = card.oracle_id
                     JOIN sets s ON p.set_code = s.set_code
@@ -1283,8 +1282,7 @@ class CrackPackHandler(BaseHTTPRequestHandler):
                         o.order_number as order_number,
                         o.order_date as order_date,
                         c.purchase_price,
-                        MAX(ii.id) as ingest_image_id,
-                        MAX(il.card_index) as ingest_card_idx
+                        GROUP_CONCAT(DISTINCT ii.id || '|' || il.card_index || '|' || ii.filename || '|' || ii.created_at) as ingest_lineage_raw
                     FROM printings p
                     JOIN cards card ON p.oracle_id = card.oracle_id
                     JOIN sets s ON p.set_code = s.set_code
@@ -1318,8 +1316,7 @@ class CrackPackHandler(BaseHTTPRequestHandler):
                     o.order_number as order_number,
                     o.order_date as order_date,
                     c.purchase_price,
-                    MAX(ii.id) as ingest_image_id,
-                    MAX(il.card_index) as ingest_card_idx
+                    GROUP_CONCAT(DISTINCT ii.id || '|' || il.card_index || '|' || ii.filename || '|' || ii.created_at) as ingest_lineage_raw
                 FROM collection c
                 JOIN printings p ON c.scryfall_id = p.scryfall_id
                 JOIN cards card ON p.oracle_id = card.oracle_id
@@ -1382,10 +1379,21 @@ class CrackPackHandler(BaseHTTPRequestHandler):
                 card["order_date"] = row["order_date"]
                 card["purchase_price"] = row["purchase_price"]
             # Ingest lineage (for "Correct" link)
-            ingest_img = row["ingest_image_id"] if "ingest_image_id" in row.keys() else None
-            if ingest_img is not None:
-                card["ingest_image_id"] = ingest_img
-                card["ingest_card_idx"] = row["ingest_card_idx"]
+            raw = row["ingest_lineage_raw"] if "ingest_lineage_raw" in row.keys() else None
+            if raw:
+                lineage = []
+                for entry in raw.split(","):
+                    parts = entry.split("|", 3)
+                    lineage.append({
+                        "image_id": int(parts[0]),
+                        "card_idx": int(parts[1]),
+                        "filename": parts[2],
+                        "created_at": parts[3],
+                    })
+                card["ingest_lineage"] = lineage
+                # Keep first entry for backwards compat
+                card["ingest_image_id"] = lineage[0]["image_id"]
+                card["ingest_card_idx"] = lineage[0]["card_idx"]
             card["tcg_price"] = None
             card["ck_price"] = None
             card["ck_url"] = ""
