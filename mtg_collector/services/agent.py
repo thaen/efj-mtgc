@@ -231,13 +231,19 @@ def _has_tool_use(response) -> bool:
 
 
 def _call_api(fn, status_callback, trace_lines=None, **kwargs):
-    """Call fn(**kwargs) with exponential backoff on 529 Overloaded errors."""
+    """Call fn(**kwargs) with exponential backoff on 529 Overloaded errors.
+
+    After 3 Haiku failures switches to Sonnet for remaining retries.
+    """
     for attempt in range(5):
         try:
             return fn(**kwargs)
         except anthropic.APIStatusError as e:
             if e.status_code != 529 or attempt == 4:
                 raise
+            if attempt == 2 and kwargs.get("model") == AGENT_MODEL_HAIKU:
+                kwargs["model"] = AGENT_MODEL_SONNET
+                _trace("[AGENT] Switching to Sonnet after 3 Haiku overload errors", status_callback, trace_lines)
             wait = 3 * (2 ** attempt)
             _trace(f"[AGENT] Overloaded (529), retrying in {wait}s...", status_callback, trace_lines)
             time.sleep(wait)
