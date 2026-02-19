@@ -2,7 +2,7 @@
 
 import sqlite3
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 
 SCHEMA_SQL = """
 -- Abstract cards (oracle-level, cached from Scryfall)
@@ -121,6 +121,7 @@ CREATE TABLE IF NOT EXISTS ingest_cache (
     ocr_result TEXT NOT NULL,       -- JSON array of {text, bbox, confidence}
     claude_result TEXT,             -- JSON array of card dicts from Claude
     agent_trace TEXT,               -- JSON array of trace strings from the agent run
+    api_usage TEXT,                 -- JSON dict of token usage by model {haiku/sonnet/opus: {input, output}}
     created_at TEXT NOT NULL
 );
 
@@ -149,6 +150,7 @@ CREATE TABLE IF NOT EXISTS ingest_images (
     ocr_result TEXT,
     claude_result TEXT,
     agent_trace TEXT,               -- JSON array of trace strings from the agent run
+    api_usage TEXT,                 -- JSON dict of token usage by model {haiku/sonnet/opus: {input, output}}
     scryfall_matches TEXT,
     crops TEXT,
     disambiguated TEXT,
@@ -281,6 +283,8 @@ def init_db(conn: sqlite3.Connection, force: bool = False) -> bool:
             _migrate_v11_to_v12(conn)
         if current < 13:
             _migrate_v12_to_v13(conn)
+        if current < 14:
+            _migrate_v13_to_v14(conn)
 
     # Record schema version
     conn.execute(
@@ -753,6 +757,15 @@ def _migrate_v12_to_v13(conn: sqlite3.Connection):
         columns = [row[1] for row in cursor.fetchall()]
         if "agent_trace" not in columns:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN agent_trace TEXT")
+
+
+def _migrate_v13_to_v14(conn: sqlite3.Connection):
+    """Add api_usage column to ingest_cache and ingest_images."""
+    for table in ("ingest_cache", "ingest_images"):
+        cursor = conn.execute(f"PRAGMA table_info({table})")
+        columns = [row[1] for row in cursor.fetchall()]
+        if "api_usage" not in columns:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN api_usage TEXT")
 
 
 def drop_all_tables(conn: sqlite3.Connection):

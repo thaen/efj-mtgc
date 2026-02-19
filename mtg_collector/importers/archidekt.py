@@ -1,10 +1,10 @@
 """Archidekt CSV importer."""
 
 import csv
-from typing import List, Dict, Any, Tuple, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
-from mtg_collector.importers.base import BaseImporter
 from mtg_collector.db.models import CollectionEntry
+from mtg_collector.importers.base import BaseImporter
 from mtg_collector.utils import now_iso
 
 
@@ -58,8 +58,6 @@ class ArchidektImporter(BaseImporter):
         # Archidekt tracks foil separately - we need to handle this
         # For simplicity, we'll create entries based on which quantity pool we're drawing from
         foil_qty = row.get("_parsed_foil_quantity", 0)
-        regular_qty = int(row.get("quantity", 0))
-
         # Determine finish - if we still have foil quantity to consume, use foil
         # This is a simplification; the actual tracking happens in the importer
         if foil_qty > 0:

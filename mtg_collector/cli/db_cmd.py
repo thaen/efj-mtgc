@@ -1,6 +1,6 @@
 """Database management commands: mtg db init/refresh"""
 
-from mtg_collector.db import get_connection, init_db, SCHEMA_VERSION
+from mtg_collector.db import SCHEMA_VERSION, get_connection, init_db
 
 
 def register(subparsers):
@@ -50,7 +50,14 @@ def run_init(args):
 def run_recache(args):
     """Fix non-English printings in collection and clear set cache."""
     import json
-    from mtg_collector.db import get_connection, init_db, PrintingRepository, CardRepository, SetRepository
+
+    from mtg_collector.db import (
+        CardRepository,
+        PrintingRepository,
+        SetRepository,
+        get_connection,
+        init_db,
+    )
     from mtg_collector.services.scryfall import ScryfallAPI, cache_scryfall_data
 
     conn = get_connection(args.db_path)
@@ -129,7 +136,7 @@ def run_recache(args):
 
 def run_refresh(args):
     """Refresh Scryfall data for cached printings."""
-    from mtg_collector.db import get_connection, PrintingRepository, CardRepository, SetRepository
+    from mtg_collector.db import CardRepository, PrintingRepository, SetRepository, get_connection
     from mtg_collector.services.scryfall import ScryfallAPI, cache_scryfall_data
 
     conn = get_connection(args.db_path)

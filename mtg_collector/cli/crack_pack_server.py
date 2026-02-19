@@ -453,10 +453,10 @@ def _process_image_core(conn, image_id, img, log_fn):
     Used by both the SSE endpoint and background workers.
     log_fn(event_type, data_dict) is called for progress events.
     """
+    from mtg_collector.cli.ingest_ocr import _build_scryfall_query
     from mtg_collector.services.agent import run_agent
     from mtg_collector.services.ocr import run_ocr_with_boxes
-    from mtg_collector.services.scryfall import ScryfallAPI, cache_scryfall_data
-    from mtg_collector.cli.ingest_ocr import _build_scryfall_query
+    from mtg_collector.services.scryfall import ScryfallAPI
     from mtg_collector.utils import now_iso
 
     image_path = str(_get_ingest_images_dir() / img["stored_name"])
@@ -468,9 +468,11 @@ def _process_image_core(conn, image_id, img, log_fn):
     claude_cards = None
     agent_trace = []
 
+    api_usage = None
+
     # Check cache
     cache_row = conn.execute(
-        "SELECT ocr_result, claude_result, agent_trace FROM ingest_cache WHERE image_md5 = ?",
+        "SELECT ocr_result, claude_result, agent_trace, api_usage FROM ingest_cache WHERE image_md5 = ?",
         (md5,),
     ).fetchone()
     if cache_row:
@@ -481,6 +483,7 @@ def _process_image_core(conn, image_id, img, log_fn):
         if cache_row["claude_result"]:
             claude_cards = json.loads(cache_row["claude_result"])
             agent_trace = json.loads(cache_row["agent_trace"]) if cache_row["agent_trace"] else []
+            api_usage = json.loads(cache_row["api_usage"]) if cache_row["api_usage"] else None
             log_fn("cached", {"step": "claude"})
             log_fn("claude_complete", {"cards": claude_cards})
 
@@ -499,11 +502,16 @@ def _process_image_core(conn, image_id, img, log_fn):
     if claude_cards is None:
         log_fn("status", {"message": "Calling agent..."})
         t0 = time.time()
-        claude_cards, agent_trace = run_agent(
-            image_path,
-            ocr_fragments=ocr_fragments,
-            status_callback=lambda msg: log_fn("status", {"message": msg}),
-        )
+        try:
+            claude_cards, _, api_usage = run_agent(
+                image_path,
+                ocr_fragments=ocr_fragments,
+                status_callback=lambda msg: log_fn("status", {"message": msg}),
+                trace_out=agent_trace,
+            )
+        except Exception as e:
+            e.agent_trace = agent_trace
+            raise
         elapsed = time.time() - t0
         _log_ingest(f"Agent complete: {len(claude_cards)} cards in {elapsed:.1f}s")
         log_fn("claude_complete", {"cards": claude_cards})
@@ -511,13 +519,40 @@ def _process_image_core(conn, image_id, img, log_fn):
     # Merge cards whose fragment bboxes heavily overlap (e.g. ghost artist-only card)
     claude_cards = _merge_overlapping_cards(claude_cards, ocr_fragments)
 
+    # Group by fragment_indices: Claude returns multiple entries for one physical card
+    # when uncertain about printing (per the DISAMBIGUATION RULE). Consolidate these
+    # into one slot so we don't ingest the same card twice.
+    _frag_groups: dict[tuple, list] = {}
+    _frag_key_order: list[tuple] = []
+    for _card in claude_cards:
+        _key = tuple(sorted(_card.get("fragment_indices") or []))
+        if _key not in _frag_groups:
+            _frag_groups[_key] = []
+            _frag_key_order.append(_key)
+        _frag_groups[_key].append(_card)
+
+    _CONF = {"high": 0, "medium": 1, "low": 2}
+    # One representative per physical card (highest confidence); extras resolved separately
+    claude_cards = [
+        min(_frag_groups[k], key=lambda c: _CONF.get(c.get("confidence", "low"), 2))
+        for k in _frag_key_order
+    ]
+    _group_extras = {
+        ci: [c for c in _frag_groups[k] if c is not claude_cards[ci]]
+        for ci, k in enumerate(_frag_key_order)
+    }
+    n_extras = sum(len(v) for v in _group_extras.values())
+    if n_extras:
+        _log_ingest(f"Grouped {len(claude_cards) + n_extras} agent entries -> {len(claude_cards)} physical card(s) ({n_extras} disambiguation candidate(s) merged)")
+
     # Save to cache
     conn.execute(
         """INSERT OR REPLACE INTO ingest_cache
-           (image_md5, image_path, ocr_result, claude_result, agent_trace, created_at)
-           VALUES (?, ?, ?, ?, ?, ?)""",
+           (image_md5, image_path, ocr_result, claude_result, agent_trace, api_usage, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
         (md5, image_path, json.dumps(ocr_fragments),
-         json.dumps(claude_cards), json.dumps(agent_trace), now_iso()),
+         json.dumps(claude_cards), json.dumps(agent_trace),
+         json.dumps(api_usage) if api_usage else None, now_iso()),
     )
     conn.commit()
 
@@ -528,17 +563,10 @@ def _process_image_core(conn, image_id, img, log_fn):
     all_matches = []
     all_crops = []
 
-    for ci, card_info in enumerate(claude_cards):
-        # Skip cards with no identifying info (empty name + no fragments)
-        if not card_info.get("name") and not card_info.get("fragment_indices"):
-            all_matches.append([])
-            all_crops.append(None)
-            _log_ingest(f"Scryfall card {ci}: skipped (no identifying info)")
-            continue
-
+    def _resolve_candidate(card_info) -> list:
+        """Resolve one agent card_info to a list of raw Scryfall card dicts."""
         set_code, cn_or_query = _build_scryfall_query(card_info, {})
         candidates = []
-
         if set_code and cn_or_query:
             _scryfall_rate_limit()
             cn_raw = cn_or_query
@@ -549,9 +577,6 @@ def _process_image_core(conn, image_id, img, log_fn):
                 card_data = scryfall.get_card_by_set_cn(set_code, cn_raw)
             if card_data:
                 candidates = [card_data]
-                # If the set+CN lookup returned a different card name than
-                # Claude extracted, also do a name search so the correct card
-                # appears in disambiguation.
                 extracted_name = card_info.get("name", "")
                 returned_name = card_data.get("name", "")
                 if extracted_name and extracted_name.lower() != returned_name.lower():
@@ -562,26 +587,47 @@ def _process_image_core(conn, image_id, img, log_fn):
                     for r in name_results:
                         if r.get("id") not in seen_ids:
                             candidates.append(r)
-
         if not candidates:
             name = card_info.get("name")
             search_set = card_info.get("set_code")
             if name:
                 _scryfall_rate_limit()
                 candidates = scryfall.search_card(name, set_code=search_set)
+        return candidates
 
-        if not candidates and cn_or_query and not set_code:
-            try:
-                _scryfall_rate_limit()
-                url = f"{scryfall.BASE_URL}/cards/search"
-                params = {"q": cn_or_query, "unique": "prints"}
-                response = scryfall._request_with_retry("GET", url, params=params)
-                response.raise_for_status()
-                data = response.json()
-                if data.get("object") == "list" and data.get("data"):
-                    candidates = data["data"]
-            except requests.exceptions.RequestException:
-                _log_ingest(f"Scryfall last-resort search failed for query: {cn_or_query}")
+    for ci, card_info in enumerate(claude_cards):
+        # Skip cards with no identifying info (empty name + no fragments)
+        if not card_info.get("name") and not card_info.get("fragment_indices"):
+            all_matches.append([])
+            all_crops.append(None)
+            _log_ingest(f"Scryfall card {ci}: skipped (no identifying info)")
+            continue
+
+        candidates = _resolve_candidate(card_info)
+
+        if not candidates:
+            set_code, cn_or_query = _build_scryfall_query(card_info, {})
+            if cn_or_query and not set_code:
+                try:
+                    _scryfall_rate_limit()
+                    url = f"{scryfall.BASE_URL}/cards/search"
+                    params = {"q": cn_or_query, "unique": "prints"}
+                    response = scryfall._request_with_retry("GET", url, params=params)
+                    response.raise_for_status()
+                    data = response.json()
+                    if data.get("object") == "list" and data.get("data"):
+                        candidates = data["data"]
+                except requests.exceptions.RequestException:
+                    _log_ingest(f"Scryfall last-resort search failed for query: {cn_or_query}")
+
+        # Resolve extra candidates (same physical card, different printing guesses)
+        # and merge into this slot's results, deduplicating by Scryfall ID.
+        seen_ids = {c.get("id") for c in candidates}
+        for extra_info in _group_extras.get(ci, []):
+            for r in _resolve_candidate(extra_info):
+                if r.get("id") not in seen_ids:
+                    candidates.append(r)
+                    seen_ids.add(r.get("id"))
 
         formatted = _format_candidates(candidates)
         all_matches.append(formatted)
@@ -605,15 +651,19 @@ def _process_image_core(conn, image_id, img, log_fn):
         else:
             disambiguated.append(None)
 
-    return ocr_fragments, claude_cards, all_matches, all_crops, disambiguated, agent_trace
+    return ocr_fragments, claude_cards, all_matches, all_crops, disambiguated, agent_trace, api_usage
 
 
 def _auto_ingest_single_candidates(conn, img, disambiguated, scryfall_matches):
     """Auto-ingest cards with exactly one candidate. Returns count of auto-ingested cards."""
-    from mtg_collector.services.scryfall import ScryfallAPI, cache_scryfall_data
     from mtg_collector.db.models import (
-        CardRepository, SetRepository, PrintingRepository, CollectionRepository, CollectionEntry,
+        CardRepository,
+        CollectionEntry,
+        CollectionRepository,
+        PrintingRepository,
+        SetRepository,
     )
+    from mtg_collector.services.scryfall import ScryfallAPI, cache_scryfall_data
     from mtg_collector.utils import now_iso
 
     auto_count = 0
@@ -666,6 +716,49 @@ def _auto_ingest_single_candidates(conn, img, disambiguated, scryfall_matches):
     return auto_count
 
 
+def _reset_ingest_image(conn, image_id, md5, now):
+    """Clear all artifacts for an ingest_images row and reset it to READY_FOR_OCR.
+
+    Deletes the ingest_cache entry, removes any previously ingested collection
+    entries and lineage records, and nulls all processing columns.
+
+    Returns the number of collection entries removed.
+    Does NOT commit — caller is responsible.
+    """
+    lineage_rows = conn.execute(
+        "SELECT collection_id FROM ingest_lineage WHERE image_md5=?", (md5,)
+    ).fetchall()
+    removed = 0
+    if lineage_rows:
+        collection_ids = [r["collection_id"] for r in lineage_rows]
+        placeholders = ",".join("?" * len(collection_ids))
+        conn.execute("DELETE FROM ingest_lineage WHERE image_md5=?", (md5,))
+        conn.execute(f"DELETE FROM collection WHERE id IN ({placeholders})", collection_ids)
+        removed = len(collection_ids)
+
+    conn.execute("DELETE FROM ingest_cache WHERE image_md5=?", (md5,))
+
+    conn.execute(
+        """UPDATE ingest_images SET
+            status='READY_FOR_OCR',
+            ocr_result=NULL,
+            claude_result=NULL,
+            agent_trace=NULL,
+            api_usage=NULL,
+            scryfall_matches=NULL,
+            crops=NULL,
+            disambiguated=NULL,
+            names_data=NULL,
+            names_disambiguated=NULL,
+            user_card_edits=NULL,
+            error_message=NULL,
+            updated_at=?
+           WHERE id=?""",
+        (now, image_id),
+    )
+    return removed
+
+
 def _process_image_background(db_path, image_id):
     """Background worker: process one image end-to-end in its own thread."""
     from mtg_collector.db.schema import init_db
@@ -695,7 +788,7 @@ def _process_image_background(db_path, image_id):
             _log_ingest(f"[bg:{image_id}] {data_obj.get('message', '')}")
 
     try:
-        ocr_fragments, claude_cards, all_matches, all_crops, disambiguated, agent_trace = _process_image_core(
+        ocr_fragments, claude_cards, all_matches, all_crops, disambiguated, agent_trace, api_usage = _process_image_core(
             conn, image_id, img, log_fn,
         )
 
@@ -713,11 +806,12 @@ def _process_image_background(db_path, image_id):
         # Save state
         conn.execute(
             """UPDATE ingest_images SET
-                status=?, ocr_result=?, claude_result=?, agent_trace=?, scryfall_matches=?,
-                crops=?, disambiguated=?, updated_at=?
+                status=?, ocr_result=?, claude_result=?, agent_trace=?, api_usage=?,
+                scryfall_matches=?, crops=?, disambiguated=?, updated_at=?
                WHERE id=?""",
             (final_status, json.dumps(ocr_fragments), json.dumps(claude_cards),
-             json.dumps(agent_trace), json.dumps(all_matches), json.dumps(all_crops),
+             json.dumps(agent_trace), json.dumps(api_usage) if api_usage else None,
+             json.dumps(all_matches), json.dumps(all_crops),
              json.dumps(disambiguated), now_iso(), image_id),
         )
         conn.commit()
@@ -726,9 +820,10 @@ def _process_image_background(db_path, image_id):
     except Exception as e:
         tb = traceback.format_exc()
         _log_ingest(f"[bg:{image_id}] ERROR: {e}\n{tb}")
+        partial_trace = getattr(e, "agent_trace", [])
         conn.execute(
-            "UPDATE ingest_images SET status='ERROR', error_message=?, updated_at=? WHERE id=?",
-            (f"{e}\n{tb}", now_iso(), image_id),
+            "UPDATE ingest_images SET status='ERROR', agent_trace=?, error_message=?, updated_at=? WHERE id=?",
+            (json.dumps(partial_trace) if partial_trace else None, f"{e}\n{tb}", now_iso(), image_id),
         )
         conn.commit()
     finally:
@@ -842,6 +937,8 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             self._api_ingest2_images(params)
         elif path == "/api/ingest2/counts":
             self._api_ingest2_counts()
+        elif path == "/api/ingest2/usage-stats":
+            self._api_ingest2_usage_stats(params)
         elif path == "/api/ingest2/recent":
             self._api_ingest2_recent(params)
         elif path == "/api/ingest2/pending-disambiguation":
@@ -898,6 +995,8 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             self._api_ingest2_remove_card()
         elif path == "/api/ingest2/delete":
             self._api_ingest2_delete()
+        elif path == "/api/ingest2/reset":
+            self._api_ingest2_reset()
         elif path == "/api/wishlist":
             content_length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(content_length)
@@ -1654,6 +1753,53 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             })
         self._send_json(result)
 
+    def _api_ingest2_usage_stats(self, params):
+        """Aggregate API token usage and estimated cost over a time window."""
+        hours = float(params.get("hours", ["24"])[0])
+        conn = self._ingest2_db()
+        rows = conn.execute(
+            """SELECT api_usage FROM ingest_images
+               WHERE api_usage IS NOT NULL
+               AND created_at >= strftime('%Y-%m-%dT%H:%M:%S', 'now', ?)""",
+            (f"-{int(hours * 3600)} seconds",),
+        ).fetchall()
+        conn.close()
+
+        totals = {
+            "haiku": {"input": 0, "output": 0, "cache_read": 0, "cache_creation": 0},
+            "sonnet": {"input": 0, "output": 0, "cache_read": 0, "cache_creation": 0},
+            "opus": {"input": 0, "output": 0, "cache_read": 0, "cache_creation": 0},
+        }
+        images_with_usage = 0
+        for row in rows:
+            u = json.loads(row["api_usage"])
+            for model in ("haiku", "sonnet", "opus"):
+                if model in u:
+                    totals[model]["input"] += u[model].get("input", 0)
+                    totals[model]["output"] += u[model].get("output", 0)
+                    totals[model]["cache_read"] += u[model].get("cache_read", 0)
+                    totals[model]["cache_creation"] += u[model].get("cache_creation", 0)
+            images_with_usage += 1
+
+        # Per-million-token pricing (cache_read = 10% of input, cache_creation = 125% of input)
+        PRICES = {
+            "haiku":  {"input": 0.80,  "output": 4.00},
+            "sonnet": {"input": 3.00,  "output": 15.00},
+            "opus":   {"input": 15.00, "output": 75.00},
+        }
+        estimated_cost = sum(
+            totals[m]["input"]  * PRICES[m]["input"]  / 1_000_000 +
+            totals[m]["output"] * PRICES[m]["output"] / 1_000_000 +
+            totals[m]["cache_read"] * PRICES[m]["input"] * 0.1 / 1_000_000 +
+            totals[m]["cache_creation"] * PRICES[m]["input"] * 1.25 / 1_000_000
+            for m in PRICES
+        )
+        self._send_json({
+            "images_with_usage": images_with_usage,
+            "usage": totals,
+            "estimated_cost_usd": round(estimated_cost, 6),
+        })
+
     def _api_ingest2_pending_disambiguation(self):
         """Return flat list of all cards needing disambiguation across all images."""
         conn = self._ingest2_db()
@@ -1818,7 +1964,6 @@ class CrackPackHandler(BaseHTTPRequestHandler):
 
     def _api_ingest2_set_params(self):
         """Set mode for an image."""
-        from mtg_collector.utils import now_iso
         data = self._read_json_body()
         if data is None:
             return
@@ -1843,7 +1988,6 @@ class CrackPackHandler(BaseHTTPRequestHandler):
 
         # Stale processing recovery
         if img["status"] == "PROCESSING":
-            from mtg_collector.utils import now_iso
             from datetime import datetime, timezone
             updated = datetime.fromisoformat(img["updated_at"].replace("Z", "+00:00"))
             if (datetime.now(timezone.utc) - updated).total_seconds() > 600:
@@ -1880,14 +2024,19 @@ class CrackPackHandler(BaseHTTPRequestHandler):
         except Exception as e:
             _log_ingest(f"Error processing image {image_id}: {e}")
             send_event("error", {"message": str(e)})
-            # Reset to READY_FOR_OCR so the image stays in the processing list
-            self._ingest2_update_image(conn, image_id, status="READY_FOR_OCR", error_message=str(e))
+            partial_trace = getattr(e, "agent_trace", [])
+            self._ingest2_update_image(
+                conn, image_id,
+                status="READY_FOR_OCR",
+                agent_trace=json.dumps(partial_trace) if partial_trace else None,
+                error_message=str(e),
+            )
             send_event("done", {"error": True})
         conn.close()
 
     def _process_image2_sse(self, conn, image_id, img, send_event):
         """Process a single image: OCR -> Claude -> Scryfall, streaming SSE events. DB-backed."""
-        ocr_fragments, claude_cards, all_matches, all_crops, disambiguated, agent_trace = _process_image_core(
+        ocr_fragments, claude_cards, all_matches, all_crops, disambiguated, agent_trace, api_usage = _process_image_core(
             conn, image_id, img, send_event,
         )
 
@@ -1897,6 +2046,7 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             ocr_result=json.dumps(ocr_fragments),
             claude_result=json.dumps(claude_cards),
             agent_trace=json.dumps(agent_trace),
+            api_usage=json.dumps(api_usage) if api_usage else None,
             scryfall_matches=json.dumps(all_matches),
             crops=json.dumps(all_crops),
             disambiguated=json.dumps(disambiguated),
@@ -1917,10 +2067,14 @@ class CrackPackHandler(BaseHTTPRequestHandler):
 
     def _api_ingest2_next_card(self, image_id):
         """Find the next undisambiguated card for an image. Auto-confirms single-candidate cards."""
-        from mtg_collector.services.scryfall import ScryfallAPI, cache_scryfall_data
         from mtg_collector.db.models import (
-            CardRepository, SetRepository, PrintingRepository, CollectionRepository, CollectionEntry,
+            CardRepository,
+            CollectionEntry,
+            CollectionRepository,
+            PrintingRepository,
+            SetRepository,
         )
+        from mtg_collector.services.scryfall import ScryfallAPI, cache_scryfall_data
         from mtg_collector.utils import now_iso
 
         conn = self._ingest2_db()
@@ -2017,10 +2171,14 @@ class CrackPackHandler(BaseHTTPRequestHandler):
 
     def _api_ingest2_confirm(self):
         """Confirm a card: add to collection + ingest_lineage."""
-        from mtg_collector.services.scryfall import ScryfallAPI, cache_scryfall_data
         from mtg_collector.db.models import (
-            CardRepository, SetRepository, PrintingRepository, CollectionRepository, CollectionEntry,
+            CardRepository,
+            CollectionEntry,
+            CollectionRepository,
+            PrintingRepository,
+            SetRepository,
         )
+        from mtg_collector.services.scryfall import ScryfallAPI, cache_scryfall_data
         from mtg_collector.utils import now_iso
 
         data = self._read_json_body()
@@ -2091,10 +2249,14 @@ class CrackPackHandler(BaseHTTPRequestHandler):
 
     def _api_ingest2_add_card(self):
         """Add a new card slot to an existing image and confirm it."""
-        from mtg_collector.services.scryfall import ScryfallAPI, cache_scryfall_data
         from mtg_collector.db.models import (
-            CardRepository, SetRepository, PrintingRepository, CollectionRepository, CollectionEntry,
+            CardRepository,
+            CollectionEntry,
+            CollectionRepository,
+            PrintingRepository,
+            SetRepository,
         )
+        from mtg_collector.services.scryfall import ScryfallAPI, cache_scryfall_data
         from mtg_collector.utils import now_iso
 
         data = self._read_json_body()
@@ -2292,11 +2454,14 @@ class CrackPackHandler(BaseHTTPRequestHandler):
 
     def _api_ingest2_correct(self):
         """Correct a mis-identified card: swap collection entry."""
-        from mtg_collector.services.scryfall import ScryfallAPI, cache_scryfall_data
         from mtg_collector.db.models import (
-            CardRepository, SetRepository, PrintingRepository, CollectionRepository, CollectionEntry,
+            CardRepository,
+            CollectionEntry,
+            CollectionRepository,
+            PrintingRepository,
+            SetRepository,
         )
-        from mtg_collector.utils import now_iso
+        from mtg_collector.services.scryfall import ScryfallAPI, cache_scryfall_data
 
         data = self._read_json_body()
         if data is None:
@@ -2425,7 +2590,6 @@ class CrackPackHandler(BaseHTTPRequestHandler):
     def _api_ingest2_update_cards(self):
         """Stage 3.1: save corrected card list after count mismatch resolution."""
         from mtg_collector.services.scryfall import ScryfallAPI
-        from mtg_collector.utils import now_iso
 
         data = self._read_json_body()
         if data is None:
@@ -2487,6 +2651,34 @@ class CrackPackHandler(BaseHTTPRequestHandler):
         conn.close()
 
         self._send_json({"ok": True, "card_count": len(corrected_cards)})
+
+    def _api_ingest2_reset(self):
+        """Reset an image: clear all artifacts + ingest_cache, remove ingested collection entries, requeue for processing."""
+        from mtg_collector.utils import now_iso
+
+        data = self._read_json_body()
+        if data is None:
+            return
+
+        image_id = data["image_id"]
+        conn = self._ingest2_db()
+        img = self._ingest2_load_image(conn, image_id)
+        if not img:
+            conn.close()
+            self._send_json({"error": "Image not found"}, 404)
+            return
+
+        _reset_ingest_image(conn, image_id, img["md5"], now_iso())
+        conn.commit()
+        conn.close()
+
+        _log_ingest(f"Reset image {image_id}: {img['filename']} — requeued for processing")
+
+        # Submit for background processing
+        if _ingest_executor is not None:
+            _ingest_executor.submit(_process_image_background, self.db_path, image_id)
+
+        self._send_json({"ok": True})
 
     def _api_ingest2_delete(self):
         """Delete an image and its file."""
@@ -3162,10 +3354,9 @@ def run(args):
     server = ThreadingHTTPServer(("", args.port), handler)
 
     if args.https:
+        import socket
         import ssl
         import subprocess
-
-        import socket
 
         cert_dir = Path(os.environ.get("MTGC_HOME", Path.home() / ".mtgc"))
         cert_file = cert_dir / "server.pem"

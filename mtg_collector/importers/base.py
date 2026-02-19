@@ -1,9 +1,9 @@
 """Base importer interface."""
 
+import sqlite3
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import List, Dict, Any, Optional, Tuple
-import sqlite3
+from typing import Any, Dict, List, Optional, Tuple
 
 from mtg_collector.db.models import CollectionEntry
 from mtg_collector.services.scryfall import ScryfallAPI

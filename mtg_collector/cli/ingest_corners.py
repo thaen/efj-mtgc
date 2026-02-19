@@ -4,13 +4,14 @@ import shutil
 import sys
 from pathlib import Path
 
+from mtg_collector.cli.ingest_ids import RARITY_MAP, lookup_card, resolve_and_add_ids
 from mtg_collector.db import (
+    CardRepository,
+    CollectionRepository,
+    PrintingRepository,
+    SetRepository,
     get_connection,
     init_db,
-    CardRepository,
-    SetRepository,
-    PrintingRepository,
-    CollectionRepository,
 )
 from mtg_collector.services.claude import ClaudeVision
 from mtg_collector.services.scryfall import (
@@ -18,7 +19,6 @@ from mtg_collector.services.scryfall import (
     ensure_set_cached,
 )
 from mtg_collector.utils import normalize_condition, store_source_image
-from mtg_collector.cli.ingest_ids import RARITY_MAP, lookup_card, resolve_and_add_ids
 
 
 def register(subparsers):
@@ -268,8 +268,8 @@ def run(args):
             sys.exit(0)
 
         # Build entries from reviewed data
-        from mtg_collector.utils import normalize_finish
         from mtg_collector.db.models import CollectionEntry
+        from mtg_collector.utils import normalize_finish
 
         added = 0
         for r in resolved:

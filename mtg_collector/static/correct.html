@@ -66,7 +66,20 @@ button.danger:hover { background: #a31515; }
 .status-badge.needs-disambiguation { background: #e94560; }
 .status-badge.done { background: #4caf50; }
 .status-badge.error { background: #c62828; }
-.image-status-bar .timestamps { color: #666; font-size: 0.75rem; margin-left: auto; }
+.image-status-bar .timestamps { color: #666; font-size: 0.75rem; }
+.image-status-bar .bar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.image-status-bar .reprocess-btn {
+  padding: 3px 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: #333;
+  border: 1px solid #555;
+  border-radius: 5px;
+  color: #bbb;
+  cursor: pointer;
+}
+.image-status-bar .reprocess-btn:hover { background: #444; color: #e0e0e0; }
+.image-status-bar .reprocess-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* Processing spinner */
 .processing-state {
@@ -249,7 +262,7 @@ button.danger:hover { background: #a31515; }
   object-fit: cover; object-position: top center; border-radius: 3px;
 }
 
-/* Agent trace */
+/* Ingest trace */
 details.agent-trace {
   margin: 8px 16px;
   border: 1px solid #0f3460;
@@ -276,6 +289,7 @@ details.agent-trace summary:hover { color: #e0e0e0; }
   max-height: 320px;
   overflow-y: auto;
 }
+.trace-lines .tl-ocr    { color: #666; }
 .trace-lines .tl-agent  { color: #7ec8e3; }
 .trace-lines .tl-tool   { color: #f0ad4e; }
 .trace-lines .tl-result { color: #888; }
@@ -567,27 +581,83 @@ function renderStatusBar(img) {
   bar.innerHTML = `
     <span class="filename">${escapeHtml(img.filename || img.stored_name)}</span>
     <span class="status-badge ${badgeClass}">${escapeHtml(labelText)}</span>
-    <span class="timestamps">Uploaded ${fmt(created)} · Updated ${fmt(updated)}</span>
+    <div class="bar-right">
+      <span class="timestamps">Uploaded ${fmt(created)} · Updated ${fmt(updated)}</span>
+      <button class="reprocess-btn" id="reprocess-btn">↺ Reprocess</button>
+    </div>
   `;
+  document.getElementById('reprocess-btn').addEventListener('click', reprocessImage);
 }
 
-function renderAgentTrace(img) {
+async function reprocessImage() {
+  if (!confirm('Reset this image and reprocess from scratch?\n\nAny cards already added to your collection from this image will be removed.')) return;
+  const btn = document.getElementById('reprocess-btn');
+  btn.disabled = true;
+  btn.textContent = '...';
+  const resp = await fetch('/api/ingest2/reset', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ image_id: _imageId }),
+  });
+  const data = await resp.json();
+  if (!data.ok) {
+    btn.disabled = false;
+    btn.textContent = '↺ Reprocess';
+    alert(data.error || 'Reset failed');
+    return;
+  }
+  // Clear current UI and switch to processing state
+  document.getElementById('agent-trace-container').innerHTML = '';
+  document.getElementById('cards-container').innerHTML = '';
+  document.getElementById('add-card-section').style.display = 'none';
+  document.getElementById('processing-state').style.display = '';
+  if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+  const img = await fetchImage();
+  renderStatusBar(img);
+  startPolling();
+}
+
+function renderIngestTrace(img) {
   const container = document.getElementById('agent-trace-container');
   container.innerHTML = '';
-  const traceLines = img.agent_trace || [];
-  if (!traceLines.length) return;
+  const agentLines = img.agent_trace || [];
+  const ocrFragments = img.ocr_result || [];
+  if (!agentLines.length && !ocrFragments.length) return;
+
+  // Build OCR prefix lines
+  const ocrLines = [`[OCR] ${ocrFragments.length} fragment(s):`];
+  for (let i = 0; i < ocrFragments.length; i++) {
+    const f = ocrFragments[i];
+    const b = f.bbox || {};
+    ocrLines.push(
+      `[${i}] (x=${Math.round(b.x ?? 0)},y=${Math.round(b.y ?? 0)} ` +
+      `w=${Math.round(b.w ?? 0)},h=${Math.round(b.h ?? 0)} ` +
+      `conf=${(f.confidence ?? 0).toFixed(2)}): "${f.text ?? ''}"`
+    );
+  }
+
+  const claudeResult = img.claude_result || [];
+  const finalLines = claudeResult.length
+    ? ['', '[FINAL OUTPUT]', ...JSON.stringify({cards: claudeResult}, null, 2).split('\n')]
+    : [];
+
+  const allLines = [...ocrLines, '', ...agentLines, ...finalLines];
+
   function traceClass(line) {
+    if (line.startsWith('[OCR]') || line.match(/^\[\d+\]/)) return 'tl-ocr';
+    if (line === '') return 'tl-ocr';
     if (line.startsWith('[TOOL RESULT]')) return 'tl-result';
     if (line.startsWith('[TOOL CALL'))    return 'tl-tool';
-    if (line.startsWith('[FINAL]'))       return 'tl-final';
+    if (line.startsWith('[FINAL') || line.startsWith('[USAGE]')) return 'tl-final';
     return 'tl-agent';
   }
-  const traceHtml = traceLines.map(l =>
+
+  const traceHtml = allLines.map(l =>
     `<span class="${traceClass(l)}">${escapeHtml(l)}</span>`
   ).join('\n');
   const details = document.createElement('details');
   details.className = 'agent-trace';
-  details.innerHTML = `<summary>Agent trace (${traceLines.length} lines)</summary><div class="trace-lines">${traceHtml}</div>`;
+  details.innerHTML = `<summary>Ingest trace (${ocrFragments.length} OCR · ${agentLines.length} agent)</summary><div class="trace-lines">${traceHtml}</div>`;
   container.appendChild(details);
 }
 
@@ -860,7 +930,7 @@ async function searchCard(i) {
 async function refreshCards() {
   const img = await fetchImage();
   renderStatusBar(img);
-  renderAgentTrace(img);
+  renderIngestTrace(img);
   renderCards(img);
 }
 
@@ -944,7 +1014,7 @@ function startPolling() {
       document.getElementById('processing-state').style.display = 'none';
       const fullImg = await fetchImage();
       renderStatusBar(fullImg);
-      renderAgentTrace(fullImg);
+      renderIngestTrace(fullImg);
       renderCards(fullImg);
       setupAddCard();
     }
@@ -967,7 +1037,7 @@ async function init() {
     return;
   }
 
-  renderAgentTrace(img);
+  renderIngestTrace(img);
   renderCards(img);
   setupAddCard();
 }

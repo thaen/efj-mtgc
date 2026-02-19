@@ -2,11 +2,11 @@
 
 import json
 import time
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
 
 import requests
 
-from mtg_collector.db.models import Card, Set, Printing
+from mtg_collector.db.models import Card, Printing, Set
 
 
 class ScryfallAPI:

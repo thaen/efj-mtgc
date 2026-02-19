@@ -3,8 +3,8 @@
 from pathlib import Path
 
 import cv2
-import numpy as np
 import easyocr
+import numpy as np
 
 # Model files stored in the repo for offline use
 _MODEL_DIR = str(Path(__file__).resolve().parent.parent.parent / "models" / "ocr")

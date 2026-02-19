@@ -5,6 +5,7 @@
 <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Recent Images - Card Ingest</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/keyrune@latest/css/keyrune.min.css">
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
@@ -76,6 +77,9 @@ header a:hover { color: #e94560; }
 }
 
 .img-card {
+  display: block;
+  color: inherit;
+  text-decoration: none;
   background: #16213e;
   border: 3px solid #0f3460;
   border-radius: 8px;
@@ -94,35 +98,21 @@ header a:hover { color: #e94560; }
   object-fit: cover;
   display: block;
 }
-.img-card .info {
+.img-card .info-strip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
   padding: 4px 6px;
-  font-size: 0.7rem;
-  color: #888;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  min-width: 0;
 }
-.img-card .card-list {
-  padding: 2px 6px 6px;
-  font-size: 0.7rem;
-  line-height: 1.4;
+.img-card .info-strip i {
+  font-size: 1rem;
+  color: #bbb;
+  flex-shrink: 0;
 }
-.img-card .card-list .card-entry {
+.img-card .info-strip .names {
+  font-size: 0.7rem;
   color: #ccc;
-}
-.img-card .card-list .card-entry .card-name-line {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.img-card .card-list .card-entry .set-tag {
-  color: #888;
-  font-size: 0.6rem;
-  margin-left: 2px;
-}
-.img-card .card-list .card-entry .card-sub {
-  color: #666;
-  font-size: 0.6rem;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -191,6 +181,20 @@ header a:hover { color: #e94560; }
 .img-card { cursor: pointer; }
 .img-card.done:hover { border-color: #66bb6a; }
 .img-card.needs_disambiguation:hover { border-color: #f06080; }
+
+#usage-box {
+  margin-left: auto;
+  font-size: 0.7rem;
+  color: #666;
+  text-align: right;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+#usage-box .usage-cost {
+  color: #e0e0e0;
+  font-weight: 600;
+  font-size: 0.8rem;
+}
 </style>
 </head>
 <body>
@@ -200,6 +204,7 @@ header a:hover { color: #e94560; }
   <a href="/">Home</a>
   <a href="/upload">Upload</a>
   <a href="/disambiguate">Disambiguate</a>
+  <div id="usage-box"></div>
 </header>
 
 <div class="controls">
@@ -232,6 +237,7 @@ document.querySelectorAll('#time-pills .pill').forEach(pill => {
     pill.classList.add('active');
     currentHours = parseFloat(pill.dataset.hours);
     loadRecent();
+    loadUsageStats();
   });
 });
 
@@ -245,23 +251,35 @@ function buildCardBadge(img) {
   return '';
 }
 
-function buildCardsHtml(img) {
-  return (img.cards || []).length > 0
-    ? `<div class="card-list">${img.cards.map(c => {
-        const ocrName = c.ocr_name || '';
-        const claudeName = c.claude_name || '';
-        const resolvedName = c.name || '';
-        const details = [];
-        if (ocrName) details.push(`OCR: ${escapeHtml(ocrName)}`);
-        if (claudeName) details.push(`Claude: ${escapeHtml(claudeName)}`);
-        const detailHtml = details.length > 0 ? `<div class="card-sub">${details.join(' · ')}</div>` : '';
-        return `<div class="card-entry"><div class="card-name-line">${escapeHtml(resolvedName)}${c.set_code ? `<span class="set-tag">${escapeHtml(c.set_code)}</span>` : ''}</div>${detailHtml}</div>`;
-      }).join('')}</div>`
-    : '';
+const KEYRUNE_FALLBACKS = {
+  tsb: 'tsp', pspm: 'spm', cst: 'csp',
+};
+function keyruneSetCode(code) {
+  const lc = (code || '').toLowerCase();
+  return KEYRUNE_FALLBACKS[lc] || lc;
+}
+
+function buildInfoStrip(img) {
+  const cards = img.cards || [];
+  const seen = new Set();
+  const icons = [];
+  for (const c of cards) {
+    if (!c.set_code) continue;
+    const lc = c.set_code.toLowerCase();
+    if (seen.has(lc)) continue;
+    seen.add(lc);
+    icons.push(`<i class="ss ss-${keyruneSetCode(lc)}" title="${escapeHtml(c.set_code)}"></i>`);
+  }
+  const names = cards.map(c => c.name).filter(Boolean);
+  if (!icons.length && !names.length) return '';
+  const iconsHtml = icons.join('');
+  const namesHtml = names.length ? `<span class="names">${escapeHtml(names.join(' · '))}</span>` : '';
+  return `<div class="info-strip">${iconsHtml}${namesHtml}</div>`;
 }
 
 function createCardEl(img) {
-  const card = document.createElement('div');
+  const card = document.createElement('a');
+  card.href = '/correct?image_id=' + img.id;
   card.className = `img-card ${img.border_status}`;
   card.dataset.id = String(img.id);
   const errorIcon = img.border_status === 'error' ? '<div class="error-icon">&times;</div>' : '';
@@ -271,19 +289,16 @@ function createCardEl(img) {
     <img src="/api/ingest/image/${img.stored_name}" alt="${escapeHtml(img.filename)}" loading="lazy">
     <div class="badge">${buildCardBadge(img)}</div>
     ${errorIcon}
-    <div class="info">${escapeHtml(img.filename)}</div>
-    ${buildCardsHtml(img)}
     ${errorTooltip}
+    ${buildInfoStrip(img)}
   `;
-  card.onclick = () => window.location.href = '/correct?image_id=' + img.id;
   return card;
 }
 
 function updateCardEl(card, img) {
   card.className = `img-card ${img.border_status}`;
-  card.onclick = () => window.location.href = '/correct?image_id=' + img.id;
+  card.href = '/correct?image_id=' + img.id;
   card.querySelector('.badge').innerHTML = buildCardBadge(img);
-  card.querySelector('.info').textContent = img.filename;
 
   let errorIcon = card.querySelector('.error-icon');
   if (img.border_status === 'error') {
@@ -309,13 +324,13 @@ function updateCardEl(card, img) {
     tooltip.remove();
   }
 
-  const cardsHtml = buildCardsHtml(img);
-  const cardList = card.querySelector('.card-list');
-  if (cardsHtml) {
-    if (cardList) cardList.outerHTML = cardsHtml;
-    else card.insertAdjacentHTML('beforeend', cardsHtml);
-  } else if (cardList) {
-    cardList.remove();
+  const stripHtml = buildInfoStrip(img);
+  const stripEl = card.querySelector('.info-strip');
+  if (stripHtml) {
+    if (stripEl) stripEl.outerHTML = stripHtml;
+    else card.insertAdjacentHTML('beforeend', stripHtml);
+  } else if (stripEl) {
+    stripEl.remove();
   }
 }
 
@@ -455,8 +470,38 @@ function escapeHtml(s) {
 }
 
 
+function fmtTokens(n) {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+  if (n >= 1000) return Math.round(n / 1000) + 'K';
+  return String(n);
+}
+
+async function loadUsageStats() {
+  const resp = await fetch(`/api/ingest2/usage-stats?hours=${currentHours}`);
+  const data = await resp.json();
+  const box = document.getElementById('usage-box');
+  const u = data.usage;
+  const cost = data.estimated_cost_usd;
+
+  const parts = [];
+  if (u.haiku.input + u.haiku.output > 0)
+    parts.push(`${fmtTokens(u.haiku.input + u.haiku.output)} haiku`);
+  if (u.sonnet.input + u.sonnet.output > 0)
+    parts.push(`${fmtTokens(u.sonnet.input + u.sonnet.output)} sonnet`);
+  if (u.opus.input + u.opus.output > 0)
+    parts.push(`${fmtTokens(u.opus.input + u.opus.output)} opus`);
+
+  if (parts.length === 0) {
+    box.innerHTML = '';
+    return;
+  }
+  box.innerHTML = `<span class="usage-cost">~$${cost.toFixed(4)}</span><br>${parts.join(' · ')}`;
+}
+
 loadRecent();
+loadUsageStats();
 discoveryTimer = setInterval(discoverNewImages, 20000);
+setInterval(loadUsageStats, 30000);
 </script>
 </body>
 </html>

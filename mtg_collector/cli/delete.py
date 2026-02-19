@@ -1,6 +1,6 @@
 """Delete command: mtg delete <id>"""
 
-from mtg_collector.db import get_connection, init_db, CollectionRepository
+from mtg_collector.db import CollectionRepository, get_connection, init_db
 
 
 def register(subparsers):

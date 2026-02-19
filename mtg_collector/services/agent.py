@@ -10,7 +10,6 @@ import anthropic
 from mtg_collector.db.connection import get_db_path
 from mtg_collector.services.claude import ClaudeVision
 
-
 AGENT_MODEL_HAIKU = "claude-haiku-4-5-20251001"
 AGENT_MODEL_SONNET = "claude-sonnet-4-6"
 VISION_MODEL = "claude-opus-4-6"
@@ -19,9 +18,9 @@ LARGE_FRAGMENT_THRESHOLD = 70
 CONTEXT_UPGRADE_THRESHOLD = 8_000  # input tokens; switch Haiku → Sonnet if context grows large
 
 SYSTEM_PROMPT = """\
-You are an expert Magic: The Gathering card identifier. 
+You are an expert Magic: The Gathering card identifier.
 You have OCR text fragments from a photo of MTG cards indicating position (bounding boxes),
-text at that position, and confidence scores from OCR. 
+text at that position, and confidence scores from OCR.
 
 YOUR JOB:
 Do your best to identify every card in the image. Repeat this strategy for all cards in the image:
@@ -32,7 +31,7 @@ Do your best to identify every card in the image. Repeat this strategy for all c
    it can identify border color (black/white/silver), card frame era, set icon shape, and other
    visual details that OCR misses, especially useful for older cards. It is quite expensive.
 4. Continue searching until no further disambiguation is possible
-5. Stop calling tools and list candidate cards. 
+5. Stop calling tools and list candidate cards.
 
 OCR BOUNDING BOXES
 
@@ -47,9 +46,13 @@ CARD LAYOUT (top to bottom):
   - Colorless portion of a mana cost (optional; top right of card)
   - Type and Subtype (middle left of card, below the art; subtype optional)
   - Rules text (below type line — may be blank on vanilla creatures)
-  - Flavor text (italic, below rules — optional)
+  - Flavor text (italic, below rules, not always present)
   - Bottom-left corner: collector number, set code, artist name (on newer cards: see Collector Numbers below)
   - Bottom-right corner: power/toughness (creatures only)
+
+Rules text is about effect to the game state. It will mention things that the card does to other entities.
+Some cards have no rules text, some cards have no flavor text, but all cards have one or both.
+You can search by flavor text or rules text, which can be a powerful aid.
 
 There may be large vertical gaps between the title and the type line — that is the card art.
 Cards with no rules text will have another gap between the type line and the collector info.
@@ -95,8 +98,12 @@ The DISAMBIGUATION RULE applies in these cases: Return all reasonable candidates
   black-bordered with identical wordings across most cards.
 * OCR gives you text printed on the card. Scryfall's data contains modern wordings of rules
   text on cards (aka Oracle text). These can be very different, so have caution when doing
-  rules text matching. 
+  rules text matching.
 """
+
+SYSTEM_CONTENT = [
+    {"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}
+]
 
 OUTPUT_SCHEMA = {
     "type": "object",
@@ -177,6 +184,7 @@ TOOLS = [
             "properties": {},
             "required": [],
         },
+        "cache_control": {"type": "ephemeral"},
     },
 ]
 
@@ -209,7 +217,10 @@ def _tool_query_local_db(sql: str, conn: sqlite3.Connection) -> str:
     sql_stripped = sql.strip()
     if not sql_stripped.upper().startswith("SELECT"):
         return "Error: only SELECT statements are permitted"
-    rows = conn.execute(sql_stripped).fetchall()
+    try:
+        rows = conn.execute(sql_stripped).fetchall()
+    except sqlite3.OperationalError as e:
+        return f"SQL error: {e}"
     if not rows:
         return "No results found in local cache"
     cols = rows[0].keys()
@@ -234,7 +245,8 @@ def _tool_query_local_db(sql: str, conn: sqlite3.Connection) -> str:
     return "\n".join(lines)
 
 
-def _tool_analyze_image(image_path: str, client: anthropic.Anthropic) -> str:
+def _tool_analyze_image(image_path: str, client: anthropic.Anthropic) -> tuple[str, object]:
+    """Returns (description_text, response.usage)."""
     vision = ClaudeVision(model=VISION_MODEL)
     image_data = vision.encode_image(image_path)
     media_type = vision._get_media_type(image_path)
@@ -273,7 +285,7 @@ def _tool_analyze_image(image_path: str, client: anthropic.Anthropic) -> str:
     for block in response.content:
         if block.type == "text":
             text += block.text
-    return text
+    return text, response.usage
 
 
 def _has_tool_use(response) -> bool:
@@ -281,22 +293,40 @@ def _has_tool_use(response) -> bool:
 
 
 def _call_api(fn, status_callback, trace_lines=None, **kwargs):
-    """Call fn(**kwargs) with exponential backoff on 529 Overloaded errors.
+    """Call fn(**kwargs) with retries on 529 Overloaded and 429 Rate Limit errors.
 
-    After 3 Haiku failures switches to Sonnet for remaining retries.
+    On 429: switches Haiku->Sonnet immediately (per-model rate limit), waits on Sonnet.
+    On 529: after 3 Haiku failures switches to Sonnet for remaining retries.
     """
+    haiku_529_count = 0
     for attempt in range(6):
         try:
             return fn(**kwargs)
         except anthropic.APIStatusError as e:
-            if e.status_code != 529 or attempt == 5:
+            is_last = attempt == 5
+            if e.status_code == 429:
+                if is_last:
+                    raise
+                if kwargs.get("model") == AGENT_MODEL_HAIKU:
+                    kwargs["model"] = AGENT_MODEL_SONNET
+                    _trace("[AGENT] Haiku rate limited (429), switching to Sonnet", status_callback, trace_lines)
+                    continue
+                retry_after = e.response.headers.get("retry-after")
+                wait = float(retry_after) if retry_after else 30
+                _trace(f"[AGENT] Rate limited (429), retrying in {wait:.0f}s...", status_callback, trace_lines)
+                time.sleep(wait)
+            elif e.status_code == 529:
+                if is_last:
+                    raise
+                haiku_529_count += 1
+                if haiku_529_count >= 3 and kwargs.get("model") == AGENT_MODEL_HAIKU:
+                    kwargs["model"] = AGENT_MODEL_SONNET
+                    _trace("[AGENT] Switching to Sonnet after 3 Haiku overload errors", status_callback, trace_lines)
+                wait = 3 * (2 ** attempt)
+                _trace(f"[AGENT] Overloaded (529), retrying in {wait}s...", status_callback, trace_lines)
+                time.sleep(wait)
+            else:
                 raise
-            if attempt == 2 and kwargs.get("model") == AGENT_MODEL_HAIKU:
-                kwargs["model"] = AGENT_MODEL_SONNET
-                _trace("[AGENT] Switching to Sonnet after 3 Haiku overload errors", status_callback, trace_lines)
-            wait = 3 * (2 ** attempt)
-            _trace(f"[AGENT] Overloaded (529), retrying in {wait}s...", status_callback, trace_lines)
-            time.sleep(wait)
 
 
 def run_agent(
@@ -304,7 +334,8 @@ def run_agent(
     ocr_fragments: list[dict],
     max_calls: int | None = None,
     status_callback=None,
-) -> tuple[list[dict], list[str]]:
+    trace_out: list[str] | None = None,
+) -> tuple[list[dict], list[str], dict]:
     """Run the tool-using agent to identify MTG cards from an image.
 
     Args:
@@ -313,10 +344,14 @@ def run_agent(
         max_calls: Maximum tool calls. Defaults to max(DEFAULT_MAX_CALLS,
                    int(DEFAULT_MAX_CALLS * len(ocr_fragments) / 10)).
         status_callback: Optional callable for trace messages (replaces stderr).
+        trace_out: Optional list to accumulate trace lines in-place. If provided,
+                   the caller retains access to partial trace even if an exception
+                   is raised.
 
     Returns:
-        (cards, trace) where cards is a list of card dicts and trace is the
-        list of all trace lines emitted during the run.
+        (cards, trace, usage) where cards is a list of card dicts, trace is the
+        list of all trace lines emitted during the run, and usage is a dict of
+        {model: {input, output}} token counts for haiku/sonnet/opus.
     """
     n = len(ocr_fragments)
     if max_calls is None:
@@ -327,7 +362,12 @@ def run_agent(
     conn = sqlite3.connect(get_db_path())
     conn.row_factory = sqlite3.Row
 
-    trace_lines: list[str] = []
+    trace_lines: list[str] = trace_out if trace_out is not None else []
+    usage: dict[str, dict[str, int]] = {
+        "haiku": {"input": 0, "output": 0, "cache_read": 0, "cache_creation": 0},
+        "sonnet": {"input": 0, "output": 0, "cache_read": 0, "cache_creation": 0},
+        "opus": {"input": 0, "output": 0, "cache_read": 0, "cache_creation": 0},
+    }
 
     _trace(f"[AGENT] Starting with {n} OCR fragments (max_calls={max_calls}, model={agent_model})", status_callback, trace_lines)
 
@@ -351,12 +391,23 @@ def run_agent(
             trace_lines=trace_lines,
             model=agent_model,
             max_tokens=4000,
-            system=SYSTEM_PROMPT,
+            system=SYSTEM_CONTENT,
             tools=TOOLS,
             messages=messages,
         )
 
-        model_label = "haiku" if agent_model == AGENT_MODEL_HAIKU else "sonnet"
+        model_key = "sonnet" if "sonnet" in response.model else "haiku"
+        usage[model_key]["input"] += response.usage.input_tokens
+        usage[model_key]["output"] += response.usage.output_tokens
+        usage[model_key]["cache_read"] += getattr(response.usage, "cache_read_input_tokens", 0) or 0
+        usage[model_key]["cache_creation"] += getattr(response.usage, "cache_creation_input_tokens", 0) or 0
+
+        # Persist model upgrade if _call_api switched due to rate limit/overload
+        if agent_model == AGENT_MODEL_HAIKU and model_key == "sonnet":
+            agent_model = AGENT_MODEL_SONNET
+            _trace("[AGENT] Persisting upgrade to Sonnet", status_callback, trace_lines)
+
+        model_label = model_key
         for block in response.content:
             if block.type == "text":
                 _trace(f"[AGENT/{model_label}] {block.text.strip()}", status_callback, trace_lines)
@@ -394,7 +445,9 @@ def run_agent(
                         "[analyze_image already called — use query_local_db instead.]"
                     )
                 else:
-                    result = _tool_analyze_image(image_path, client)
+                    result, vision_usage = _tool_analyze_image(image_path, client)
+                    usage["opus"]["input"] += vision_usage.input_tokens
+                    usage["opus"]["output"] += vision_usage.output_tokens
                     vision_used[0] = True
                     vision_cached_result[0] = result
             else:
@@ -440,7 +493,7 @@ def run_agent(
         trace_lines=trace_lines,
         model=agent_model,
         max_tokens=2000,
-        system=SYSTEM_PROMPT,
+        system=SYSTEM_CONTENT,
         messages=messages,
         output_config={
             "format": {
@@ -449,5 +502,22 @@ def run_agent(
             }
         },
     )
+    final_model_key = "sonnet" if "sonnet" in final_response.model else "haiku"
+    usage[final_model_key]["input"] += final_response.usage.input_tokens
+    usage[final_model_key]["output"] += final_response.usage.output_tokens
+    usage[final_model_key]["cache_read"] += getattr(final_response.usage, "cache_read_input_tokens", 0) or 0
+    usage[final_model_key]["cache_creation"] += getattr(final_response.usage, "cache_creation_input_tokens", 0) or 0
+
+    cache_read_total = sum(u["cache_read"] for u in usage.values())
+    cache_creation_total = sum(u["cache_creation"] for u in usage.values())
+    _trace(
+        f"[USAGE] haiku={usage['haiku']['input']}in/{usage['haiku']['output']}out "
+        f"sonnet={usage['sonnet']['input']}in/{usage['sonnet']['output']}out "
+        f"opus={usage['opus']['input']}in/{usage['opus']['output']}out "
+        f"cache_read={cache_read_total} cache_creation={cache_creation_total}",
+        status_callback,
+        trace_lines,
+    )
+
     result = json.loads(final_response.content[0].text)
-    return result["cards"], trace_lines
+    return result["cards"], trace_lines, usage

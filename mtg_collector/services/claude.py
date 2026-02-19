@@ -4,7 +4,7 @@ import base64
 import json
 import time
 from pathlib import Path
-from typing import List, Dict
+from typing import Dict, List
 
 import anthropic
 
@@ -304,8 +304,9 @@ OCR FRAGMENTS:
         if len(data) <= MAX_RAW:
             return base64.b64encode(data).decode("utf-8")
 
-        from PIL import Image
         import io
+
+        from PIL import Image
 
         print(f"  Compressing image ({len(data)/1024/1024:.1f}MB raw, ~{len(data)*4/3/1024/1024:.1f}MB base64)...")
         img = Image.open(image_path)

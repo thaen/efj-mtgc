@@ -1,9 +1,9 @@
 """Exporters for various collection platforms."""
 
-from mtg_collector.exporters.base import BaseExporter
-from mtg_collector.exporters.moxfield import MoxfieldExporter
 from mtg_collector.exporters.archidekt import ArchidektExporter
+from mtg_collector.exporters.base import BaseExporter
 from mtg_collector.exporters.deckbox import DeckboxExporter
+from mtg_collector.exporters.moxfield import MoxfieldExporter
 
 EXPORTERS = {
     "moxfield": MoxfieldExporter,

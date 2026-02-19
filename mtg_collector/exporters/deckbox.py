@@ -1,8 +1,8 @@
 """Deckbox CSV exporter."""
 
 import csv
-from typing import Dict, Any
 import sqlite3
+from typing import Any, Dict
 
 from mtg_collector.exporters.base import BaseExporter
 

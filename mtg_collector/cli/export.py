@@ -1,7 +1,7 @@
 """Export command: mtg export"""
 
 from mtg_collector.db import get_connection, init_db
-from mtg_collector.exporters import get_exporter, EXPORTERS
+from mtg_collector.exporters import EXPORTERS, get_exporter
 
 
 def register(subparsers):
