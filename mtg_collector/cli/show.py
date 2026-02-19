@@ -1,12 +1,12 @@
 """Show command: mtg show <id>"""
 
 from mtg_collector.db import (
-    get_connection,
-    init_db,
+    CardRepository,
     CollectionRepository,
     PrintingRepository,
-    CardRepository,
     SetRepository,
+    get_connection,
+    init_db,
 )
 
 

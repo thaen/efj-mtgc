@@ -4,12 +4,12 @@ import sys
 from pathlib import Path
 
 from mtg_collector.db import (
+    CardRepository,
+    CollectionRepository,
+    PrintingRepository,
+    SetRepository,
     get_connection,
     init_db,
-    CardRepository,
-    SetRepository,
-    PrintingRepository,
-    CollectionRepository,
 )
 from mtg_collector.db.models import CollectionEntry
 from mtg_collector.services.claude import ClaudeVision
@@ -146,7 +146,7 @@ def _pick_card(card_info, candidates):
         set_name = c.get("set_name", "")
         print(f"    {i:3d}. {cname:<30s} {set_code} #{cn:<5s} [{rarity}] {set_name} ({released})")
 
-    print(f"      s = skip this card")
+    print("      s = skip this card")
     print()
 
     while True:

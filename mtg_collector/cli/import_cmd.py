@@ -1,14 +1,14 @@
 """Import command: mtg import"""
 
 from mtg_collector.db import (
+    CardRepository,
+    CollectionRepository,
+    PrintingRepository,
+    SetRepository,
     get_connection,
     init_db,
-    CardRepository,
-    SetRepository,
-    PrintingRepository,
-    CollectionRepository,
 )
-from mtg_collector.importers import get_importer, detect_format, IMPORTERS
+from mtg_collector.importers import IMPORTERS, detect_format, get_importer
 from mtg_collector.services.scryfall import ScryfallAPI
 
 

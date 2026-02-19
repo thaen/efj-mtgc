@@ -1,6 +1,6 @@
 """Setup command: mtg setup — bootstrap a working installation."""
 
-from mtg_collector.db import SCHEMA_VERSION, get_connection, init_db, close_connection
+from mtg_collector.db import SCHEMA_VERSION, close_connection, get_connection, init_db
 
 
 def register(subparsers):

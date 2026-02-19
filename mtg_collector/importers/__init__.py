@@ -1,9 +1,9 @@
 """Importers for various collection platforms."""
 
-from mtg_collector.importers.base import BaseImporter
-from mtg_collector.importers.moxfield import MoxfieldImporter
 from mtg_collector.importers.archidekt import ArchidektImporter
+from mtg_collector.importers.base import BaseImporter
 from mtg_collector.importers.deckbox import DeckboxImporter
+from mtg_collector.importers.moxfield import MoxfieldImporter
 
 IMPORTERS = {
     "moxfield": MoxfieldImporter,

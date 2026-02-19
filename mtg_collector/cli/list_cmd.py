@@ -1,6 +1,6 @@
 """List command: mtg list"""
 
-from mtg_collector.db import get_connection, init_db, CollectionRepository
+from mtg_collector.db import CollectionRepository, get_connection, init_db
 from mtg_collector.utils import normalize_condition
 
 

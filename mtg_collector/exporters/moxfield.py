@@ -1,9 +1,9 @@
 """Moxfield CSV exporter."""
 
 import csv
-from collections import defaultdict
-from typing import Dict, Any
 import sqlite3
+from collections import defaultdict
+from typing import Any, Dict
 
 from mtg_collector.exporters.base import BaseExporter
 

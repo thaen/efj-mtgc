@@ -36,7 +36,7 @@ def main():
         export,
         ingest_ids,
         ingest_order,
-        ingest_retry,
+        ingest_requeue,
         list_cmd,
         orders,
         setup_cmd,
@@ -45,7 +45,7 @@ def main():
         wishlist,
     )
 
-    modules = [db_cmd, data_cmd, cache_cmd, list_cmd, show, edit, delete, stats, export, ingest_ids, ingest_order, ingest_retry, orders, crack_pack, crack_pack_server, wishlist, setup_cmd]
+    modules = [db_cmd, data_cmd, cache_cmd, list_cmd, show, edit, delete, stats, export, ingest_ids, ingest_order, ingest_requeue, orders, crack_pack, crack_pack_server, wishlist, setup_cmd]
 
     # Try to import modules that require external dependencies
     try:

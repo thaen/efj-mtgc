@@ -1,8 +1,8 @@
 """Base exporter interface."""
 
-from abc import ABC, abstractmethod
-from typing import List, Dict, Any
 import sqlite3
+from abc import ABC, abstractmethod
+from typing import Any, Dict, List
 
 
 class BaseExporter(ABC):

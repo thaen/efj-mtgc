@@ -1,10 +1,10 @@
 """Deckbox CSV importer."""
 
 import csv
-from typing import List, Dict, Any, Tuple, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
-from mtg_collector.importers.base import BaseImporter
 from mtg_collector.db.models import CollectionEntry
+from mtg_collector.importers.base import BaseImporter
 from mtg_collector.utils import normalize_condition, now_iso
 
 
