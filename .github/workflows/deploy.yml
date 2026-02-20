@@ -9,16 +9,115 @@ on:
         description: 'Instance name (e.g. prod, staging)'
         required: true
         default: 'prod'
+      runner:
+        description: 'Runner label (thaen or ryan)'
+        required: true
+        default: 'thaen'
 
 env:
-  INSTANCE: ${{ github.event.inputs.instance || 'prod' }}
+  REPO_URL: https://github.com/thaen/efj-mtgc.git
 
 jobs:
-  deploy:
-    runs-on: self-hosted
+  # ── thaen: staging → smoke test → prod ──
+
+  thaen-staging:
+    if: github.event_name == 'push' && github.repository == 'thaen/efj-mtgc'
+    runs-on: [self-hosted, thaen]
+    outputs:
+      deployed: ${{ steps.deploy.outcome == 'success' }}
+    steps:
+      - name: Check if staging instance exists
+        id: check
+        run: |
+          if [ -d /opt/mtgc-staging ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Pull latest code
+        if: steps.check.outputs.exists == 'true'
+        run: |
+          git -C /opt/mtgc-staging remote set-url origin "$REPO_URL"
+          git -C /opt/mtgc-staging pull --ff-only origin main
+
+      - name: Deploy staging
+        id: deploy
+        if: steps.check.outputs.exists == 'true'
+        run: bash /opt/mtgc-staging/deploy/thaen/deploy.sh staging
+
+  thaen-smoke:
+    needs: thaen-staging
+    if: needs.thaen-staging.outputs.deployed == 'true'
+    runs-on: [self-hosted, thaen]
+    steps:
+      - name: Discover staging port
+        id: port
+        run: |
+          PORT=$(podman port mtgc-staging 8081/tcp 2>/dev/null | sed 's/.*://' | head -1)
+          echo "port=$PORT" >> "$GITHUB_OUTPUT"
+
+      - name: Web server responds
+        run: curl -skf "https://localhost:${{ steps.port.outputs.port }}/" > /dev/null
+
+      - name: Collection value check
+        run: |
+          curl -sk "https://localhost:${{ steps.port.outputs.port }}/api/collection" | \
+            python3 -c "
+          import sys, json
+          cards = json.load(sys.stdin)
+          total = sum(float(c.get('tcg_price') or 0) for c in cards)
+          print(f'Collection value: \${total:.2f} ({len(cards)} cards)')
+          assert total > 50, f'Collection value too low: {total}'
+          "
+
+  thaen-prod:
+    needs: [thaen-staging, thaen-smoke]
+    if: |
+      always() &&
+      github.event_name == 'push' &&
+      github.repository == 'thaen/efj-mtgc' &&
+      needs.thaen-staging.result == 'success' &&
+      needs.thaen-smoke.result != 'failure'
+    runs-on: [self-hosted, thaen]
     steps:
       - name: Pull latest code
-        run: git -C /opt/mtgc-${{ env.INSTANCE }} pull --ff-only origin ${{ github.ref_name }}
+        run: |
+          git -C /opt/mtgc-prod remote set-url origin "$REPO_URL"
+          git -C /opt/mtgc-prod pull --ff-only origin main
 
-      - name: Build and restart
-        run: bash /opt/mtgc-${{ env.INSTANCE }}/deploy/deploy.sh ${{ env.INSTANCE }}
+      - name: Deploy prod
+        run: bash /opt/mtgc-prod/deploy/thaen/deploy.sh prod
+
+  # ── ryan: prod only ──
+
+  ryan-prod:
+    if: github.event_name == 'push' && github.repository == 'thaen/efj-mtgc'
+    runs-on: [self-hosted, ryan]
+    steps:
+      - name: Pull latest code
+        run: |
+          git -C /opt/mtgc-prod remote set-url origin "$REPO_URL"
+          git -C /opt/mtgc-prod pull --ff-only origin main
+
+      - name: Deploy prod
+        run: bash /opt/mtgc-prod/deploy/deploy.sh prod
+
+  # ── manual dispatch ──
+
+  dispatch:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: [self-hosted, '${{ inputs.runner }}']
+    steps:
+      - name: Pull latest code
+        run: |
+          git -C /opt/mtgc-${{ inputs.instance }} remote set-url origin "$REPO_URL"
+          git -C /opt/mtgc-${{ inputs.instance }} pull --ff-only origin main
+
+      - name: Deploy (thaen)
+        if: inputs.runner == 'thaen'
+        run: bash /opt/mtgc-${{ inputs.instance }}/deploy/thaen/deploy.sh ${{ inputs.instance }}
+
+      - name: Deploy (ryan)
+        if: inputs.runner != 'thaen'
+        run: bash /opt/mtgc-${{ inputs.instance }}/deploy/deploy.sh ${{ inputs.instance }}
