@@ -745,6 +745,45 @@ a.lineage-link {
 }
 .menu-item:hover { background: #0f3460; }
 
+/* Image display pill toggle in More menu */
+.more-menu-section {
+  padding: 8px 14px 6px;
+}
+.more-menu-section .more-menu-label {
+  display: block;
+  font-size: 0.75rem;
+  color: #888;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+.pill-row {
+  display: flex;
+  gap: 0;
+}
+.pill-row .pill {
+  padding: 5px 14px;
+  border: 1px solid #0f3460;
+  background: #16213e;
+  color: #888;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  user-select: none;
+}
+.pill-row .pill:first-child { border-radius: 6px 0 0 6px; }
+.pill-row .pill:last-child  { border-radius: 0 6px 6px 0; }
+.pill-row .pill + .pill     { border-left: none; }
+.pill-row .pill.active {
+  background: #e94560;
+  border-color: #e94560;
+  color: #fff;
+}
+.pill-row .pill:hover:not(.active) {
+  border-color: #e94560;
+  color: #e0e0e0;
+}
+
 /* Selection bar */
 .selection-bar {
   display: none;
@@ -1142,6 +1181,13 @@ tr.ordered td:first-child { border-left: 3px solid #f0a030; }
       <button class="secondary" id="more-menu-btn">More</button>
       <div class="col-config-dropdown" id="more-menu-dropdown">
         <button class="menu-item" id="toggle-multiselect-btn">Toggle Multi-Select</button>
+        <div class="more-menu-section">
+          <span class="more-menu-label">Image Display</span>
+          <div class="pill-row" id="image-display-pills">
+            <div class="pill" data-value="crop">Crop</div>
+            <div class="pill" data-value="contain">Contain</div>
+          </div>
+        </div>
       </div>
     </div>
     <button class="secondary" id="include-unowned-btn" disabled title="Select a set first">+ Unowned</button>
@@ -1495,6 +1541,18 @@ document.getElementById('toggle-multiselect-btn').addEventListener('click', () =
   lastSelectedIdx = null;
   updateSelectionBar();
   render();
+});
+
+document.querySelectorAll('#image-display-pills .pill').forEach(pill => {
+  pill.addEventListener('click', async () => {
+    _settings.image_display = pill.dataset.value;
+    applySettings();
+    await fetch('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image_display: pill.dataset.value }),
+    });
+  });
 });
 
 document.getElementById('sel-all').addEventListener('click', () => {
@@ -2921,6 +2979,10 @@ function applySettings() {
     css += '.sheet-card-img-wrap img { object-fit: contain !important; object-position: center !important; }\n';
   }
   style.textContent = css;
+  // Sync image display pill selection
+  document.querySelectorAll('#image-display-pills .pill').forEach(p => {
+    p.classList.toggle('active', p.dataset.value === _settings.image_display);
+  });
 }
 
 // --- Wishlist state ---
