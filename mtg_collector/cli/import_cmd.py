@@ -9,7 +9,6 @@ from mtg_collector.db import (
     init_db,
 )
 from mtg_collector.importers import IMPORTERS, detect_format, get_importer
-from mtg_collector.services.scryfall import ScryfallAPI
 
 
 def register(subparsers):
@@ -58,7 +57,6 @@ def run(args):
     set_repo = SetRepository(conn)
     printing_repo = PrintingRepository(conn)
     collection_repo = CollectionRepository(conn)
-    api = ScryfallAPI()
 
     print(f"Importing from {args.file} ({importer.format_name} format)...")
     if args.dry_run:
@@ -72,7 +70,6 @@ def run(args):
         set_repo=set_repo,
         printing_repo=printing_repo,
         collection_repo=collection_repo,
-        api=api,
         dry_run=args.dry_run,
     )
 
