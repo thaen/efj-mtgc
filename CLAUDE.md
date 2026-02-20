@@ -81,7 +81,7 @@ mtg_collector/
 
 ## Database Schema
 
-Schema version tracked in `schema_version` table with auto-migrations (current: v13).
+Schema version tracked in `schema_version` table with auto-migrations (current: v15).
 
 Core tables with foreign key relationships:
 - `cards` (oracle_id PK) → Oracle-level card identity

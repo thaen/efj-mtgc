@@ -1,5 +1,5 @@
 """
-Tests for price import pipeline (schema v13, UUID map, import, latest_prices view).
+Tests for price import pipeline (schema v15, UUID map, import, latest_prices view).
 
 To run: uv run pytest tests/test_price_import.py -v
 """
@@ -15,7 +15,6 @@ import pytest
 from mtg_collector.db.connection import close_connection, get_connection
 from mtg_collector.db.schema import (
     SCHEMA_VERSION,
-    drop_all_tables,
     get_current_version,
     init_db,
 )
@@ -23,7 +22,7 @@ from mtg_collector.db.schema import (
 
 @pytest.fixture
 def test_db():
-    """Create a fresh temporary database with v13 schema."""
+    """Create a fresh temporary database with v15 schema."""
     close_connection()
     with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as f:
         db_path = f.name
@@ -157,7 +156,7 @@ def mock_allpricestoday_backfill(tmp_path):
 # =============================================================================
 
 
-class TestSchemaV13:
+class TestSchemaV15:
     def test_tables_created(self, test_db):
         """Verify all 3 tables + view exist after init_db."""
         _, conn = test_db
@@ -175,10 +174,10 @@ class TestSchemaV13:
         view_names = [r[0] for r in views]
         assert "latest_prices" in view_names
 
-    def test_schema_version_is_13(self, test_db):
+    def test_schema_version_is_15(self, test_db):
         _, conn = test_db
-        assert get_current_version(conn) == 13
-        assert SCHEMA_VERSION == 13
+        assert get_current_version(conn) == 15
+        assert SCHEMA_VERSION == 15
 
 
 class TestUuidMap:
@@ -374,18 +373,17 @@ class TestPriceFetchLog:
         conn2.close()
 
 
-class TestMigrationV12ToV13:
+class TestMigrationV14ToV15:
     def test_migration(self):
-        """Create a v12 DB, run init_db, verify v13 tables exist."""
+        """Create a v14 DB, run init_db, verify v15 price tables exist."""
         close_connection()
         with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as f:
             db_path = f.name
 
-        # Create a v12 database
+        # Create a v14 database (has agent_trace + api_usage columns but no price tables)
         conn = sqlite3.connect(db_path)
         conn.execute("PRAGMA foreign_keys = ON")
 
-        # Minimal v12 schema — just enough to test migration
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS schema_version (
                 version INTEGER PRIMARY KEY,
@@ -446,22 +444,52 @@ class TestMigrationV12ToV13:
                 sale_price REAL,
                 order_id INTEGER
             );
+            CREATE TABLE IF NOT EXISTS ingest_cache (
+                image_md5 TEXT PRIMARY KEY,
+                image_path TEXT NOT NULL,
+                ocr_result TEXT NOT NULL,
+                claude_result TEXT,
+                agent_trace TEXT,
+                api_usage TEXT,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS ingest_images (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                filename TEXT NOT NULL,
+                stored_name TEXT NOT NULL,
+                md5 TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'READY_FOR_OCR',
+                mode TEXT,
+                ocr_result TEXT,
+                claude_result TEXT,
+                agent_trace TEXT,
+                api_usage TEXT,
+                scryfall_matches TEXT,
+                crops TEXT,
+                disambiguated TEXT,
+                names_data TEXT,
+                names_disambiguated TEXT,
+                user_card_edits TEXT,
+                error_message TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             );
         """)
         conn.execute(
-            "INSERT INTO schema_version (version, applied_at) VALUES (12, '2024-01-01T00:00:00Z')"
+            "INSERT INTO schema_version (version, applied_at) VALUES (14, '2024-01-01T00:00:00Z')"
         )
         conn.commit()
         conn.close()
 
-        # Now init_db should migrate to v13
+        # Now init_db should migrate to v15
         conn2 = get_connection(db_path)
         init_db(conn2)
 
-        assert get_current_version(conn2) == 13
+        assert get_current_version(conn2) == 15
 
         tables = conn2.execute(
             "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
