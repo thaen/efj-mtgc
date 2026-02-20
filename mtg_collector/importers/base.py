@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 from mtg_collector.db.models import CollectionEntry
-from mtg_collector.services.scryfall import ScryfallAPI
 
 
 @dataclass
@@ -86,7 +85,6 @@ class BaseImporter(ABC):
         set_repo,
         printing_repo,
         collection_repo,
-        api: ScryfallAPI,
         dry_run: bool = False,
     ) -> ImportResult:
         """
@@ -96,14 +94,11 @@ class BaseImporter(ABC):
             file_path: Path to import file
             conn: Database connection
             card_repo, set_repo, printing_repo, collection_repo: Repositories
-            api: Scryfall API instance
             dry_run: If True, don't actually insert
 
         Returns:
             ImportResult with statistics
         """
-        from mtg_collector.services.scryfall import cache_scryfall_data
-
         result = ImportResult()
 
         rows = self.parse_file(file_path)
@@ -117,21 +112,18 @@ class BaseImporter(ABC):
                     result.cards_skipped += 1
                     continue
 
-                # Try to resolve the card
-                scryfall_data = self._resolve_card(api, name, set_code, collector_number)
+                scryfall_id = self._resolve_card(
+                    card_repo, printing_repo, name, set_code, collector_number,
+                )
 
-                if not scryfall_data:
+                if not scryfall_id:
                     result.errors.append(f"Could not find: {name} ({set_code or 'any set'})")
                     result.cards_skipped += 1
                     continue
 
                 if not dry_run:
-                    # Cache Scryfall data
-                    cache_scryfall_data(api, card_repo, set_repo, printing_repo, scryfall_data)
-
-                    # Add to collection (one entry per quantity)
                     for _ in range(quantity):
-                        entry = self.row_to_entry(row, scryfall_data["id"])
+                        entry = self.row_to_entry(row, scryfall_id)
                         collection_repo.add(entry)
 
                 result.cards_added += quantity
@@ -147,27 +139,52 @@ class BaseImporter(ABC):
 
     def _resolve_card(
         self,
-        api: ScryfallAPI,
+        card_repo,
+        printing_repo,
         name: str,
         set_code: Optional[str],
         collector_number: Optional[str],
-    ) -> Optional[Dict]:
-        """Resolve a card using Scryfall API."""
-        # Try exact match first if we have set/cn
+    ) -> Optional[str]:
+        """Resolve a card using the local database. Returns scryfall_id or None."""
+        # Strategy 1: If set_code + collector_number, look up printing and validate name
         if set_code and collector_number:
-            data = api.get_card_by_set_cn(set_code, collector_number)
-            if data:
-                return data
+            printing = printing_repo.get_by_set_cn(set_code, collector_number)
+            if printing:
+                card = card_repo.get(printing.oracle_id)
+                if card and self._name_matches(name, card.name):
+                    return printing.scryfall_id
+                # Name mismatch — fall through to name-based lookup
 
-        # Fall back to search
-        printings = api.search_card(name, set_code, collector_number)
-        if printings:
-            # If we have a set hint, try to match it
-            if set_code:
-                for p in printings:
-                    if p.get("set", "").lower() == set_code.lower():
-                        return p
-            # Return first match
-            return printings[0]
+        # Strategy 2: Name-based lookup
+        card = card_repo.get_by_name(name) or card_repo.search_by_name(name)
+        if not card:
+            return None
 
-        return None
+        printings = printing_repo.get_by_oracle_id(card.oracle_id)
+        if not printings:
+            return None
+
+        # If set_code provided, prefer a printing from that set
+        if set_code:
+            for p in printings:
+                if p.set_code.lower() == set_code.lower():
+                    return p.scryfall_id
+
+        return printings[0].scryfall_id
+
+    @staticmethod
+    def _name_matches(search_name: str, db_name: str) -> bool:
+        """Check if search_name matches db_name (case-insensitive, DFC-aware)."""
+        search_lower = search_name.lower()
+        db_lower = db_name.lower()
+
+        if search_lower == db_lower:
+            return True
+
+        # DFC: db stores "Front // Back", search might be just "Front"
+        if " // " in db_lower:
+            front_face = db_lower.split(" // ")[0]
+            if search_lower == front_face:
+                return True
+
+        return False
