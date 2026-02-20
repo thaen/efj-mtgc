@@ -619,7 +619,6 @@ def _auto_ingest_single_candidates(conn, img, disambiguated, scryfall_matches):
         CollectionRepository,
         PrintingRepository,
     )
-    from mtg_collector.services.scryfall import ScryfallAPI, cache_scryfall_data
     from mtg_collector.utils import now_iso
 
     auto_count = 0
@@ -1053,6 +1052,9 @@ class CrackPackHandler(BaseHTTPRequestHandler):
         self.wfile.write(content)
 
     def _api_sets(self):
+        if not self.generator:
+            self._send_json({"error": "AllPrintings.json not loaded — run: mtg data fetch"}, 503)
+            return
         sets = self.generator.list_sets()
         self._send_json([{"code": code, "name": name} for code, name in sets])
 
@@ -1068,6 +1070,9 @@ class CrackPackHandler(BaseHTTPRequestHandler):
         self._send_json(result)
 
     def _api_products(self, set_code: str):
+        if not self.generator:
+            self._send_json({"error": "AllPrintings.json not loaded — run: mtg data fetch"}, 503)
+            return
         if not set_code:
             self._send_json({"error": "Missing 'set' parameter"}, 400)
             return
@@ -1075,6 +1080,9 @@ class CrackPackHandler(BaseHTTPRequestHandler):
         self._send_json(products)
 
     def _api_sheets(self, set_code: str, product: str):
+        if not self.generator:
+            self._send_json({"error": "AllPrintings.json not loaded — run: mtg data fetch"}, 503)
+            return
         if not set_code or not product:
             self._send_json({"error": "Missing 'set' or 'product' parameter"}, 400)
             return
@@ -1093,6 +1101,9 @@ class CrackPackHandler(BaseHTTPRequestHandler):
         self._send_json(result)
 
     def _api_generate(self, data: dict):
+        if not self.generator:
+            self._send_json({"error": "AllPrintings.json not loaded — run: mtg data fetch"}, 503)
+            return
         set_code = data.get("set_code", "")
         product = data.get("product", "")
         if not set_code or not product:
@@ -1483,7 +1494,7 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             cn = card["collector_number"]
             card["ck_price"] = _get_sqlite_price(self.db_path, sc, cn, "cardkingdom", price_type)
             card["tcg_price"] = _get_sqlite_price(self.db_path, sc, cn, "tcgplayer", price_type)
-            card["ck_url"] = self.generator.get_ck_url(card["scryfall_id"], foil)
+            card["ck_url"] = self.generator.get_ck_url(card["scryfall_id"], foil) if self.generator else ""
 
         conn.close()
         self._send_json(results)
@@ -1556,7 +1567,7 @@ class CrackPackHandler(BaseHTTPRequestHandler):
         cn = row["collector_number"]
         result["ck_price"] = _get_sqlite_price(self.db_path, sc, cn, "cardkingdom", "normal")
         result["tcg_price"] = _get_sqlite_price(self.db_path, sc, cn, "tcgplayer", "normal")
-        result["ck_url"] = self.generator.get_ck_url(scryfall_id, False)
+        result["ck_url"] = self.generator.get_ck_url(scryfall_id, False) if self.generator else ""
 
         conn.close()
         self._send_json(result)
@@ -1999,7 +2010,6 @@ class CrackPackHandler(BaseHTTPRequestHandler):
         if img["status"] == "PROCESSING":
             from datetime import datetime, timezone
 
-            from mtg_collector.utils import now_iso
             updated = datetime.fromisoformat(img["updated_at"].replace("Z", "+00:00"))
             if (datetime.now(timezone.utc) - updated).total_seconds() > 600:
                 self._ingest2_update_image(conn, image_id, status="READY_FOR_OCR")
@@ -2083,7 +2093,6 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             CollectionRepository,
             PrintingRepository,
         )
-        from mtg_collector.services.scryfall import ScryfallAPI, cache_scryfall_data
         from mtg_collector.utils import now_iso
 
         conn = self._ingest2_db()
@@ -2180,7 +2189,6 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             CollectionRepository,
             PrintingRepository,
         )
-        from mtg_collector.services.scryfall import ScryfallAPI, cache_scryfall_data
         from mtg_collector.utils import now_iso
 
         data = self._read_json_body()
@@ -2251,7 +2259,6 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             CollectionRepository,
             PrintingRepository,
         )
-        from mtg_collector.services.scryfall import ScryfallAPI, cache_scryfall_data
         from mtg_collector.utils import now_iso
 
         data = self._read_json_body()
@@ -3391,11 +3398,10 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             os.unlink(tmp_path)
 
     def _api_import_resolve(self):
-        """Resolve parsed CSV rows via Scryfall."""
+        """Resolve parsed CSV rows using local DB."""
         from mtg_collector.db.models import CardRepository, PrintingRepository, SetRepository
         from mtg_collector.db.schema import init_db
         from mtg_collector.importers import get_importer
-        from mtg_collector.services.scryfall import ScryfallAPI, cache_scryfall_data
 
         data = self._read_json_body()
         if data is None:
@@ -3411,7 +3417,6 @@ class CrackPackHandler(BaseHTTPRequestHandler):
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         init_db(conn)
-        scryfall = ScryfallAPI()
         card_repo = CardRepository(conn)
         set_repo = SetRepository(conn)
         printing_repo = PrintingRepository(conn)
@@ -3428,22 +3433,21 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             qty = row.get("quantity", 1)
             total += 1
 
-            scryfall_data = importer._resolve_card(scryfall, name, set_code, cn)
-            if scryfall_data:
-                cache_scryfall_data(scryfall, card_repo, set_repo, printing_repo, scryfall_data)
-                image_uris = scryfall_data.get("image_uris") or {}
-                if not image_uris and scryfall_data.get("card_faces"):
-                    image_uris = scryfall_data["card_faces"][0].get("image_uris", {})
-                image_uri = image_uris.get("small", image_uris.get("normal", ""))
+            scryfall_id = importer._resolve_card(card_repo, printing_repo, name, set_code, cn)
+            if scryfall_id:
+                printing = printing_repo.get(scryfall_id)
+                card = card_repo.get(printing.oracle_id) if printing else None
+                s = set_repo.get(printing.set_code) if printing else None
+                image_uri = printing.image_uri or "" if printing else ""
 
                 resolved.append({
                     "index": idx,
-                    "name": scryfall_data.get("name", name),
-                    "set_code": scryfall_data.get("set", set_code),
-                    "set_name": scryfall_data.get("set_name", ""),
-                    "collector_number": scryfall_data.get("collector_number", cn),
+                    "name": card.name if card else name,
+                    "set_code": printing.set_code if printing else set_code,
+                    "set_name": s.set_name if s else "",
+                    "collector_number": printing.collector_number if printing else cn,
                     "quantity": qty,
-                    "scryfall_id": scryfall_data["id"],
+                    "scryfall_id": scryfall_id,
                     "image_uri": image_uri,
                     "resolved": True,
                     "error": None,
@@ -3857,21 +3861,21 @@ def run(args):
 
     gen = PackGenerator(mtgjson_path)
 
-    # Verify required data files exist
+    # AllPrintings.json is only needed for crack-a-pack endpoints
     allprintings = gen.mtgjson_path
     if not allprintings.exists():
-        print(f"Error: AllPrintings.json not found: {allprintings}", file=sys.stderr)
-        print("Run: mtg data fetch", file=sys.stderr)
-        sys.exit(1)
+        print(f"Warning: AllPrintings.json not found: {allprintings}", file=sys.stderr)
+        print("Crack-a-pack features will be unavailable. Run: mtg data fetch", file=sys.stderr)
+        gen = None
+    else:
+        # Pre-warm AllPrintings.json in background thread
+        def _warm_allprintings():
+            print(f"[startup] Loading AllPrintings.json ({allprintings}) ...", flush=True)
+            _ = gen.data
+            print(f"[startup] AllPrintings.json loaded ({len(gen.data.get('data', {}))} sets)", flush=True)
 
-    # Pre-warm AllPrintings.json in background thread
-    def _warm_allprintings():
-        print(f"[startup] Loading AllPrintings.json ({allprintings}) ...", flush=True)
-        _ = gen.data
-        print(f"[startup] AllPrintings.json loaded ({len(gen.data.get('data', {}))} sets)", flush=True)
-
-    warm_thread = threading.Thread(target=_warm_allprintings, daemon=True)
-    warm_thread.start()
+        warm_thread = threading.Thread(target=_warm_allprintings, daemon=True)
+        warm_thread.start()
 
     # Start background ingest worker pool
     global _ingest_executor, _background_db_path

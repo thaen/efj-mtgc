@@ -88,12 +88,12 @@ class ArchidektImporter(BaseImporter):
             misprint=False,
         )
 
-    def _resolve_card(self, api, name, set_code, collector_number):
+    def _resolve_card(self, card_repo, printing_repo, name, set_code, collector_number):
         """Override to use scryfall_uuid if available."""
         # Check if we have the scryfall_uuid from the current row context
         # This is a bit of a hack since we don't have direct access to the row here
         # The base class will handle this via set_code/collector_number
-        return super()._resolve_card(api, name, set_code, collector_number)
+        return super()._resolve_card(card_repo, printing_repo, name, set_code, collector_number)
 
     def _code_to_language(self, code: str) -> str:
         """Convert language code to full name."""
