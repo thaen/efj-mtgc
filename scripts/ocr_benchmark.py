@@ -1,15 +1,19 @@
-"""OCR benchmark: compare EasyOCR (greedy/beamsearch) and PaddleOCR on card photos."""
+"""OCR benchmark: compare OCR engines on card photos.
 
+Runs each engine by setting OCR_ENGINE before importing ocr module.
+
+Usage:
+    uv run python scripts/ocr_benchmark.py
+"""
+
+import importlib
 import json
+import os
 import sqlite3
 import textwrap
 import time
 from pathlib import Path
 
-import easyocr
-from paddleocr import PaddleOCR
-
-from mtg_collector.services.ocr import _load_image
 from mtg_collector.utils import get_mtgc_home
 
 DB = get_mtgc_home() / "collection.sqlite"
@@ -22,7 +26,7 @@ CARDS = [
     ("camera_2026-02-17T13-43-06_233.jpg", "Benalish Hero"),
 ]
 
-EASYOCR_MODEL_DIR = str(Path(__file__).resolve().parent.parent / "models" / "ocr")
+ENGINES = ["paddle", "easyocr"]
 
 COL = 50
 SEP = " │ "
@@ -30,47 +34,24 @@ SEP = " │ "
 
 def sort_fragments_spatial(fragments: list[dict]) -> list[dict]:
     """Sort fragments top-to-bottom, left-to-right using bounding boxes."""
-    return sorted(fragments, key=lambda f: (f["y"], f["x"]))
+    return sorted(fragments, key=lambda f: (f["bbox"]["y"], f["bbox"]["x"]))
 
 
-def run_easyocr(reader, img, decoder: str) -> tuple[list[dict], float]:
-    """Run EasyOCR, return (fragments, elapsed_seconds)."""
+def run_engine(engine: str, image_path: str) -> tuple[list[dict], float]:
+    """Force-load the OCR module with a specific engine, run it, return (fragments, elapsed)."""
+    import mtg_collector.services.ocr as ocr_module
+
+    # Reset module state so it re-initializes with the new engine
+    os.environ["OCR_ENGINE"] = engine
+    ocr_module._ENGINE = engine
+    ocr_module._ocr = None
+    if engine == "paddle":
+        from paddleocr import PaddleOCR  # noqa: ensure it's imported for _get_ocr
+    importlib.reload(ocr_module)
+
     t0 = time.monotonic()
-    results = reader.readtext(img, detail=1, decoder=decoder)
+    fragments = ocr_module.run_ocr_with_boxes(image_path)
     elapsed = time.monotonic() - t0
-    fragments = []
-    for bbox, text, conf in results:
-        xs = [float(p[0]) for p in bbox]
-        ys = [float(p[1]) for p in bbox]
-        fragments.append({
-            "text": text,
-            "x": min(xs),
-            "y": min(ys),
-            "w": max(xs) - min(xs),
-            "h": max(ys) - min(ys),
-            "confidence": round(float(conf), 3),
-        })
-    return sort_fragments_spatial(fragments), elapsed
-
-
-def run_paddle(ocr, img_path: str) -> tuple[list[dict], float]:
-    """Run PaddleOCR 2.x, return (fragments, elapsed_seconds)."""
-    t0 = time.monotonic()
-    results = ocr.ocr(img_path, cls=True)
-    elapsed = time.monotonic() - t0
-    fragments = []
-    for line in results[0]:
-        bbox, (text, conf) = line
-        xs = [p[0] for p in bbox]
-        ys = [p[1] for p in bbox]
-        fragments.append({
-            "text": text,
-            "x": min(xs),
-            "y": min(ys),
-            "w": max(xs) - min(xs),
-            "h": max(ys) - min(ys),
-            "confidence": round(float(conf), 3),
-        })
     return sort_fragments_spatial(fragments), elapsed
 
 
@@ -116,54 +97,35 @@ def write_raw(engine_name: str, filename: str, fragments: list[dict]):
 
 def main():
     conn = sqlite3.connect(DB)
-
-    print("Initializing EasyOCR...")
-    reader = easyocr.Reader(
-        ["en"], gpu=False, model_storage_directory=EASYOCR_MODEL_DIR, verbose=False,
-    )
-    print("Initializing PaddleOCR...")
-    paddle = PaddleOCR(use_angle_cls=True, lang="en", show_log=False)
-
-    engines = [
-        ("easyocr_greedy", lambda img, path: run_easyocr(reader, img, "greedy")),
-        ("easyocr_beam", lambda img, path: run_easyocr(reader, img, "beamsearch")),
-        ("paddleocr", lambda img, path: run_paddle(paddle, path)),
-    ]
-
     timings = []  # (engine, card_name, seconds)
 
-    for filename, card_name in CARDS:
-        image_path = IMG_DIR / filename
-        img = _load_image(str(image_path))
-        ref_text = get_ref_text(conn, card_name)
-        right = wrap(ref_text, COL)
+    for engine in ENGINES:
+        print(f"\n{'=' * 40} {engine} {'=' * 40}")
+        for filename, card_name in CARDS:
+            image_path = str(IMG_DIR / filename)
+            ref_text = get_ref_text(conn, card_name)
+            right = wrap(ref_text, COL)
 
-        for engine_name, run_fn in engines:
-            fragments, elapsed = run_fn(img, str(image_path))
-            timings.append((engine_name, card_name, elapsed))
-            write_raw(engine_name, filename, fragments)
+            fragments, elapsed = run_engine(engine, image_path)
+            timings.append((engine, card_name, elapsed))
+            write_raw(engine, filename, fragments)
 
             ocr_text = "\n".join(f["text"] for f in fragments)
             left = wrap(ocr_text, COL)
-            side_by_side(
-                f"{engine_name}: {card_name}",
-                left,
-                f"Scryfall: {card_name}",
-                right,
-            )
+            side_by_side(f"{engine}: {card_name}", left, f"Scryfall: {card_name}", right)
 
     conn.close()
 
     # Timing table
-    print(f"\n{'═' * 70}")
-    print(f"{'ENGINE':<20} {'CARD':<20} {'TIME (s)':>10}")
-    print(f"{'─' * 20} {'─' * 20} {'─' * 10}")
+    print(f"\n{'═' * 60}")
+    print(f"{'ENGINE':<15} {'CARD':<25} {'TIME (s)':>10}")
+    print(f"{'─' * 15} {'─' * 25} {'─' * 10}")
     for engine, card, secs in timings:
-        print(f"{engine:<20} {card:<20} {secs:>10.2f}")
-    print(f"{'─' * 20} {'─' * 20} {'─' * 10}")
-    for engine_name in dict.fromkeys(e for e, _, _ in timings):
-        avg = sum(s for e, _, s in timings if e == engine_name) / len(CARDS)
-        print(f"{engine_name:<20} {'AVERAGE':<20} {avg:>10.2f}")
+        print(f"{engine:<15} {card:<25} {secs:>10.2f}")
+    print(f"{'─' * 15} {'─' * 25} {'─' * 10}")
+    for engine in ENGINES:
+        avg = sum(s for e, _, s in timings if e == engine) / len(CARDS)
+        print(f"{engine:<15} {'AVERAGE':<25} {avg:>10.2f}")
 
 
 if __name__ == "__main__":
