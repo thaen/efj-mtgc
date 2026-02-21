@@ -168,12 +168,14 @@ def import_mtgjson(db_path: str):
     conn.execute("DELETE FROM mtgjson_booster_sheets")
     conn.execute("DELETE FROM mtgjson_printings")
     conn.execute("DELETE FROM mtgjson_uuid_map")
+    conn.execute("DELETE FROM sealed_products")
 
     imported_at = now_iso()
     printing_rows = []
     uuid_map_rows = []
     sheet_rows = []
     config_rows = []
+    sealed_rows = []
     set_count = 0
     sets_with_boosters = []
 
@@ -207,6 +209,30 @@ def import_mtgjson(db_path: str):
                 imported_at,
             ))
             uuid_map_rows.append((uuid, set_code, number))
+
+        # Sealed products
+        for sealed in set_data.get("sealedProduct", []):
+            sealed_uuid = sealed.get("uuid")
+            if not sealed_uuid:
+                continue
+            identifiers = sealed.get("identifiers", {})
+            purchase_urls = sealed.get("purchaseUrls", {})
+            contents = sealed.get("contents")
+            sealed_rows.append((
+                sealed_uuid,
+                sealed.get("name", "Unknown"),
+                set_code,
+                sealed.get("category", "unknown"),
+                sealed.get("subtype"),
+                identifiers.get("tcgplayerProductId"),
+                sealed.get("cardCount"),
+                sealed.get("productSize"),
+                sealed.get("releaseDate"),
+                purchase_urls.get("tcgplayer"),
+                purchase_urls.get("cardKingdom"),
+                json.dumps(contents) if contents else None,
+                imported_at,
+            ))
 
         # Booster data
         booster = set_data.get("booster")
@@ -276,6 +302,16 @@ def import_mtgjson(db_path: str):
         config_rows,
     )
 
+    print(f"  Inserting {len(sealed_rows)} sealed product rows ...")
+    conn.executemany(
+        "INSERT OR IGNORE INTO sealed_products "
+        "(uuid, name, set_code, category, subtype, tcgplayer_product_id, "
+        "card_count, product_size, release_date, purchase_url_tcgplayer, "
+        "purchase_url_cardkingdom, contents_json, imported_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        sealed_rows,
+    )
+
     conn.commit()
     conn.close()
 
@@ -285,6 +321,7 @@ def import_mtgjson(db_path: str):
     print(f"  Booster sheet rows: {len(sheet_rows)}")
     print(f"  Booster config rows: {len(config_rows)}")
     print(f"  UUID map rows: {len(uuid_map_rows)}")
+    print(f"  Sealed products: {len(sealed_rows)}")
     print(f"  Elapsed: {elapsed:.1f}s")
 
 
