@@ -116,7 +116,7 @@ def _compute_card_crop(fragments, indices, image_w=None, image_h=None):
     x2, y2 = max(xws), max(yhs)
     w, h = x2 - x1, y2 - y1
     # Add 10% buffer
-    bx, by = w * 0.1, h * 0.1
+    bx, by = w * 0.05, h * 0.05
     x1 -= bx
     y1 -= by
     w += 2 * bx
@@ -191,7 +191,7 @@ def _merge_overlapping_cards(claude_cards, ocr_fragments):
 
     def _fields_conflict(a, b):
         """Check if two cards have conflicting non-null fields."""
-        for key in ("name", "type", "subtype", "mana_cost", "collector_number", "set_code"):
+        for key in ("name", "type", "subtype", "mana_cost"):
             va = a.get(key)
             vb = b.get(key)
             if va and vb and str(va).lower() != str(vb).lower():
@@ -233,10 +233,20 @@ def _merge_overlapping_cards(claude_cards, ocr_fragments):
         dst["fragment_indices"] = sorted(dst_frags)
         # Fill in missing fields from src
         for key in ("name", "mana_cost", "mana_value", "type", "subtype",
-                     "rules_text", "collector_number", "set_code", "artist",
-                     "power", "toughness"):
+                     "rules_text", "artist", "power", "toughness"):
             if not dst.get(key) and src.get(key):
                 dst[key] = src[key]
+        # Merge printings arrays (deduplicate by set_code+collector_number)
+        dst_printings = dst.get("printings") or []
+        src_printings = src.get("printings") or []
+        if src_printings:
+            seen = {(p["set_code"], p["collector_number"]) for p in dst_printings}
+            for p in src_printings:
+                key = (p["set_code"], p["collector_number"])
+                if key not in seen:
+                    dst_printings.append(p)
+                    seen.add(key)
+            dst["printings"] = dst_printings
 
     result = [merged[i] for i in range(len(merged)) if i not in absorbed]
     _log_ingest(f"Merged overlapping cards: {len(claude_cards)} -> {len(result)}")
@@ -372,6 +382,7 @@ def _format_candidates(raw_cards):
             "full_art": c.get("full_art", False),
             "border_color": c.get("border_color", ""),
             "frame_effects": c.get("frame_effects", []),
+            "promo_types": c.get("promo_types", []),
             "price": price,
             "artist": c.get("artist", ""),
         })
@@ -486,32 +497,6 @@ def _process_image_core(conn, image_id, img, log_fn):
     # Merge cards whose fragment bboxes heavily overlap (e.g. ghost artist-only card)
     claude_cards = _merge_overlapping_cards(claude_cards, ocr_fragments)
 
-    # Group by fragment_indices: Claude returns multiple entries for one physical card
-    # when uncertain about printing (per the DISAMBIGUATION RULE). Consolidate these
-    # into one slot so we don't ingest the same card twice.
-    _frag_groups: dict[tuple, list] = {}
-    _frag_key_order: list[tuple] = []
-    for _card in claude_cards:
-        _key = tuple(sorted(_card.get("fragment_indices") or []))
-        if _key not in _frag_groups:
-            _frag_groups[_key] = []
-            _frag_key_order.append(_key)
-        _frag_groups[_key].append(_card)
-
-    _CONF = {"high": 0, "medium": 1, "low": 2}
-    # One representative per physical card (highest confidence); extras resolved separately
-    claude_cards = [
-        min(_frag_groups[k], key=lambda c: _CONF.get(c.get("confidence", "low"), 2))
-        for k in _frag_key_order
-    ]
-    _group_extras = {
-        ci: [c for c in _frag_groups[k] if c is not claude_cards[ci]]
-        for ci, k in enumerate(_frag_key_order)
-    }
-    n_extras = sum(len(v) for v in _group_extras.values())
-    if n_extras:
-        _log_ingest(f"Grouped {len(claude_cards) + n_extras} agent entries -> {len(claude_cards)} physical card(s) ({n_extras} disambiguation candidate(s) merged)")
-
     # Save to cache
     conn.execute(
         """INSERT OR REPLACE INTO ingest_cache
@@ -571,23 +556,35 @@ def _process_image_core(conn, image_id, img, log_fn):
             _log_ingest(f"Resolve card {ci}: skipped (no identifying info)")
             continue
 
-        candidates = _resolve_candidate(card_info)
+        candidates = []  # list of (raw_card, finish)
+        seen = set()     # (scryfall_id, finish) tuples
 
-        if not candidates:
-            set_code, cn_or_query = _build_scryfall_query(card_info, {})
-            if cn_or_query and not set_code:
-                candidates = _local_name_search(conn, cn_or_query)
+        # Iterate over the printings array from the agent output
+        for printing in card_info.get("printings", []):
+            finish = printing.get("finish", "nonfoil")
+            lookup = {
+                "name": card_info.get("name"),
+                "set_code": printing.get("set_code"),
+                "collector_number": printing.get("collector_number"),
+            }
+            for r in _resolve_candidate(lookup):
+                rid = r.get("id")
+                key = (rid, finish)
+                if key not in seen:
+                    candidates.append((r, finish))
+                    seen.add(key)
 
-        # Resolve extra candidates (same physical card, different printing guesses)
-        # and merge into this slot's results, deduplicating by Scryfall ID.
-        seen_ids = {c.get("id") for c in candidates}
-        for extra_info in _group_extras.get(ci, []):
-            for r in _resolve_candidate(extra_info):
-                if r.get("id") not in seen_ids:
-                    candidates.append(r)
-                    seen_ids.add(r.get("id"))
+        # Fallback: name search if no printings resolved
+        if not candidates and card_info.get("name"):
+            for r in _local_name_search(conn, card_info["name"]):
+                key = (r.get("id"), "nonfoil")
+                if key not in seen:
+                    candidates.append((r, "nonfoil"))
+                    seen.add(key)
 
-        formatted = _format_candidates(candidates)
+        formatted = _format_candidates([r for r, _ in candidates])
+        for fc, (_, finish) in zip(formatted, candidates):
+            fc["agent_finish"] = finish
         all_matches.append(formatted)
         _log_ingest(f"Resolve card {ci}: {len(formatted)} candidates for '{card_info.get('name', '???')}'")
 
@@ -611,57 +608,6 @@ def _process_image_core(conn, image_id, img, log_fn):
 
     return ocr_fragments, claude_cards, all_matches, all_crops, disambiguated, agent_trace, api_usage
 
-
-def _auto_ingest_single_candidates(conn, img, disambiguated, scryfall_matches):
-    """Auto-ingest cards with exactly one candidate. Returns count of auto-ingested cards."""
-    from mtg_collector.db.models import (
-        CollectionEntry,
-        CollectionRepository,
-        PrintingRepository,
-    )
-    from mtg_collector.utils import now_iso
-
-    auto_count = 0
-    printing_repo = PrintingRepository(conn)
-    collection_repo = CollectionRepository(conn)
-
-    for card_idx, status in enumerate(disambiguated):
-        if status is not None:
-            continue
-        candidates = scryfall_matches[card_idx] if card_idx < len(scryfall_matches) else []
-        if len(candidates) != 1:
-            continue
-
-        c = candidates[0]
-        scryfall_id = c["scryfall_id"]
-
-        printing = printing_repo.get(scryfall_id)
-        if not printing:
-            continue
-
-        entry = CollectionEntry(
-            id=None,
-            scryfall_id=scryfall_id,
-            finish="nonfoil",
-            condition="Near Mint",
-            source="ocr_ingest",
-        )
-        entry_id = collection_repo.add(entry)
-
-        md5 = img["md5"]
-        conn.execute(
-            """INSERT INTO ingest_lineage (collection_id, image_md5, image_path, card_index, created_at)
-               VALUES (?, ?, ?, ?, ?)""",
-            (entry_id, md5, img["stored_name"], card_idx, now_iso()),
-        )
-
-        disambiguated[card_idx] = scryfall_id
-        conn.commit()
-
-        _log_ingest(f"Auto-confirmed: {printing.scryfall_id} ({c.get('set_code', '???').upper()} #{c.get('collector_number', '???')})")
-        auto_count += 1
-
-    return auto_count
 
 
 def _reset_ingest_image(conn, image_id, md5, now):
@@ -740,16 +686,8 @@ def _process_image_background(db_path, image_id):
             conn, image_id, img, log_fn,
         )
 
-        # Auto-ingest single-candidate cards
-        auto_count = _auto_ingest_single_candidates(conn, img, disambiguated, all_matches)
-        if auto_count:
-            _log_ingest(f"[bg:{image_id}] Auto-ingested {auto_count} single-candidate card(s)")
-
-        # Determine final status
-        if all(d is not None for d in disambiguated):
-            final_status = "DONE"
-        else:
-            final_status = "READY_FOR_DISAMBIGUATION"
+        # All cards wait for batch confirmation — no auto-ingesting
+        final_status = "READY_FOR_DISAMBIGUATION"
 
         # Save state
         conn.execute(
@@ -840,14 +778,14 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             self._serve_static("sealed.html")
         elif path == "/upload":
             self._serve_static("upload.html")
-        elif path == "/recent":
-            self._serve_static("recent.html")
         elif path == "/process":
-            self._serve_static("recent.html")
+            self._serve_static("batch_confirm.html")
         elif path == "/disambiguate":
             self._serve_static("disambiguate.html")
         elif path == "/correct":
             self._serve_static("correct.html")
+        elif path == "/batch-confirm":
+            self._serve_static("batch_confirm.html")
         elif path == "/api/sets":
             self._api_sets()
         elif path == "/api/cached-sets":
@@ -896,6 +834,12 @@ class CrackPackHandler(BaseHTTPRequestHandler):
                 self._send_json({"error": "Expected /api/price-history/{set_code}/{collector_number}"}, 400)
         elif path == "/api/shorten":
             self._api_shorten(params)
+        # Ingest2 batch API routes
+        elif path == "/api/ingest2/batches":
+            self._api_ingest2_batches()
+        elif path.startswith("/api/ingest2/batch/") and path[len("/api/ingest2/batch/"):].isdigit():
+            batch_id = int(path[len("/api/ingest2/batch/"):])
+            self._api_ingest2_batch_detail(batch_id)
         # Ingest2 API routes
         elif path == "/api/ingest2/images":
             self._api_ingest2_images(params)
@@ -956,6 +900,14 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             self._api_generate(data)
         elif path == "/api/fetch-prices":
             self._api_fetch_prices()
+        elif path == "/api/ingest2/batch/close":
+            self._api_ingest2_batch_close()
+        elif path == "/api/ingest2/batch/confirm-all":
+            self._api_ingest2_batch_confirm_all()
+        elif path == "/api/ingest2/batch/reprocess":
+            self._api_ingest2_batch_reprocess()
+        elif path == "/api/ingest2/image/reprocess":
+            self._api_ingest2_image_reprocess()
         elif path == "/api/ingest2/upload":
             self._api_ingest2_upload()
         elif path == "/api/ingest2/set-params":
@@ -1759,6 +1711,240 @@ class CrackPackHandler(BaseHTTPRequestHandler):
         conn.execute(f"UPDATE ingest_images SET {set_clauses} WHERE id = ?", values)
         conn.commit()
 
+    def _api_ingest2_batches(self):
+        """List all batches with image counts."""
+        from mtg_collector.db.models import IngestBatchRepository
+        conn = self._ingest2_db()
+        batch_repo = IngestBatchRepository(conn)
+        batches = batch_repo.list_all()
+        conn.close()
+        self._send_json(batches)
+
+    def _api_ingest2_batch_detail(self, batch_id):
+        """Full batch detail: metadata + all images with parsed JSON fields."""
+        from mtg_collector.db.models import IngestBatchRepository
+        conn = self._ingest2_db()
+        batch_repo = IngestBatchRepository(conn)
+        batch = batch_repo.get(batch_id)
+        if not batch:
+            conn.close()
+            self._send_json({"error": "Batch not found"}, 404)
+            return
+        images = batch_repo.get_batch_images(batch_id)
+        conn.close()
+
+        # Parse JSON fields in images for client convenience
+        for img in images:
+            for field in ("scryfall_matches", "disambiguated", "crops", "claude_result", "agent_trace"):
+                if img.get(field):
+                    img[field] = json.loads(img[field])
+
+        self._send_json({
+            "id": batch.id,
+            "status": batch.status,
+            "opened_at": batch.opened_at,
+            "closed_at": batch.closed_at,
+            "images": images,
+        })
+
+    def _api_ingest2_batch_close(self):
+        """Close the open batch."""
+        from mtg_collector.db.models import IngestBatchRepository
+        data = self._read_json_body()
+        if data is None:
+            return
+        batch_id = data["batch_id"]
+        conn = self._ingest2_db()
+        batch_repo = IngestBatchRepository(conn)
+        batch_repo.close(batch_id)
+        conn.commit()
+        conn.close()
+        self._send_json({"ok": True})
+
+    def _api_ingest2_batch_confirm_all(self):
+        """Confirm all cards in a closed batch at once."""
+        from mtg_collector.db.models import (
+            CollectionEntry,
+            CollectionRepository,
+            IngestBatchRepository,
+            PrintingRepository,
+        )
+        from mtg_collector.utils import now_iso
+
+        data = self._read_json_body()
+        if data is None:
+            return
+
+        batch_id = data["batch_id"]
+        cards = data["cards"]  # [{image_id, card_idx, scryfall_id, finish}, ...]
+
+        conn = self._ingest2_db()
+        batch_repo = IngestBatchRepository(conn)
+        batch = batch_repo.get(batch_id)
+        if not batch or batch.status != "closed":
+            conn.close()
+            self._send_json({"error": f"Batch must be 'closed', got '{batch.status if batch else 'not found'}'"}, 400)
+            return
+
+        printing_repo = PrintingRepository(conn)
+        collection_repo = CollectionRepository(conn)
+
+        # Get all image IDs in this batch
+        batch_images = batch_repo.get_batch_images(batch_id)
+        batch_image_ids = {img["id"] for img in batch_images}
+        batch_md5s = {img["id"]: img["md5"] for img in batch_images}
+        batch_stored_names = {img["id"]: img["stored_name"] for img in batch_images}
+
+        # Delete ALL existing collection entries + lineage for this batch's images
+        for img in batch_images:
+            md5 = img["md5"]
+            lineage_rows = conn.execute(
+                "SELECT collection_id FROM ingest_lineage WHERE image_md5 = ?", (md5,)
+            ).fetchall()
+            if lineage_rows:
+                cids = [r["collection_id"] for r in lineage_rows]
+                placeholders = ",".join("?" * len(cids))
+                conn.execute("DELETE FROM ingest_lineage WHERE image_md5 = ?", (md5,))
+                conn.execute(f"DELETE FROM collection WHERE id IN ({placeholders})", cids)
+
+        # Re-insert all cards from the request
+        ts = now_iso()
+        confirmed_count = 0
+        for card in cards:
+            image_id = card["image_id"]
+            if image_id not in batch_image_ids:
+                continue
+            scryfall_id = card["scryfall_id"]
+            finish = card.get("finish", "nonfoil")
+
+            printing = printing_repo.get(scryfall_id)
+            if not printing:
+                continue
+
+            entry = CollectionEntry(
+                id=None,
+                scryfall_id=scryfall_id,
+                finish=finish,
+                condition="Near Mint",
+                source="ocr_ingest",
+            )
+            entry_id = collection_repo.add(entry)
+
+            md5 = batch_md5s[image_id]
+            stored_name = batch_stored_names[image_id]
+            conn.execute(
+                """INSERT INTO ingest_lineage (collection_id, image_md5, image_path, card_index, created_at)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (entry_id, md5, stored_name, card["card_idx"], ts),
+            )
+            confirmed_count += 1
+
+        # Mark all images as DONE and update disambiguated arrays
+        for img in batch_images:
+            # Build disambiguated from confirmed cards for this image
+            disambiguated = json.loads(img["disambiguated"]) if img.get("disambiguated") else []
+            image_cards = [c for c in cards if c["image_id"] == img["id"]]
+            for c in image_cards:
+                idx = c["card_idx"]
+                if idx < len(disambiguated):
+                    disambiguated[idx] = c["scryfall_id"]
+            self._ingest2_update_image(conn, img["id"],
+                                       status="DONE",
+                                       disambiguated=json.dumps(disambiguated))
+
+        # Mark batch as confirmed
+        batch_repo.confirm(batch_id)
+        conn.commit()
+        conn.close()
+
+        _log_ingest(f"Batch {batch_id} confirmed: {confirmed_count} card(s)")
+        self._send_json({"confirmed_count": confirmed_count})
+
+    def _api_ingest2_batch_reprocess(self):
+        """Reprocess all images in a batch: reset them, create a new closed batch, move them there."""
+        from mtg_collector.utils import now_iso
+
+        data = self._read_json_body()
+        if data is None:
+            return
+
+        batch_id = data.get("batch_id")
+        if not batch_id:
+            self._send_json({"error": "batch_id required"}, 400)
+            return
+
+        conn = self._ingest2_db()
+
+        # Get all images in this batch
+        images = conn.execute(
+            "SELECT id, md5 FROM ingest_images WHERE batch_id = ?", (batch_id,)
+        ).fetchall()
+        if not images:
+            conn.close()
+            self._send_json({"error": "No images in batch"}, 404)
+            return
+
+        ts = now_iso()
+
+        # Reset all images
+        for img in images:
+            _reset_ingest_image(conn, img["id"], img["md5"], ts)
+
+        # Create a new closed batch
+        cursor = conn.execute(
+            "INSERT INTO ingest_batches (status, opened_at, closed_at) VALUES ('closed', ?, ?)",
+            (ts, ts),
+        )
+        new_batch_id = cursor.lastrowid
+
+        # Move all images to the new batch
+        conn.execute(
+            "UPDATE ingest_images SET batch_id = ? WHERE batch_id = ?",
+            (new_batch_id, batch_id),
+        )
+        conn.commit()
+
+        # Requeue all for background processing
+        if _ingest_executor is not None:
+            for img in images:
+                _ingest_executor.submit(_process_image_background, self.db_path, img["id"])
+
+        conn.close()
+        _log_ingest(f"Reprocessing {len(images)} image(s) from batch {batch_id} in new batch {new_batch_id}")
+        self._send_json({"ok": True, "new_batch_id": new_batch_id})
+
+    def _api_ingest2_image_reprocess(self):
+        """Reprocess a single image: reset it and requeue for processing (stays in same batch)."""
+        from mtg_collector.utils import now_iso
+
+        data = self._read_json_body()
+        if data is None:
+            return
+
+        image_id = data.get("image_id")
+        if not image_id:
+            self._send_json({"error": "image_id required"}, 400)
+            return
+
+        conn = self._ingest2_db()
+        img = self._ingest2_load_image(conn, image_id)
+        if not img:
+            conn.close()
+            self._send_json({"error": "Image not found"}, 404)
+            return
+
+        ts = now_iso()
+        _reset_ingest_image(conn, image_id, img["md5"], ts)
+        conn.commit()
+
+        # Requeue for background processing
+        if _ingest_executor is not None:
+            _ingest_executor.submit(_process_image_background, self.db_path, image_id)
+
+        conn.close()
+        _log_ingest(f"Reprocessing image {image_id}")
+        self._send_json({"ok": True})
+
     def _api_ingest2_counts(self):
         """Return counts per status for badge display."""
         conn = self._ingest2_db()
@@ -1773,12 +1959,18 @@ class CrackPackHandler(BaseHTTPRequestHandler):
         """Return images from last N hours with computed status info.
 
         Optional ?id=X filters to a single image (for per-image polling).
+        Optional ?batch_id=X filters to images in a specific batch.
         """
         hours = float(params.get("hours", ["2"])[0])
         image_id = params.get("id", [None])[0]
+        batch_id = params.get("batch_id", [None])[0]
         conn = self._ingest2_db()
-        where = "WHERE created_at >= strftime('%Y-%m-%dT%H:%M:%S', 'now', ?)"
-        args = [f"-{int(hours * 3600)} seconds"]
+        if batch_id is not None:
+            where = "WHERE batch_id = ?"
+            args = [int(batch_id)]
+        else:
+            where = "WHERE created_at >= strftime('%Y-%m-%dT%H:%M:%S', 'now', ?)"
+            args = [f"-{int(hours * 3600)} seconds"]
         if image_id is not None:
             where += " AND id = ?"
             args.append(int(image_id))
@@ -1826,15 +2018,19 @@ class CrackPackHandler(BaseHTTPRequestHandler):
                 resolved = None
                 if sid and sid != "skipped" and idx < len(scryfall_matches):
                     resolved = next((c for c in scryfall_matches[idx] if c.get("scryfall_id") == sid), None)
+                # Fallback set_code from first printing
+                card_set = ""
+                if card.get("printings"):
+                    card_set = card["printings"][0].get("set_code", "")
                 if resolved:
                     entry = {
                         "name": resolved.get("name", card.get("name", "")),
-                        "set_code": (resolved.get("set_code") or card.get("set_code") or "").upper(),
+                        "set_code": (resolved.get("set_code") or card.get("set_code") or card_set or "").upper(),
                     }
                 else:
                     entry = {
                         "name": card.get("name", ""),
-                        "set_code": (card.get("set_code") or "").upper(),
+                        "set_code": (card.get("set_code") or card_set or "").upper(),
                     }
                 # OCR name: topmost fragments for this card, merging nearby bboxes
                 entry["ocr_name"] = _extract_ocr_name(ocr_fragments, card.get("fragment_indices", []))
@@ -1990,7 +2186,8 @@ class CrackPackHandler(BaseHTTPRequestHandler):
         self._send_json(img)
 
     def _api_ingest2_upload(self):
-        """Upload files and create DB rows."""
+        """Upload files and create DB rows, assigning to the open batch."""
+        from mtg_collector.db.models import IngestBatchRepository
         from mtg_collector.utils import now_iso
 
         content_type = self.headers.get("Content-Type", "")
@@ -2008,6 +2205,12 @@ class CrackPackHandler(BaseHTTPRequestHandler):
 
         conn = self._ingest2_db()
         ts = now_iso()
+
+        # Ensure an open batch exists
+        batch_repo = IngestBatchRepository(conn)
+        batch = batch_repo.get_or_create_open()
+        conn.commit()
+        batch_id = batch.id
 
         for part in parts:
             if not part or part.strip() == b"--" or part.strip() == b"":
@@ -2044,14 +2247,14 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             md5 = _md5_file(str(dest))
 
             cursor = conn.execute(
-                """INSERT INTO ingest_images (filename, stored_name, md5, status, created_at, updated_at)
-                   VALUES (?, ?, ?, 'READY_FOR_OCR', ?, ?)""",
-                (original_name, stored_name, md5, ts, ts),
+                """INSERT INTO ingest_images (filename, stored_name, md5, status, batch_id, created_at, updated_at)
+                   VALUES (?, ?, ?, 'READY_FOR_OCR', ?, ?, ?)""",
+                (original_name, stored_name, md5, batch_id, ts, ts),
             )
             image_id = cursor.lastrowid
             conn.commit()
 
-            _log_ingest(f"Upload2: {original_name} -> {stored_name} (ID={image_id}, MD5={md5})")
+            _log_ingest(f"Upload2: {original_name} -> {stored_name} (ID={image_id}, MD5={md5}, batch={batch_id})")
             uploaded.append({
                 "id": image_id,
                 "filename": original_name,
@@ -2064,7 +2267,7 @@ class CrackPackHandler(BaseHTTPRequestHandler):
                 _ingest_executor.submit(_process_image_background, self.db_path, image_id)
 
         conn.close()
-        self._send_json({"uploaded": uploaded, "collisions": collisions})
+        self._send_json({"uploaded": uploaded, "collisions": collisions, "batch_id": batch_id})
 
     def _api_ingest2_set_params(self):
         """Set mode for an image."""
@@ -2337,13 +2540,8 @@ class CrackPackHandler(BaseHTTPRequestHandler):
         self._send_json({"ok": True, "entry_id": entry_id, "name": name, "set_code": set_code, "collector_number": cn})
 
     def _api_ingest2_add_card(self):
-        """Add a new card slot to an existing image and confirm it."""
-        from mtg_collector.db.models import (
-            CollectionEntry,
-            CollectionRepository,
-            PrintingRepository,
-        )
-        from mtg_collector.utils import now_iso
+        """Add a new card slot to an existing image (no collection entry yet — confirm-all handles that)."""
+        from mtg_collector.db.models import PrintingRepository
 
         data = self._read_json_body()
         if data is None:
@@ -2351,7 +2549,6 @@ class CrackPackHandler(BaseHTTPRequestHandler):
 
         image_id = data["image_id"]
         scryfall_id = data["scryfall_id"]
-        finish = data.get("finish", "nonfoil")
 
         conn = self._ingest2_db()
         img = self._ingest2_load_image(conn, image_id)
@@ -2360,23 +2557,7 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             self._send_json({"error": "Image not found"}, 404)
             return
 
-        # Append to all parallel arrays
-        disambiguated = json.loads(img["disambiguated"]) if img.get("disambiguated") else []
-        scryfall_matches = json.loads(img["scryfall_matches"]) if img.get("scryfall_matches") else []
-        claude_result = json.loads(img["claude_result"]) if img.get("claude_result") else []
-        crops = json.loads(img["crops"]) if img.get("crops") else []
-
-        disambiguated.append(None)
-        scryfall_matches.append([])
-        claude_result.append({})
-        crops.append(None)
-
-        card_idx = len(disambiguated) - 1
-
-        # Look up in local DB
         printing_repo = PrintingRepository(conn)
-        collection_repo = CollectionRepository(conn)
-
         printing = printing_repo.get(scryfall_id)
         if not printing:
             conn.close()
@@ -2385,32 +2566,18 @@ class CrackPackHandler(BaseHTTPRequestHandler):
 
         card_data = printing.get_scryfall_data()
 
-        # Create collection entry
-        entry = CollectionEntry(
-            id=None,
-            scryfall_id=scryfall_id,
-            finish=finish,
-            condition="Near Mint",
-            source="ocr_ingest",
-        )
-        entry_id = collection_repo.add(entry)
+        # Append to all parallel arrays
+        disambiguated = json.loads(img["disambiguated"]) if img.get("disambiguated") else []
+        scryfall_matches = json.loads(img["scryfall_matches"]) if img.get("scryfall_matches") else []
+        claude_result = json.loads(img["claude_result"]) if img.get("claude_result") else []
+        crops = json.loads(img["crops"]) if img.get("crops") else []
 
-        # Insert ingest_lineage
-        md5 = img["md5"]
-        conn.execute(
-            """INSERT INTO ingest_lineage (collection_id, image_md5, image_path, card_index, created_at)
-               VALUES (?, ?, ?, ?, ?)""",
-            (entry_id, md5, img["stored_name"], card_idx, now_iso()),
-        )
+        disambiguated.append(scryfall_id)
+        scryfall_matches.append(_format_candidates([card_data]) if card_data else [])
+        claude_result.append({})
+        crops.append(None)
 
-        # Update disambiguated and prepend to scryfall_matches
-        disambiguated[card_idx] = scryfall_id
-        scryfall_matches[card_idx] = _format_candidates([card_data]) if card_data else []
-
-        # Check if all done
-        status_update = {}
-        if all(d is not None for d in disambiguated):
-            status_update["status"] = "DONE"
+        card_idx = len(disambiguated) - 1
 
         self._ingest2_update_image(
             conn, image_id,
@@ -2418,7 +2585,6 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             scryfall_matches=json.dumps(scryfall_matches),
             claude_result=json.dumps(claude_result),
             crops=json.dumps(crops),
-            **status_update,
         )
 
         conn.commit()
@@ -2426,9 +2592,9 @@ class CrackPackHandler(BaseHTTPRequestHandler):
 
         name = card_data.get("name", "???") if card_data else "???"
         set_code = printing.set_code
-        _log_ingest(f"AddCard: {name} ({set_code.upper()}) -> collection ID {entry_id}, image {image_id} slot {card_idx}")
+        _log_ingest(f"AddCard: {name} ({set_code.upper()}) -> image {image_id} slot {card_idx}")
 
-        self._send_json({"ok": True, "entry_id": entry_id, "name": name, "set_code": set_code, "card_idx": card_idx})
+        self._send_json({"ok": True, "name": name, "set_code": set_code, "card_idx": card_idx})
 
     def _api_ingest2_remove_card(self):
         """Remove a card slot from an image. If confirmed, also remove from collection."""
@@ -2688,6 +2854,11 @@ class CrackPackHandler(BaseHTTPRequestHandler):
         all_matches = []
         all_crops = []
         for ci, card_info in enumerate(corrected_cards):
+            # Compat: if card has printings array but no top-level set_code,
+            # promote from first printing so _build_scryfall_query can read it.
+            if not card_info.get("set_code") and card_info.get("printings"):
+                card_info["set_code"] = card_info["printings"][0].get("set_code", "")
+                card_info["collector_number"] = card_info["printings"][0].get("collector_number", "")
             set_code, cn_or_query = _build_scryfall_query(card_info, {})
             candidates = []
 
@@ -4522,8 +4693,7 @@ def run(args):
     print(f"Explore Sheets: {scheme}://localhost:{args.port}/sheets")
     print(f"Collection: {scheme}://localhost:{args.port}/collection")
     print(f"Upload: {scheme}://localhost:{args.port}/upload")
-    print(f"Recent: {scheme}://localhost:{args.port}/recent")
-    print(f"Disambiguate: {scheme}://localhost:{args.port}/disambiguate")
+    print(f"Batch Confirm: {scheme}://localhost:{args.port}/batch-confirm")
     print(f"Ingestor (Manual ID): {scheme}://localhost:{args.port}/ingestor-ids")
     print(f"Ingestor (Orders): {scheme}://localhost:{args.port}/ingestor-order")
     print("Press Ctrl+C to stop.")

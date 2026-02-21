@@ -2,7 +2,7 @@
 
 import sqlite3
 
-SCHEMA_VERSION = 19
+SCHEMA_VERSION = 20
 
 SCHEMA_SQL = """
 -- Abstract cards (oracle-level, cached from Scryfall)
@@ -138,6 +138,16 @@ CREATE TABLE IF NOT EXISTS ingest_lineage (
 CREATE INDEX IF NOT EXISTS idx_lineage_md5 ON ingest_lineage(image_md5);
 CREATE INDEX IF NOT EXISTS idx_lineage_collection ON ingest_lineage(collection_id);
 
+-- Ingest batches: group uploaded images into batches for batch confirmation
+CREATE TABLE IF NOT EXISTS ingest_batches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    status TEXT NOT NULL DEFAULT 'open'
+        CHECK(status IN ('open', 'closed', 'confirmed')),
+    opened_at TEXT NOT NULL,
+    closed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_ingest_batches_status ON ingest_batches(status);
+
 -- Ingest images: persistent ingest pipeline state
 CREATE TABLE IF NOT EXISTS ingest_images (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -158,6 +168,7 @@ CREATE TABLE IF NOT EXISTS ingest_images (
     names_disambiguated TEXT,
     user_card_edits TEXT,
     error_message TEXT,
+    batch_id INTEGER REFERENCES ingest_batches(id),
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -464,6 +475,8 @@ def init_db(conn: sqlite3.Connection, force: bool = False) -> bool:
             _migrate_v17_to_v18(conn)
         if current < 19:
             _migrate_v18_to_v19(conn)
+        if current < 20:
+            _migrate_v19_to_v20(conn)
 
     # Record schema version
     conn.execute(
@@ -1232,6 +1245,31 @@ def _migrate_v18_to_v19(conn: sqlite3.Connection):
     """)
 
 
+def _migrate_v19_to_v20(conn: sqlite3.Connection):
+    """Add ingest_batches table and batch_id FK on ingest_images."""
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS ingest_batches (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            status TEXT NOT NULL DEFAULT 'open'
+                CHECK(status IN ('open', 'closed', 'confirmed')),
+            opened_at TEXT NOT NULL,
+            closed_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_ingest_batches_status ON ingest_batches(status);
+    """)
+
+    # Only add column if ingest_images table exists (created in v10 migration)
+    table_exists = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='ingest_images'"
+    ).fetchone()
+    if table_exists:
+        cursor = conn.execute("PRAGMA table_info(ingest_images)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if "batch_id" not in columns:
+            conn.execute(
+                "ALTER TABLE ingest_images ADD COLUMN batch_id INTEGER REFERENCES ingest_batches(id)"
+            )
+
 def drop_all_tables(conn: sqlite3.Connection):
     """Drop all tables (for testing/reset)."""
     conn.executescript("""
@@ -1253,6 +1291,7 @@ def drop_all_tables(conn: sqlite3.Connection):
         DROP TABLE IF EXISTS wishlist;
         DROP TABLE IF EXISTS settings;
         DROP TABLE IF EXISTS ingest_images;
+        DROP TABLE IF EXISTS ingest_batches;
         DROP TABLE IF EXISTS ingest_lineage;
         DROP TABLE IF EXISTS ingest_cache;
         DROP TABLE IF EXISTS collection;

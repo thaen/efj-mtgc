@@ -26,6 +26,18 @@ YOUR JOB:
 Do your best to identify every card in the image that is cleary visible. Cards that are
 partially visible or are obviously in the background do not need to be identified.
 
+DISAMBIGUATION RULE — this is critical:
+If you cannot distinguish between printings of a card, you MUST include every plausible printing
+in the `printings` array for that card, with confidence "low" or "medium". Each physical card
+gets ONE entry; the `printings` array lists ALL candidate set_code/collector_number pairs.
+Each printing MUST include a `finish` field ("nonfoil", "foil", or "etched"). When querying
+printings, include the `finishes` column (a JSON array like '["nonfoil","foil"]') so you know
+what finishes each printing is available in. If a printing is available in multiple finishes and
+you can tell from the photo (foil cards have a reflective/rainbow sheen), emit the correct one.
+If you cannot tell, default to "nonfoil".
+Do NOT pick one and declare confidence "high" based solely on artist name or rules text match
+unless you have other reasons to be certain (such as a high-confidence date stamp from OCR).
+
 Repeat this strategy for all cards in the image:
 1. Interpret OCR fragments to find card data. The most important indicators are name, set code, and collector number
 2. Search to verify using query_local_db — when disambiguating printings, JOIN sets to get
@@ -77,16 +89,10 @@ For older cards without a set code or collector number, artist and flavor text a
 the best tools to narrow potential printings. If a date is present
 Card text can be used also, but older card rules text wording may not match Scryfall.
 
-DISAMBIGUATION RULE — this is critical:
-If you cannot distinguish between printings of a card, you MUST return one entry for EVERY
-plausible printing with confidence "low" or "medium". This is not a failure, this is success!
-Do NOT pick one and declare confidence "high" based solely on artist name or rules text match
-unless you have other reasons to be certain (such as a high-confidence date stamp from OCR).
-
 Example: OCR shows card name "Grizzly Bears" with artist "Jeff A. Menges" and no date.
 DB query returns many printings, all with identical features: Unlimited (2ed), Revised (3ed) both do not have dates, and on several sets, dates are extremely small: OCR may have just missed it.
-CORRECT: return ALL the separate printings, each with confidence "low".
-WRONG: return a single entry with set_code="sum", confidence="high".
+CORRECT: return ONE card entry with printings containing ALL plausible set_code/collector_number pairs, confidence "low".
+WRONG: return a single entry with one printing set_code="sum", confidence="high".
 
 This rule applies even after calling analyze_image — if vision analysis cannot definitively
 resolve the printing, still return all remaining plausible candidates.
@@ -119,8 +125,6 @@ OUTPUT_SCHEMA = {
                 "type": "object",
                 "properties": {
                     "name": {"type": "string"},
-                    "set_code": {"type": "string"},
-                    "collector_number": {"type": "string"},
                     "fragment_indices": {
                         "type": "array",
                         "items": {"type": "integer"},
@@ -132,8 +136,24 @@ OUTPUT_SCHEMA = {
                     "notes": {"type": "string"},
                     "type": {"type": "string"},
                     "artist": {"type": "string"},
+                    "printings": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "set_code": {"type": "string"},
+                                "collector_number": {"type": "string"},
+                                "finish": {
+                                    "type": "string",
+                                    "enum": ["nonfoil", "foil", "etched"],
+                                },
+                            },
+                            "required": ["set_code", "collector_number", "finish"],
+                            "additionalProperties": False,
+                        },
+                    },
                 },
-                "required": ["name", "set_code", "collector_number", "fragment_indices", "confidence"],
+                "required": ["name", "fragment_indices", "confidence", "printings"],
                 "additionalProperties": False,
             },
         }
@@ -376,10 +396,14 @@ def run_agent(
 
     _trace(f"[AGENT] Starting with {n} OCR fragments (max_calls={max_calls}, model={agent_model})", status_callback, trace_lines)
 
+    formatted_frags = _format_fragments(ocr_fragments)
+    for line in formatted_frags.split("\n"):
+        _trace(line, status_callback, trace_lines)
+
     initial_content = (
         f"I have run OCR on the image `{image_path}`. "
         f"Here are the {len(ocr_fragments)} text fragments found:\n\n"
-        + _format_fragments(ocr_fragments)
+        + formatted_frags
         + "\n\nPlease identify all MTG cards in this image."
     )
     messages = [{"role": "user", "content": initial_content}]
@@ -478,11 +502,12 @@ def run_agent(
     _trace(f"[FINAL] Tool calls used: {tool_call_count}/{max_calls}", status_callback, trace_lines)
 
     FINAL_PROMPT = (
-        "Output your final identification now. "
-        "Exhaustively list every card candidate visible in this image. "
-        "If you are uncertain which printing a card is, include one entry per plausible printing "
-        "(same name, different set_code/collector_number), all with confidence 'low' or 'medium'. "
-        "Do not collapse uncertain printings into a single guess."
+        "DOUBLE CHECK YOUR WORK, then output your final identification now. "
+        "For each physical card, list every plausible printing in the printings array. "
+        "If you cannot determine the exact printing, include all candidates. "
+        "Do not return partially-visible cards."
+        "Every printing must include a finish (nonfoil/foil/etched). "
+        "Use nonfoil if you cannot determine the treatment from the photo."
     )
     # If the last response was end_turn it hasn't been appended to messages yet.
     # Add it so the conversation is complete, then ask for the final answer.
