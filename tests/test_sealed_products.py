@@ -845,6 +845,42 @@ class TestSealedCollectionRepository:
         assert stats["by_status"]["owned"]["count"] == 2
         assert stats["by_status"]["owned"]["quantity"] == 3
 
+    def test_stats_market_value_no_prices(self, repos):
+        """Stats include market_value and gain_loss fields (zero when no prices)."""
+        _, repo, conn = repos
+        repo.add(SealedCollectionEntry(
+            id=None, sealed_product_uuid="sealed-uuid-001",
+            quantity=2, purchase_price=150.00,
+        ))
+        conn.commit()
+
+        stats = repo.stats()
+        assert "market_value" in stats
+        assert "gain_loss" in stats
+        assert stats["market_value"] == 0
+        assert stats["gain_loss"] == -300.00  # 0 - (150*2)
+
+    def test_stats_market_value_with_prices(self, repos):
+        """Stats compute market_value from latest_sealed_prices."""
+        _, repo, conn = repos
+        repo.add(SealedCollectionEntry(
+            id=None, sealed_product_uuid="sealed-uuid-001",
+            quantity=2, purchase_price=100.00,
+        ))
+        conn.commit()
+
+        # Insert price for tcgplayer_product_id "12345" (matches sealed-uuid-001)
+        conn.execute("""
+            INSERT INTO sealed_prices (tcgplayer_product_id, low_price, mid_price,
+                high_price, market_price, direct_low_price, observed_at)
+            VALUES ('12345', 100.0, 150.0, 200.0, 125.0, NULL, '2025-06-01')
+        """)
+        conn.commit()
+
+        stats = repo.stats()
+        assert stats["market_value"] == 250.0  # 125 * 2
+        assert stats["gain_loss"] == 50.0  # 250 - (100*2)
+
     def test_list_all_includes_price_columns(self, repos):
         """list_all() includes market/low/mid/high price columns (NULL when no prices)."""
         _, repo, conn = repos

@@ -450,3 +450,80 @@ class TestTcgPlayerLookup:
         assert "error" in data
 
 
+# =============================================================================
+# Single product detail
+# =============================================================================
+
+
+class TestSealedProductDetail:
+    def test_get_product_by_uuid(self, api):
+        """GET /api/sealed/products/{uuid} returns product detail."""
+        _, products = api.get("/api/sealed/products?q=play+booster+box&limit=1")
+        if not products:
+            pytest.skip("No sealed products available")
+
+        uuid = products[0]["uuid"]
+        status, data = api.get(f"/api/sealed/products/{uuid}")
+        assert status == 200
+        assert data["uuid"] == uuid
+        assert data["name"] == products[0]["name"]
+        assert "image_url" in data
+        assert "contents_json" in data
+
+    def test_get_product_not_found(self, api):
+        status, data = api.get("/api/sealed/products/nonexistent-uuid-00000")
+        assert status == 404
+        assert "error" in data
+
+
+# =============================================================================
+# Price history + status
+# =============================================================================
+
+
+class TestSealedPriceHistory:
+    def test_price_history(self, api):
+        """GET /api/sealed/prices/{tcg_id} returns a list of price points."""
+        _, products = api.get("/api/sealed/products?q=play+booster+box&limit=1")
+        if not products or not products[0].get("tcgplayer_product_id"):
+            pytest.skip("No product with tcgplayer_product_id")
+
+        tcg_id = products[0]["tcgplayer_product_id"]
+        status, data = api.get(f"/api/sealed/prices/{tcg_id}")
+        assert status == 200
+        assert isinstance(data, list)
+        # May be empty if no prices fetched yet, but shape is correct
+        if data:
+            point = data[0]
+            assert "observed_at" in point
+            assert "market_price" in point
+            assert "low_price" in point
+
+    def test_price_history_nonexistent(self, api):
+        status, data = api.get("/api/sealed/prices/000000000")
+        assert status == 200
+        assert data == []
+
+    def test_prices_status(self, api):
+        """GET /api/sealed/prices-status returns availability info."""
+        status, data = api.get("/api/sealed/prices-status")
+        assert status == 200
+        assert "available" in data
+        assert "product_count" in data
+        assert isinstance(data["available"], bool)
+
+
+# =============================================================================
+# Stats with market value
+# =============================================================================
+
+
+class TestSealedStatsMarketValue:
+    def test_stats_includes_market_fields(self, api):
+        """Stats response includes market_value and gain_loss."""
+        status, stats = api.get("/api/sealed/collection/stats")
+        assert status == 200
+        assert "market_value" in stats
+        assert "gain_loss" in stats
+        assert isinstance(stats["market_value"], (int, float))
+        assert isinstance(stats["gain_loss"], (int, float))
