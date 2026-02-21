@@ -374,6 +374,96 @@ button.secondary.active { background: #0f3460; border-color: #e94560; }
 
 .sort-arrow { font-size: 0.7rem; margin-left: 2px; }
 
+/* View toggle */
+.view-toggle-group {
+  display: flex;
+}
+.view-toggle-group button.secondary {
+  border-radius: 0;
+}
+.view-toggle-group button.secondary:first-child {
+  border-radius: 6px 0 0 6px;
+}
+.view-toggle-group button.secondary:last-child {
+  border-radius: 0 6px 6px 0;
+  margin-left: -1px;
+}
+.view-toggle-group button.secondary.active {
+  z-index: 1;
+  position: relative;
+}
+
+/* Table view */
+.sealed-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+.sealed-table th {
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 2px solid #0f3460;
+  color: #888;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.sealed-table th:hover { color: #e94560; }
+.sealed-table th.sorted { color: #e94560; }
+.sealed-table td {
+  padding: 6px 12px;
+  border-bottom: 1px solid #0f346033;
+  vertical-align: middle;
+}
+.sealed-table tr:hover { background: rgba(15, 52, 96, 0.2); }
+.sealed-table tr { cursor: pointer; }
+.sealed-table .table-thumb {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  border-radius: 4px;
+  background: #0a0a1a;
+  vertical-align: middle;
+}
+.market-price { color: #7ec8e3; font-size: 0.75rem; font-weight: 600; }
+
+/* Contents list in modal */
+.contents-list {
+  list-style: none;
+  font-size: 0.85rem;
+}
+.contents-list li {
+  padding: 2px 0;
+  color: #ccc;
+}
+.contents-list .contents-count {
+  color: #e94560;
+  font-weight: 600;
+  margin-right: 4px;
+}
+
+/* TCGPlayer URL input in add modal */
+.tcg-url-row {
+  display: flex;
+  gap: 8px;
+  padding: 12px 24px;
+  border-bottom: 1px solid #0f3460;
+  align-items: center;
+}
+.tcg-url-row input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #0f3460;
+  border-radius: 6px;
+  background: #1a1a2e;
+  color: #e0e0e0;
+  font-size: 0.85rem;
+}
+.tcg-url-row input:focus { outline: 2px solid #e94560; }
+.tcg-url-row button { flex-shrink: 0; padding: 8px 14px; }
+.tcg-url-row .tcg-error { color: #e87e7e; font-size: 0.8rem; }
+
 /* Detail modal */
 #detail-modal-overlay {
   display: none;
@@ -747,6 +837,10 @@ a.badge.link:hover { color: #fff; background: #555; border-color: #777; }
     <input type="text" id="search-input" placeholder="Search collection...">
     <button id="add-btn">+ Add</button>
     <button class="secondary" id="filter-btn">Filters</button>
+    <div class="view-toggle-group">
+      <button class="secondary active" id="view-grid-btn" title="Grid view">&#9638;</button>
+      <button class="secondary" id="view-table-btn" title="Table view">&#9776;</button>
+    </div>
   </div>
   <div id="status">Loading...</div>
 </header>
@@ -809,6 +903,10 @@ a.badge.link:hover { color: #fff; background: #555; border-color: #777; }
       <h2>Add Sealed Product</h2>
       <input type="text" id="add-search-input" placeholder="Search sealed products by name...">
     </div>
+    <div class="tcg-url-row">
+      <input type="text" id="tcg-url-input" placeholder="Or paste TCGPlayer URL / product ID...">
+      <button class="secondary" id="tcg-url-btn">Look Up</button>
+    </div>
     <div class="add-modal-body" id="add-modal-body">
       <ul class="product-results" id="product-results"></ul>
     </div>
@@ -823,6 +921,7 @@ let allSets = [];
 let selectedSets = [];
 let sortKey = 'added_at';
 let sortDir = -1; // -1 = desc
+let viewMode = localStorage.getItem('sealedViewMode') || 'grid';
 
 const CATEGORIES = [
   'booster_box', 'booster_pack', 'booster_case',
@@ -947,10 +1046,21 @@ function initEventListeners() {
   // Set multi-select
   initSetFilter();
 
+  // View toggle
+  const gridBtn = document.getElementById('view-grid-btn');
+  const tableBtn = document.getElementById('view-table-btn');
+  gridBtn.addEventListener('click', () => { viewMode = 'grid'; localStorage.setItem('sealedViewMode', 'grid'); gridBtn.classList.add('active'); tableBtn.classList.remove('active'); render(); });
+  tableBtn.addEventListener('click', () => { viewMode = 'table'; localStorage.setItem('sealedViewMode', 'table'); tableBtn.classList.add('active'); gridBtn.classList.remove('active'); render(); });
+  if (viewMode === 'table') { tableBtn.classList.add('active'); gridBtn.classList.remove('active'); }
+
   // Add modal
   addBtn.addEventListener('click', openAddModal);
   document.getElementById('add-close').addEventListener('click', closeAddModal);
   addOverlay.addEventListener('click', e => { if (e.target === addOverlay) closeAddModal(); });
+
+  // TCGPlayer URL lookup
+  document.getElementById('tcg-url-btn').addEventListener('click', lookupTcgPlayer);
+  document.getElementById('tcg-url-input').addEventListener('keydown', e => { if (e.key === 'Enter') lookupTcgPlayer(); });
 
   let addDebounce;
   addSearchInput.addEventListener('input', () => {
@@ -1099,7 +1209,8 @@ function render() {
     { key: 'name', label: 'Name' },
     { key: 'set_name', label: 'Set' },
     { key: 'added_at', label: 'Date Added' },
-    { key: 'purchase_price', label: 'Price' },
+    { key: 'purchase_price', label: 'Cost' },
+    { key: 'market_price', label: 'Market' },
     { key: 'status', label: 'Status' },
     { key: 'category', label: 'Category' },
   ];
@@ -1111,33 +1222,16 @@ function render() {
     html += `<span class="sort-btn${active ? ' active' : ''}" data-sort="${s.key}">${s.label}<span class="sort-arrow">${arrow}</span></span>`;
   });
   html += `<span style="flex:1"></span>`;
-  html += `<span class="size-slider-wrap"><span>Size</span><input type="range" id="grid-size-slider" min="120" max="400" value="${parseInt(getComputedStyle(document.documentElement).getPropertyValue('--grid-card-width')) || 220}"></span>`;
+  if (viewMode === 'grid') {
+    html += `<span class="size-slider-wrap"><span>Size</span><input type="range" id="grid-size-slider" min="120" max="400" value="${parseInt(getComputedStyle(document.documentElement).getPropertyValue('--grid-card-width')) || 220}"></span>`;
+  }
   html += '</div>';
 
-  html += '<div class="card-grid">';
-  allEntriesFiltered.forEach(entry => {
-    const imgHtml = entry.image_url
-      ? `<img src="${entry.image_url}" alt="${esc(entry.name)}" loading="lazy">`
-      : `<div class="no-image">${esc(entry.name || 'Unknown Product')}</div>`;
-
-    const qtyBadge = entry.quantity > 1 ? `<span class="qty-badge">${entry.quantity}x</span>` : '';
-    const statusBadge = `<span class="status-badge ${entry.status}">${entry.status}</span>`;
-    const priceText = entry.purchase_price != null ? `$${(entry.purchase_price * entry.quantity).toFixed(2)}` : '';
-
-    html += `<div class="sheet-card" data-id="${entry.id}">
-      <div class="sheet-card-img-wrap">
-        ${imgHtml}
-        ${qtyBadge}
-        ${statusBadge}
-      </div>
-      <div class="card-info">
-        <div class="card-name">${esc(entry.name || 'Unknown')}</div>
-        <div class="card-set">${esc(entry.set_name || entry.set_code || '')}</div>
-        ${priceText ? `<div class="card-price">${priceText}</div>` : ''}
-      </div>
-    </div>`;
-  });
-  html += '</div>';
+  if (viewMode === 'table') {
+    html += renderTable();
+  } else {
+    html += renderGrid();
+  }
   mainEl.innerHTML = html;
 
   // Sort button clicks
@@ -1164,14 +1258,69 @@ function render() {
     });
   }
 
-  // Card clicks open detail modal
-  mainEl.querySelectorAll('.sheet-card').forEach(card => {
-    card.addEventListener('click', () => {
-      const id = parseInt(card.dataset.id);
+  // Card/row clicks open detail modal
+  mainEl.querySelectorAll('[data-id]').forEach(el => {
+    el.addEventListener('click', () => {
+      const id = parseInt(el.dataset.id);
       const entry = allEntries.find(e => e.id === id);
       if (entry) openDetailModal(entry);
     });
   });
+}
+
+function renderGrid() {
+  let html = '<div class="card-grid">';
+  allEntriesFiltered.forEach(entry => {
+    const imgHtml = entry.image_url
+      ? `<img src="${entry.image_url}" alt="${esc(entry.name)}" loading="lazy">`
+      : `<div class="no-image">${esc(entry.name || 'Unknown Product')}</div>`;
+
+    const qtyBadge = entry.quantity > 1 ? `<span class="qty-badge">${entry.quantity}x</span>` : '';
+    const statusBadge = `<span class="status-badge ${entry.status}">${entry.status}</span>`;
+    const costText = entry.purchase_price != null ? `$${(entry.purchase_price * entry.quantity).toFixed(2)}` : '';
+    const marketText = entry.market_price != null ? `$${entry.market_price.toFixed(2)}` : '';
+
+    html += `<div class="sheet-card" data-id="${entry.id}">
+      <div class="sheet-card-img-wrap">
+        ${imgHtml}
+        ${qtyBadge}
+        ${statusBadge}
+      </div>
+      <div class="card-info">
+        <div class="card-name">${esc(entry.name || 'Unknown')}</div>
+        <div class="card-set">${esc(entry.set_name || entry.set_code || '')}</div>
+        ${marketText ? `<div class="market-price">${marketText} mkt</div>` : ''}
+        ${costText ? `<div class="card-price">${costText} cost</div>` : ''}
+      </div>
+    </div>`;
+  });
+  html += '</div>';
+  return html;
+}
+
+function renderTable() {
+  const formatCat = c => c ? c.replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase()) : '';
+  let html = '<table class="sealed-table"><thead><tr>';
+  html += '<th>Product</th><th>Set</th><th>Category</th><th>Status</th><th>Qty</th><th>Cost</th><th>Market</th><th>Added</th>';
+  html += '</tr></thead><tbody>';
+  allEntriesFiltered.forEach(entry => {
+    const imgTag = entry.image_url ? `<img class="table-thumb" src="${entry.image_url}" loading="lazy"> ` : '';
+    const cost = entry.purchase_price != null ? `$${(entry.purchase_price * entry.quantity).toFixed(2)}` : '';
+    const market = entry.market_price != null ? `$${entry.market_price.toFixed(2)}` : '';
+    const added = entry.added_at ? entry.added_at.slice(0, 10) : '';
+    html += `<tr data-id="${entry.id}">
+      <td>${imgTag}${esc(entry.name || 'Unknown')}</td>
+      <td>${esc(entry.set_name || entry.set_code || '')}</td>
+      <td>${formatCat(entry.category)}</td>
+      <td><span class="disposition-badge ${entry.status}">${entry.status}</span></td>
+      <td>${entry.quantity}</td>
+      <td>${cost}</td>
+      <td>${market}</td>
+      <td>${added}</td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  return html;
 }
 
 // ─── Detail Modal ────────────────────────────────────────────────────────────
@@ -1201,6 +1350,35 @@ function openDetailModal(entry) {
     ${entry.release_date ? `<div class="modal-row"><span class="label">Release</span><span class="value">${entry.release_date}</span></div>` : ''}
     ${entry.card_count ? `<div class="modal-row"><span class="label">Cards</span><span class="value">${entry.card_count}</span></div>` : ''}
   </div>`;
+
+  // Market price section
+  if (entry.market_price != null) {
+    html += `<div class="modal-section">
+      <div class="modal-section-title">Market Price</div>
+      <div class="modal-row"><span class="label">Market</span><span class="value" style="color:#7ec8e3;font-weight:700">$${entry.market_price.toFixed(2)}</span></div>
+      ${entry.low_price != null ? `<div class="modal-row"><span class="label">Low</span><span class="value">$${entry.low_price.toFixed(2)}</span></div>` : ''}
+      ${entry.mid_price != null ? `<div class="modal-row"><span class="label">Mid</span><span class="value">$${entry.mid_price.toFixed(2)}</span></div>` : ''}
+      ${entry.high_price != null ? `<div class="modal-row"><span class="label">High</span><span class="value">$${entry.high_price.toFixed(2)}</span></div>` : ''}
+    </div>`;
+  }
+
+  // Contents breakdown
+  if (entry.contents_json) {
+    try {
+      const contents = typeof entry.contents_json === 'string' ? JSON.parse(entry.contents_json) : entry.contents_json;
+      const items = [];
+      if (contents.sealed) contents.sealed.forEach(s => items.push(`${s.count || 1}x ${s.name}`));
+      if (contents.deck) contents.deck.forEach(d => items.push(`${d.name} deck`));
+      if (contents.card) contents.card.forEach(c => items.push(`${c.name}${c.foil ? ' (foil)' : ''}`));
+      if (contents.other) contents.other.forEach(o => items.push(o.name));
+      if (items.length) {
+        html += `<div class="modal-section">
+          <div class="modal-section-title">Contents</div>
+          <ul class="contents-list">${items.map(i => `<li>${esc(i)}</li>`).join('')}</ul>
+        </div>`;
+      }
+    } catch (e) {}
+  }
 
   // Collection info (editable)
   html += `<div class="modal-section">
@@ -1319,6 +1497,7 @@ let selectedProduct = null;
 function openAddModal() {
   selectedProduct = null;
   addSearchInput.value = '';
+  document.getElementById('tcg-url-input').value = '';
   productResults.innerHTML = '';
   addBody.innerHTML = '<ul class="product-results" id="product-results"></ul>';
   addOverlay.classList.add('active');
@@ -1327,6 +1506,26 @@ function openAddModal() {
 
 function closeAddModal() {
   addOverlay.classList.remove('active');
+}
+
+async function lookupTcgPlayer() {
+  const input = document.getElementById('tcg-url-input');
+  const raw = input.value.trim();
+  if (!raw) return;
+
+  const res = await fetch('/api/sealed/from-tcgplayer', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url: raw }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    input.style.borderColor = '#e87e7e';
+    setTimeout(() => { input.style.borderColor = ''; }, 2000);
+    return;
+  }
+  // Found a product — show the add form
+  showAddForm(data);
 }
 
 async function searchProducts() {
