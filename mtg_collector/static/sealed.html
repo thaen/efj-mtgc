@@ -442,6 +442,36 @@ button.secondary.active { background: #0f3460; border-color: #e94560; }
   font-weight: 600;
   margin-right: 4px;
 }
+.prices-status {
+  font-size: 0.75rem;
+  color: #666;
+  cursor: pointer;
+  user-select: none;
+}
+.prices-status:hover { color: #aaa; }
+.prices-status.loading { color: #e94560; }
+.price-history-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  margin-top: 6px;
+}
+.price-history-table th {
+  text-align: left;
+  color: #888;
+  font-weight: 600;
+  padding: 4px 6px;
+  border-bottom: 1px solid #333;
+}
+.price-history-table td {
+  padding: 3px 6px;
+  color: #ccc;
+}
+.price-history-table tr:hover td {
+  background: #252530;
+}
+.gain { color: #4caf50; }
+.loss { color: #e94560; }
 
 /* TCGPlayer URL input in add modal */
 .tcg-url-row {
@@ -842,7 +872,7 @@ a.badge.link:hover { color: #fff; background: #555; border-color: #777; }
       <button class="secondary" id="view-table-btn" title="Table view">&#9776;</button>
     </div>
   </div>
-  <div id="status">Loading...</div>
+  <div id="status">Loading... <span class="prices-status" id="prices-status" title="Click to fetch/refresh sealed prices"></span></div>
 </header>
 
 <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
@@ -950,6 +980,7 @@ const addSearchInput = document.getElementById('add-search-input');
 const addBody = document.getElementById('add-modal-body');
 const productResults = document.getElementById('product-results');
 const detailOverlay = document.getElementById('detail-modal-overlay');
+const pricesStatus = document.getElementById('prices-status');
 
 // ─── Init ────────────────────────────────────────────────────────────────────
 (async () => {
@@ -959,6 +990,7 @@ const detailOverlay = document.getElementById('detail-modal-overlay');
   document.documentElement.style.setProperty('--grid-card-width', savedSize + 'px');
   await fetchCollection();
   fetchSets();
+  loadPricesStatus();
 })();
 
 async function fetchCollection() {
@@ -982,8 +1014,59 @@ async function fetchSets() {
 function updateStats(stats) {
   const parts = [`${stats.total_entries} entries`, `${stats.total_quantity} items`];
   if (stats.total_cost > 0) parts.push(`$${stats.total_cost.toFixed(2)} invested`);
-  statusEl.textContent = parts.join(' · ');
+  if (stats.market_value > 0) {
+    parts.push(`$${stats.market_value.toFixed(2)} market value`);
+    const gl = stats.gain_loss;
+    const sign = gl >= 0 ? '+' : '';
+    const cls = gl >= 0 ? 'gain' : 'loss';
+    parts.push(`<span class="${cls}">${sign}$${gl.toFixed(2)}</span>`);
+  }
+  statusEl.innerHTML = parts.join(' · ') + ' ' + pricesStatus.outerHTML;
+  // Re-acquire ref after innerHTML replacement
+  const newPricesStatus = document.getElementById('prices-status');
+  if (newPricesStatus) {
+    newPricesStatus.addEventListener('click', onPricesStatusClick);
+  }
 }
+
+async function loadPricesStatus() {
+  try {
+    const res = await fetch('/api/sealed/prices-status');
+    const data = await res.json();
+    if (data.available) {
+      const d = new Date(data.last_date + 'T00:00:00');
+      const days = Math.floor((Date.now() - d.getTime()) / 86400000);
+      pricesStatus.textContent = `Prices: ${days === 0 ? 'today' : days + 'd ago'}`;
+    } else {
+      pricesStatus.textContent = 'Prices: not loaded';
+    }
+  } catch {
+    pricesStatus.textContent = 'Prices: unavailable';
+  }
+}
+
+async function onPricesStatusClick() {
+  const el = document.getElementById('prices-status');
+  if (!el || el.classList.contains('loading')) return;
+  el.classList.add('loading');
+  el.textContent = 'Prices: fetching...';
+  try {
+    const res = await fetch('/api/sealed/fetch-prices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    const data = await res.json();
+    if (data.ok) {
+      await fetchCollection();
+      await loadPricesStatus();
+    } else {
+      el.textContent = 'Prices: error';
+    }
+  } catch {
+    el.textContent = 'Prices: error';
+  }
+  el.classList.remove('loading');
+}
+
+// Attach initial click handler
+pricesStatus.addEventListener('click', onPricesStatusClick);
 
 // ─── Filters ─────────────────────────────────────────────────────────────────
 function initFilters() {
@@ -1362,6 +1445,14 @@ function openDetailModal(entry) {
     </div>`;
   }
 
+  // Price history placeholder (loaded async)
+  if (entry.tcgplayer_product_id) {
+    html += `<div class="modal-section" id="price-history-section" style="display:none">
+      <div class="modal-section-title">Price History</div>
+      <div id="price-history-body"></div>
+    </div>`;
+  }
+
   // Contents breakdown
   if (entry.contents_json) {
     try {
@@ -1431,6 +1522,26 @@ function openDetailModal(entry) {
 
   detailsPane.innerHTML = html;
   detailOverlay.classList.add('active');
+
+  // Load price history async
+  if (entry.tcgplayer_product_id) {
+    fetch(`/api/sealed/prices/${entry.tcgplayer_product_id}`)
+      .then(r => r.json())
+      .then(prices => {
+        const section = document.getElementById('price-history-section');
+        const body = document.getElementById('price-history-body');
+        if (!section || !body || !prices.length) return;
+        let tbl = '<table class="price-history-table"><thead><tr><th>Date</th><th>Low</th><th>Mid</th><th>Market</th><th>High</th></tr></thead><tbody>';
+        prices.forEach(p => {
+          const fmt = v => v != null ? `$${v.toFixed(2)}` : '—';
+          tbl += `<tr><td>${p.observed_at}</td><td>${fmt(p.low_price)}</td><td>${fmt(p.mid_price)}</td><td>${fmt(p.market_price)}</td><td>${fmt(p.high_price)}</td></tr>`;
+        });
+        tbl += '</tbody></table>';
+        body.innerHTML = tbl;
+        section.style.display = '';
+      })
+      .catch(() => {});
+  }
 
   // Save handler
   document.getElementById('save-entry-btn').addEventListener('click', async () => {
