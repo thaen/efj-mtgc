@@ -2,7 +2,7 @@
 
 import sqlite3
 
-SCHEMA_VERSION = 18
+SCHEMA_VERSION = 19
 
 SCHEMA_SQL = """
 -- Abstract cards (oracle-level, cached from Scryfall)
@@ -345,6 +345,13 @@ FROM sealed_collection sc
 JOIN sealed_products sp ON sc.sealed_product_uuid = sp.uuid
 LEFT JOIN sets s ON sp.set_code = s.set_code;
 
+-- Latest sealed prices view (same pattern as latest_prices)
+CREATE VIEW IF NOT EXISTS latest_sealed_prices AS
+SELECT tcgplayer_product_id, low_price, mid_price, high_price,
+       market_price, direct_low_price, observed_at
+FROM sealed_prices
+WHERE observed_at = (SELECT MAX(observed_at) FROM sealed_prices);
+
 -- Denormalized collection view
 CREATE VIEW IF NOT EXISTS collection_view AS
 SELECT
@@ -455,6 +462,8 @@ def init_db(conn: sqlite3.Connection, force: bool = False) -> bool:
             _migrate_v16_to_v17(conn)
         if current < 18:
             _migrate_v17_to_v18(conn)
+        if current < 19:
+            _migrate_v18_to_v19(conn)
 
     # Record schema version
     conn.execute(
@@ -1211,9 +1220,22 @@ def _migrate_v17_to_v18(conn: sqlite3.Connection):
     """)
 
 
+def _migrate_v18_to_v19(conn: sqlite3.Connection):
+    """Add latest_sealed_prices view for efficient price lookups."""
+    conn.execute("DROP VIEW IF EXISTS latest_sealed_prices")
+    conn.execute("""
+        CREATE VIEW latest_sealed_prices AS
+        SELECT tcgplayer_product_id, low_price, mid_price, high_price,
+               market_price, direct_low_price, observed_at
+        FROM sealed_prices
+        WHERE observed_at = (SELECT MAX(observed_at) FROM sealed_prices)
+    """)
+
+
 def drop_all_tables(conn: sqlite3.Connection):
     """Drop all tables (for testing/reset)."""
     conn.executescript("""
+        DROP VIEW IF EXISTS latest_sealed_prices;
         DROP VIEW IF EXISTS sealed_collection_view;
         DROP VIEW IF EXISTS collection_view;
         DROP VIEW IF EXISTS latest_prices;
