@@ -42,6 +42,23 @@ button.secondary { background: #333; border-color: #555; }
 button.secondary:hover { background: #444; }
 button.danger { background: #c62828; border-color: #c62828; }
 button.danger:hover { background: #b71c1c; }
+button.done-btn { background: #388e3c; border-color: #388e3c; font-size: 1rem; padding: 10px 24px; }
+button.done-btn:hover { background: #2e7d32; }
+
+#batch-banner {
+  margin: 8px;
+  padding: 10px 16px;
+  background: #16213e;
+  border: 1px solid #0f3460;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.9rem;
+}
+#batch-banner .batch-info { flex: 1; }
+#batch-banner a { color: #e94560; text-decoration: none; }
+#batch-banner a:hover { text-decoration: underline; }
 
 #camera-view {
   margin: 8px;
@@ -115,10 +132,11 @@ button.danger:hover { background: #b71c1c; }
 }
 .image-card {
   background: #16213e;
-  border: 1px solid #0f3460;
+  border: 2px solid #0f3460;
   border-radius: 6px;
   overflow: hidden;
   position: relative;
+  cursor: pointer;
 }
 .image-card img {
   width: 100%;
@@ -148,6 +166,22 @@ button.danger:hover { background: #b71c1c; }
 }
 .image-card .delete-btn:hover { background: rgba(0,0,0,0.8); }
 
+/* Border status colors */
+.image-card.border-green { border-color: #4caf50; }
+.image-card.border-red { border-color: #e94560; }
+.image-card.border-processing { border-color: #555; }
+.image-card.border-error { border-color: #ff5252; }
+
+.image-card .status-overlay {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.4);
+  pointer-events: none;
+}
+
 .actions {
   margin: 8px;
   display: flex;
@@ -166,6 +200,10 @@ button.danger:hover { background: #b71c1c; }
   vertical-align: middle;
   margin-right: 6px;
 }
+.spinner-large {
+  width: 24px; height: 24px;
+  border-width: 3px;
+}
 @keyframes spin { to { transform: rotate(360deg); } }
 </style>
 </head>
@@ -174,9 +212,10 @@ button.danger:hover { background: #b71c1c; }
 <header>
   <h1><a href="/" style="color:inherit;text-decoration:none">Upload</a></h1>
   <a href="/">Home</a>
-  <a href="/recent">Recent</a>
-  <a href="/disambiguate">Disambiguate</a>
+  <a href="/batch-confirm">Batch Confirmation</a>
 </header>
+
+<div id="batch-banner"></div>
 
 <div id="camera-placeholder">
   <button id="camera-btn">Open Camera</button>
@@ -188,7 +227,7 @@ button.danger:hover { background: #b71c1c; }
   <span class="photo-count" id="photo-count"></span>
   <div class="camera-controls">
     <button onclick="takePhoto()">Take Photo</button>
-    <button class="secondary" onclick="stopCamera()">Done</button>
+    <button class="secondary" onclick="stopCamera()">Stop</button>
   </div>
 </div>
 
@@ -201,7 +240,6 @@ button.danger:hover { background: #b71c1c; }
 
 <div class="actions" id="actions" style="display:none">
   <span class="count" id="count-text"></span>
-  <a href="/recent"><button>View Recent Images</button></a>
 </div>
 
 <script>
@@ -210,11 +248,14 @@ const fileInput = document.getElementById('file-input');
 const imageList = document.getElementById('image-list');
 const actions = document.getElementById('actions');
 const countText = document.getElementById('count-text');
+const batchBanner = document.getElementById('batch-banner');
 
 let images = [];
 let cameraStream = null;
 let photoCounter = 0;
 let sessionPhotos = 0;
+let currentBatchId = null;
+let pollTimer = null;
 
 dropZone.addEventListener('click', () => fileInput.click());
 dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
@@ -248,11 +289,15 @@ async function handleFiles(fileList) {
     setTimeout(() => msg.remove(), 8000);
   }
 
+  if (data.batch_id) currentBatchId = data.batch_id;
+
   for (const u of data.uploaded) {
     images.unshift(u);
     addImageCard(u, true);
   }
   updateActions();
+  updateBatchBanner();
+  startPolling();
 }
 
 async function uploadBlob(blob, filename) {
@@ -271,11 +316,15 @@ async function uploadBlob(blob, filename) {
     setTimeout(() => msg.remove(), 8000);
   }
 
+  if (data.batch_id) currentBatchId = data.batch_id;
+
   for (const u of data.uploaded) {
     images.unshift(u);
     addImageCard(u, true);
   }
   updateActions();
+  updateBatchBanner();
+  startPolling();
 }
 
 // ── Camera ──
@@ -344,15 +393,47 @@ function stopCamera() {
   document.getElementById('photo-count').style.display = 'none';
 }
 
+function getBorderClass(img) {
+  const status = img.status;
+  if (status === 'READY_FOR_OCR' || status === 'PROCESSING') return 'border-processing';
+  if (status === 'ERROR') return 'border-error';
+
+  // Check disambiguation state
+  const disambiguated = img.disambiguated || [];
+  const matches = img.scryfall_matches || [];
+  const allGood = disambiguated.length > 0 && disambiguated.every((d, i) => {
+    if (d !== null) return true;
+    const candidates = matches[i] || [];
+    return candidates.length === 1;
+  });
+
+  return allGood ? 'border-green' : 'border-red';
+}
+
 function addImageCard(img, prepend = false) {
   const card = document.createElement('div');
   card.className = 'image-card';
   card.dataset.id = img.id;
+
+  const borderClass = getBorderClass(img);
+  card.classList.add(borderClass);
+
+  let overlay = '';
+  if (img.status === 'READY_FOR_OCR' || img.status === 'PROCESSING') {
+    overlay = '<div class="status-overlay"><div class="spinner spinner-large"></div></div>';
+  } else if (img.status === 'ERROR') {
+    overlay = '<div class="status-overlay" style="color:#ff5252;font-size:1.2rem;font-weight:bold">!</div>';
+  }
+
   card.innerHTML = `
     <img src="/api/ingest/image/${img.stored_name}" alt="${img.filename}">
+    ${overlay}
     <div class="info">${img.filename}</div>
-    <button class="delete-btn" onclick="deleteImage(${img.id}, this)" title="Delete">&times;</button>
+    <button class="delete-btn" onclick="event.stopPropagation(); deleteImage(${img.id}, this)" title="Delete">&times;</button>
   `;
+  card.addEventListener('click', () => {
+    window.location.href = '/batch-confirm?image_id=' + img.id;
+  });
   if (prepend) imageList.prepend(card);
   else imageList.appendChild(card);
 }
@@ -373,21 +454,120 @@ async function deleteImage(id, btn) {
 function updateActions() {
   if (images.length > 0) {
     actions.style.display = 'flex';
-    countText.textContent = `${images.length} image(s) uploaded`;
+    countText.textContent = `${images.length} image(s) in batch`;
   } else {
     actions.style.display = 'none';
   }
 }
 
-// Load existing READY_FOR_OCR images on page load
-async function loadExisting() {
-  const resp = await fetch('/api/ingest2/images?status=READY_FOR_OCR');
-  const existing = await resp.json();
-  for (const img of existing) {
-    images.push(img);
-    addImageCard(img);
+function updateBatchBanner() {
+  if (currentBatchId) {
+    batchBanner.innerHTML = `
+      <span class="batch-info">Batch #${currentBatchId} (open)</span>
+      <button class="done-btn" onclick="closeBatch()">DONE</button>
+    `;
+  } else {
+    batchBanner.innerHTML = `<span class="batch-info">No active batch. <a href="/batch-confirm">View past batches</a></span>`;
   }
-  updateActions();
+}
+
+async function closeBatch() {
+  if (!currentBatchId) return;
+  const resp = await fetch('/api/ingest2/batch/close', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({batch_id: currentBatchId}),
+  });
+  if (resp.ok) {
+    const closedBatchId = currentBatchId;
+    currentBatchId = null;
+    stopPolling();
+    batchBanner.innerHTML = `
+      <span class="batch-info">Batch #${closedBatchId} closed.</span>
+      <a href="/batch-confirm"><button>Go to Batch Confirmation</button></a>
+    `;
+  }
+}
+
+// ── Polling ──
+
+function startPolling() {
+  if (pollTimer) return;
+  pollTimer = setInterval(pollBatchImages, 3000);
+}
+
+function stopPolling() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+}
+
+async function pollBatchImages() {
+  if (!currentBatchId) { stopPolling(); return; }
+  const resp = await fetch(`/api/ingest2/recent?batch_id=${currentBatchId}`);
+  const data = await resp.json();
+
+  // Update image cards with new statuses
+  for (const img of data) {
+    const card = imageList.querySelector(`[data-id="${img.id}"]`);
+    if (!card) continue;
+
+    // Parse JSON fields
+    if (typeof img.scryfall_matches === 'string') img.scryfall_matches = JSON.parse(img.scryfall_matches || '[]');
+    if (typeof img.disambiguated === 'string') img.disambiguated = JSON.parse(img.disambiguated || '[]');
+
+    // Update border class
+    card.classList.remove('border-green', 'border-red', 'border-processing', 'border-error');
+    card.classList.add(getBorderClass(img));
+
+    // Update overlay
+    const existingOverlay = card.querySelector('.status-overlay');
+    if (existingOverlay) existingOverlay.remove();
+
+    if (img.status === 'READY_FOR_OCR' || img.status === 'PROCESSING') {
+      const overlay = document.createElement('div');
+      overlay.className = 'status-overlay';
+      overlay.innerHTML = '<div class="spinner spinner-large"></div>';
+      card.insertBefore(overlay, card.firstChild.nextSibling);
+    } else if (img.status === 'ERROR') {
+      const overlay = document.createElement('div');
+      overlay.className = 'status-overlay';
+      overlay.style.cssText = 'color:#ff5252;font-size:1.2rem;font-weight:bold';
+      overlay.textContent = '!';
+      card.insertBefore(overlay, card.firstChild.nextSibling);
+    }
+  }
+
+  // Stop polling if all images are done processing
+  const allDone = data.every(img => img.status !== 'READY_FOR_OCR' && img.status !== 'PROCESSING');
+  if (allDone && data.length > 0) stopPolling();
+}
+
+// ── Page load ──
+
+async function loadExisting() {
+  // Check for open batch
+  const batchResp = await fetch('/api/ingest2/batches');
+  const batches = await batchResp.json();
+  const openBatch = batches.find(b => b.status === 'open');
+
+  if (openBatch) {
+    currentBatchId = openBatch.id;
+    // Load images from this batch
+    const resp = await fetch(`/api/ingest2/recent?batch_id=${currentBatchId}`);
+    const batchImages = await resp.json();
+    for (const img of batchImages) {
+      if (typeof img.scryfall_matches === 'string') img.scryfall_matches = JSON.parse(img.scryfall_matches || '[]');
+      if (typeof img.disambiguated === 'string') img.disambiguated = JSON.parse(img.disambiguated || '[]');
+      images.push(img);
+      addImageCard(img);
+    }
+    updateActions();
+
+    // Start polling if any images are still processing
+    const anyProcessing = batchImages.some(img => img.status === 'READY_FOR_OCR' || img.status === 'PROCESSING');
+    if (anyProcessing) startPolling();
+  }
+
+  updateBatchBanner();
 }
 loadExisting();
 </script>

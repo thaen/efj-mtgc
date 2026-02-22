@@ -1,0 +1,1304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="icon" href="/static/favicon.ico" type="image/x-icon">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Batch Confirmation - Card Ingest</title>
+<link href="https://cdn.jsdelivr.net/npm/keyrune@latest/css/keyrune.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/mana-font@latest/css/mana.min.css" rel="stylesheet">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #1a1a2e;
+  color: #e0e0e0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  min-height: 100vh;
+}
+header {
+  background: #16213e;
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 2px solid #0f3460;
+}
+header h1 { font-size: 1.1rem; color: #e94560; }
+header a { color: #888; text-decoration: none; font-size: 0.8rem; }
+header a:hover { color: #e94560; }
+
+.top-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 16px;
+  flex-wrap: wrap;
+}
+.top-bar select {
+  padding: 6px 10px;
+  border: 1px solid #0f3460;
+  border-radius: 6px;
+  background: #16213e;
+  color: #e0e0e0;
+  font-size: 0.9rem;
+}
+.top-bar .right-group {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+button {
+  padding: 8px 16px;
+  border: 1px solid #0f3460;
+  border-radius: 6px;
+  background: #e94560;
+  border-color: #e94560;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+button:hover { background: #c73651; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+button.secondary { background: #333; border-color: #555; }
+button.secondary:hover { background: #444; }
+button.danger { background: #c62828; border-color: #c62828; }
+button.danger:hover { background: #b71c1c; }
+button.confirm-all { background: #388e3c; border-color: #388e3c; font-size: 1rem; padding: 10px 24px; }
+button.confirm-all:hover { background: #2e7d32; }
+
+.pill-row { display: flex; gap: 0; }
+.pill-row .pill {
+  padding: 5px 12px;
+  border: 1px solid #0f3460;
+  background: #16213e;
+  color: #888;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+}
+.pill-row .pill:first-child { border-radius: 6px 0 0 6px; }
+.pill-row .pill:last-child { border-radius: 0 6px 6px 0; }
+.pill-row .pill + .pill { border-left: none; }
+.pill-row .pill.active { background: #e94560; border-color: #e94560; color: #fff; }
+
+.empty-state {
+  text-align: center;
+  padding: 80px 40px;
+  color: #555;
+}
+.empty-state h2 { color: #888; margin-bottom: 12px; }
+.empty-state a { color: #e94560; }
+
+.open-batch-msg {
+  text-align: center;
+  padding: 40px;
+  color: #888;
+  font-size: 0.95rem;
+}
+
+/* Photo wells */
+.photo-well {
+  position: relative;
+  margin: 20px 16px 12px;
+  background: #1e2d4d;
+  border: 2px solid #335D8F;
+border-radius: 12px;
+padding: 10px;
+padding-top: 24px;
+}
+.photo-well.confirmed { border-color: #4caf50; }
+
+/* Collapse/expand toggle */
+.well-toggle {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #0f3460;
+  border-radius: 6px;
+  background: #16213e;
+  color: #888;
+  font-size: 1.4rem;
+  cursor: pointer;
+  z-index: 1;
+  padding: 0;
+  transition: border-color 0.15s, color 0.15s;
+}
+.well-toggle:hover { border-color: #e94560; color: #e0e0e0; }
+.photo-well.collapsed .candidate-row:not(.selected-row) { display: none; }
+.photo-well.collapsed .well-body { overflow: hidden; }
+.photo-well.collapsed .card-group { overflow: hidden; }
+.photo-well.collapsed .well-photo {
+  max-height: 56px;
+}
+
+.well-body {
+  display: flex;
+  gap: 0;
+  align-items: flex-start;
+}
+.icon-btn {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 2px solid #335D8F;
+  border-radius: 10px;
+  background: #16213e;
+  color: #888;
+  font-size: 1.1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.15s, color 0.15s;
+}
+.icon-btn:hover { border-color: #e94560; color: #e0e0e0; }
+.icon-btn.danger { color: #c62828; }
+.icon-btn.danger:hover { border-color: #c62828; color: #ff5252; }
+
+.well-photo {
+  flex-shrink: 0;
+  width: 130px;
+  height: 200px;
+  margin-right: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+  background: #0d1117;
+cursor: zoom-in;
+border: 2px solid #335D8F;
+}
+.well-photo img {
+  position: absolute;
+  transform-origin: 0 0;
+}
+
+.cards-container {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.card-group {
+  display: flex;
+  align-items: flex-start;
+}
+.card-group + .card-group {
+  border-top: 2px solid #0f346060;
+}
+.well-photo .remove-btn {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #ff5252;
+  font-size: 1.1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+  transition: background 0.15s, color 0.15s;
+}
+.well-photo .remove-btn:hover {
+  background: rgba(198, 40, 40, 0.8);
+  color: #fff;
+}
+
+.well-toolbar {
+  position: absolute;
+  top: 0;
+  left: 16px;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  z-index: 1;
+}
+.well-filename {
+  background: #1e2d4d;
+  border: 2px solid #335D8F;
+  border-radius: 10px;
+  padding: 9px 14px;
+  font-size: 0.75rem;
+  color: #fff;
+  font-weight: 700;
+}
+.well-toolbar .icon-btn {
+  background: #1e2d4d;
+}
+
+/* Card table — matches collection page styling */
+.card-table {
+  flex: 0 0 auto;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+.card-table td {
+  padding: 6px 12px;
+  vertical-align: middle;
+  border-bottom: 1px solid #0f3460;
+}
+.card-table tr:last-child td { border-bottom: none; }
+.card-table tr.selected-row { outline: 2px solid #4caf50; outline-offset: -2px; border-radius: 6px; }
+.card-table tr.candidate-row { cursor: pointer; }
+.card-table tr.candidate-row:hover { background: rgba(15, 52, 96, 0.2); }
+.card-table tr.selected-row:hover { background: none; }
+
+.card-table .card-thumb {
+  width: 96px;
+  height: 44px;
+  object-fit: cover;
+  object-position: top center;
+  border-radius: 4px;
+  display: block;
+  flex-shrink: 0;
+}
+.card-table .card-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.card-table .card-name {
+font-weight: 500;
+}
+.card-table td:first-child {
+  min-width: 200px;
+}
+.card-table .set-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.card-table .set-cell .ss {
+  font-size: 2.0em;
+  width: 40px;
+  height: 40px;
+  line-height: 40px;
+  text-align: center;
+  -webkit-text-stroke: 3px rgba(0,0,0,0.85);
+  paint-order: stroke fill;
+}
+.card-table .set-cell .ss.ss-grad::before {
+  -webkit-text-fill-color: currentColor;
+}
+.card-table .set-cell .ss.ss-common {
+  -webkit-text-stroke: 2px rgba(255,255,255,0.9);
+}
+.card-table .set-cn {
+  font-size: 0.8em;
+  color: #888;
+  white-space: nowrap;
+}
+.card-table .no-candidate {
+  color: #c62828;
+  font-style: italic;
+}
+
+.version-badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 3px;
+  white-space: nowrap;
+  display: inline-block;
+}
+.version-badge.finish-foil { background: linear-gradient(135deg, #4a2060, #602060); border: 1px solid #8040a0; color: #d8b0ff; }
+.version-badge.finish-etched { background: linear-gradient(135deg, #2a3e0f, #3e600f); border: 1px solid #527a1a; color: #b0d87e; }
+.version-badge.finish-nonfoil { background: #222; border: 1px solid #444; color: #888; }
+
+/* Trace panel (hidden by default, toggled by Show Trace button) */
+.trace-panel {
+  display: none;
+  border-top: 1px solid #0f3460;
+}
+.trace-lines {
+  padding: 8px 12px;
+  background: #0a0a14;
+  font-family: monospace;
+  font-size: 0.7rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.trace-lines .tl-ocr    { color: #666; }
+.trace-lines .tl-agent  { color: #7ec8e3; }
+.trace-lines .tl-tool   { color: #f0ad4e; }
+.trace-lines .tl-result { color: #888; }
+.trace-lines .tl-final  { color: #4caf50; }
+
+/* Search results dropdown */
+.search-results {
+  position: absolute;
+  background: #16213e;
+  border: 1px solid #0f3460;
+  border-radius: 6px;
+  z-index: 100;
+  max-height: 300px;
+  overflow-y: auto;
+  width: 300px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+}
+.search-result-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  border-bottom: 1px solid #0f346030;
+}
+.search-result-item:hover { background: #1a1a3e; }
+.search-result-item img {
+  width: 40px;
+  height: 56px;
+  object-fit: contain;
+  border-radius: 3px;
+}
+
+/* Photo modal */
+.photo-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0,0,0,0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: zoom-out;
+}
+.photo-modal img {
+  max-width: 95vw;
+  max-height: 95vh;
+  object-fit: contain;
+  border-radius: 6px;
+}
+
+.spinner {
+  display: inline-block;
+  width: 14px; height: 14px;
+  border: 2px solid #555;
+  border-top-color: #e94560;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  vertical-align: middle;
+  margin-right: 6px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Confirmed batch summary (collapsed state) */
+.confirmed-summary {
+  margin: 12px 16px;
+  padding: 12px 16px;
+  background: #16213e;
+  border: 1px solid #4caf50;
+  border-radius: 8px;
+  color: #4caf50;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+}
+.confirmed-summary:hover { background: #1a2540; }
+.confirmed-summary::after { content: ' \25B8'; }
+.confirmed-summary.expanded::after { content: ' \25BE'; }
+
+/* Processing / error well states */
+.well-processing {
+  padding: 16px;
+  color: #888;
+  font-size: 0.85rem;
+}
+.well-error {
+  padding: 16px;
+  color: #ff5252;
+  font-size: 0.85rem;
+}
+</style>
+<style id="dynamic-settings-style"></style>
+</head>
+<body>
+
+<header>
+  <h1><a href="/" style="color:inherit;text-decoration:none">Batch Confirmation</a></h1>
+  <a href="/">Home</a>
+  <a href="/upload">Upload</a>
+</header>
+
+<div class="top-bar">
+  <select id="batch-select"></select>
+
+  <div class="pill-row" id="display-toggle">
+    <div class="pill active" data-value="crop">Top Cropped</div>
+    <div class="pill" data-value="contain">Full Card</div>
+  </div>
+
+  <div class="right-group">
+    <span id="batch-status-text" style="font-size:0.85rem;color:#888;"></span>
+    <button class="secondary" id="reprocess-btn" style="display:none">Reprocess Batch</button>
+    <button class="confirm-all" id="confirm-all-btn" disabled>Confirm All</button>
+  </div>
+</div>
+
+<div id="open-batch-msg" class="open-batch-msg" style="display:none">
+  This batch is still open. Close it from the <a href="/upload" style="color:#e94560">Upload page</a> first.
+</div>
+
+<div id="empty-state" class="empty-state" style="display:none">
+  <h2>No batches found</h2>
+  <p><a href="/upload">Upload some photos</a> to create a batch</p>
+</div>
+
+<div id="wells-container"></div>
+
+<script>
+const KEYRUNE_FALLBACKS = {
+  tsb: 'tsp', pspm: 'spm', cst: 'csp',
+};
+function keyruneSetCode(code) {
+  const lc = (code || '').toLowerCase();
+  return KEYRUNE_FALLBACKS[lc] || lc;
+}
+
+let _settings = {};
+let batches = [];
+let currentBatch = null;
+let batchImages = [];
+
+// Per-card client state: { `${imageId}-${cardIdx}`: { scryfallId, finish } }
+let cardSelections = {};
+
+function applyCropTransform(cropDiv) {
+  const img = cropDiv.querySelector('img');
+  if (!img || !img.naturalWidth) return;
+  const cw = cropDiv.clientWidth;
+  const ch = cropDiv.clientHeight;
+  const cx = parseFloat(cropDiv.dataset.cropX);
+  const cy = parseFloat(cropDiv.dataset.cropY);
+  const cropW = parseFloat(cropDiv.dataset.cropW);
+  const cropH = parseFloat(cropDiv.dataset.cropH);
+  if (cropW > 0 && cropH > 0) {
+    // Cover from top: fill container, align to top-left of bounding box
+    const scale = Math.max(cw / cropW, ch / cropH);
+    const tx = -cx * scale;
+    const ty = -cy * scale;
+    img.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+  } else {
+    // No bounding box: fill width, show from top
+    const scale = Math.max(cw / img.naturalWidth, ch / img.naturalHeight);
+    img.style.transform = `scale(${scale})`;
+  }
+}
+
+function applySettings() {
+  const style = document.getElementById('dynamic-settings-style');
+  const mode = _settings.image_display || 'crop';
+  document.querySelectorAll('#display-toggle .pill').forEach(p => {
+    p.classList.toggle('active', p.dataset.value === mode);
+  });
+  if (mode === 'contain') {
+    style.textContent = `
+      .card-table .card-thumb {
+        width: 44px !important;
+        height: 62px !important;
+        object-fit: contain !important;
+        object-position: center !important;
+      }
+    `;
+  } else {
+    style.textContent = '';
+  }
+}
+
+function escapeHtml(s) {
+  return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function showPhotoModal(imageSrc) {
+  const modal = document.createElement('div');
+  modal.className = 'photo-modal';
+  modal.innerHTML = `<img src="${imageSrc}">`;
+  modal.addEventListener('click', () => modal.remove());
+  document.body.appendChild(modal);
+}
+
+function getLargeImageUri(uri) {
+  if (!uri) return uri;
+  return uri.replace('/small/', '/normal/');
+}
+
+function buildVersionBadges(candidate) {
+  if (!candidate) return '';
+  const badges = [];
+  // Show agent's suggested finish if available, otherwise all available finishes
+  const finishes = candidate.agent_finish
+    ? [candidate.agent_finish]
+    : (candidate.finishes || []);
+  // Check promo_types for specific foil variants (galaxyfoil, surgefoil, etc.)
+  const foilPromos = (candidate.promo_types || []).filter(pt =>
+    pt !== 'boosterfun' && (pt.includes('foil') || pt === 'textured' || pt === 'gilded' || pt === 'oilslick' || pt === 'serialized')
+  );
+  for (const f of finishes) {
+    if (f === 'foil' && foilPromos.length > 0) {
+      // Show specific foil variant instead of generic "Foil"
+      for (const pt of foilPromos) {
+        const label = pt.replace(/foil$/i, ' Foil').replace(/^./, c => c.toUpperCase()).trim();
+        badges.push(`<span class="version-badge finish-foil">${escapeHtml(label)}</span>`);
+      }
+    } else if (f === 'foil') {
+      badges.push('<span class="version-badge finish-foil">Foil</span>');
+    } else if (f === 'etched') {
+      badges.push('<span class="version-badge finish-etched">Etched</span>');
+    } else if (f === 'nonfoil') {
+      badges.push('<span class="version-badge finish-nonfoil">Nonfoil</span>');
+    } else {
+      badges.push(`<span class="version-badge finish-nonfoil">${escapeHtml(f)}</span>`);
+    }
+  }
+  return badges.join('');
+}
+
+// ── Display toggle ──
+document.querySelectorAll('#display-toggle .pill').forEach(pill => {
+  pill.addEventListener('click', () => {
+    _settings.image_display = pill.dataset.value;
+    applySettings();
+    fetch('/api/settings', {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({image_display: pill.dataset.value}),
+    });
+  });
+});
+
+// ── Batch selector ──
+document.getElementById('batch-select').addEventListener('change', (e) => {
+  const batchId = parseInt(e.target.value);
+  loadBatch(batchId);
+});
+
+async function loadBatches() {
+  const resp = await fetch('/api/ingest2/batches');
+  batches = await resp.json();
+
+  const select = document.getElementById('batch-select');
+  select.innerHTML = '';
+
+  if (batches.length === 0) {
+    document.getElementById('empty-state').style.display = 'block';
+    return;
+  }
+
+  for (const b of batches) {
+    const opt = document.createElement('option');
+    opt.value = b.id;
+    const statusLabel = b.status === 'confirmed' ? ' [confirmed]' : b.status === 'open' ? ' [open]' : '';
+    opt.textContent = `Batch #${b.id}${statusLabel} — ${b.image_count} image(s) — ${new Date(b.opened_at).toLocaleDateString()}`;
+    select.appendChild(opt);
+  }
+
+  // Determine default batch
+  const params = new URLSearchParams(window.location.search);
+  const imageIdParam = params.get('image_id');
+  let defaultBatchId = null;
+
+  if (imageIdParam) {
+    // Find which batch contains this image
+    for (const b of batches) {
+      const detail = await fetch(`/api/ingest2/batch/${b.id}`);
+      const data = await detail.json();
+      if (data.images && data.images.some(img => img.id === parseInt(imageIdParam))) {
+        defaultBatchId = b.id;
+        break;
+      }
+    }
+  }
+
+  if (!defaultBatchId) {
+    // Default to most recent closed batch, or first batch
+    const closed = batches.find(b => b.status === 'closed');
+    defaultBatchId = closed ? closed.id : batches[0].id;
+  }
+
+  select.value = defaultBatchId;
+  loadBatch(defaultBatchId);
+}
+
+async function loadBatch(batchId) {
+  stopPolling();
+
+  const resp = await fetch(`/api/ingest2/batch/${batchId}`);
+  currentBatch = await resp.json();
+  batchImages = currentBatch.images || [];
+
+  const container = document.getElementById('wells-container');
+  const openMsg = document.getElementById('open-batch-msg');
+  const emptyState = document.getElementById('empty-state');
+  emptyState.style.display = 'none';
+
+  // Remove any existing confirmed-summary
+  const oldSummary = document.querySelector('.confirmed-summary');
+  if (oldSummary) oldSummary.remove();
+  container.style.display = '';
+
+  if (currentBatch.status === 'open') {
+    openMsg.style.display = 'block';
+  } else {
+    openMsg.style.display = 'none';
+  }
+
+  // Reset client state
+  cardSelections = {};
+  container.innerHTML = '';
+
+  for (const img of batchImages) {
+    container.appendChild(buildPhotoWell(img));
+  }
+
+  // Start polling if any images are still processing
+  const anyProcessing = batchImages.some(img =>
+    img.status === 'READY_FOR_OCR' || img.status === 'PROCESSING'
+  );
+  if (anyProcessing) startPolling();
+
+  updateConfirmButton();
+}
+
+function reloadBatch() {
+  if (currentBatch) loadBatch(currentBatch.id);
+}
+
+function allCardsSelectedInWell(img) {
+  const d = img.disambiguated || [];
+  const m = img.scryfall_matches || [];
+  const n = Math.max(d.length, m.length);
+  for (let i = 0; i < n; i++) {
+    if (!getSelectedCandidate(img, i)) return false;
+  }
+  return n > 0;
+}
+
+function getSelectedCandidate(img, cardIdx) {
+  const key = `${img.id}-${cardIdx}`;
+  if (key in cardSelections) return cardSelections[key]; // null = explicitly deselected
+
+  const disambiguated = img.disambiguated || [];
+  const matches = img.scryfall_matches || [];
+  const candidates = matches[cardIdx] || [];
+
+  let selected = null;
+  if (disambiguated[cardIdx]) {
+    selected = candidates.find(c => c.scryfall_id === disambiguated[cardIdx]) || candidates[0];
+  } else if (candidates.length === 1) {
+    selected = candidates[0];
+  }
+
+  if (selected) {
+    const finish = selected.agent_finish || (selected.finishes || ['nonfoil'])[0];
+    return { scryfallId: selected.scryfall_id, finish };
+  }
+  return null;
+}
+
+function syncCollapseHeight(well) {
+  if (!well.classList.contains('collapsed')) return;
+  well.querySelectorAll('.card-group').forEach(group => {
+    group.style.maxHeight = '';
+    const t = group.querySelector('.card-table');
+    if (t) group.style.maxHeight = (t.offsetHeight + 4) + 'px';
+  });
+  const wb = well.querySelector('.well-body');
+  const cc = well.querySelector('.cards-container');
+  if (wb && cc) {
+    const wbStyle = getComputedStyle(wb);
+    const pad = parseFloat(wbStyle.paddingTop) + parseFloat(wbStyle.paddingBottom);
+    wb.style.maxHeight = (cc.offsetHeight + pad + 4) + 'px';
+  }
+}
+
+function traceClass(line) {
+  if (line.startsWith('[OCR]') || line.match(/^\[\d+\]/)) return 'tl-ocr';
+  if (line === '') return 'tl-ocr';
+  if (line.startsWith('[TOOL RESULT]')) return 'tl-result';
+  if (line.startsWith('[TOOL CALL')) return 'tl-tool';
+  if (line.startsWith('[FINAL') || line.startsWith('[USAGE]')) return 'tl-final';
+  return 'tl-agent';
+}
+
+function buildPhotoWell(img) {
+  const well = document.createElement('div');
+  well.className = 'photo-well';
+  well.id = `well-${img.id}`;
+
+  // Toolbar on top border: filename + action buttons
+  const toolbar = document.createElement('div');
+  toolbar.className = 'well-toolbar';
+  const filenameLabel = document.createElement('div');
+  filenameLabel.className = 'well-filename';
+  filenameLabel.textContent = img.filename || `Image #${img.id}`;
+  toolbar.appendChild(filenameLabel);
+  well.appendChild(toolbar);
+
+  // Processing state
+  if (img.status === 'READY_FOR_OCR' || img.status === 'PROCESSING') {
+    const proc = document.createElement('div');
+    proc.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 12px';
+    proc.innerHTML = `<span style="color:#888;font-size:0.85rem"><span class="spinner"></span>Processing...</span>`;
+    well.appendChild(proc);
+    return well;
+  }
+
+  // Error state
+  if (img.status === 'ERROR') {
+    const errDiv = document.createElement('div');
+    errDiv.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 12px';
+    errDiv.innerHTML = `<span style="color:#ff5252;font-size:0.85rem">Error: ${escapeHtml(img.error_message || 'Unknown error')}</span>
+      <button class="secondary" onclick="reprocessImage(${img.id})">Retry</button>`;
+    well.appendChild(errDiv);
+    return well;
+  }
+
+  const disambiguated = img.disambiguated || [];
+  const matches = img.scryfall_matches || [];
+  const crops = img.crops || [];
+  const numCards = Math.max(disambiguated.length, matches.length);
+
+  // Well body: action buttons | photo | card table
+  const body = document.createElement('div');
+  body.className = 'well-body';
+
+  // Image-level action buttons (in toolbar on top border)
+
+  const reprocessBtn = document.createElement('button');
+  reprocessBtn.className = 'icon-btn';
+  reprocessBtn.title = 'Reprocess image';
+  reprocessBtn.innerHTML = '&#x21bb;';
+  reprocessBtn.addEventListener('click', () => reprocessImage(img.id));
+  toolbar.appendChild(reprocessBtn);
+
+  const traceBtn = document.createElement('button');
+  traceBtn.className = 'icon-btn';
+  traceBtn.title = 'Show agent debug output';
+  traceBtn.innerHTML = '&#x1f41b;';
+  traceBtn.addEventListener('click', () => toggleTrace(img.id));
+  toolbar.appendChild(traceBtn);
+
+  const addBtn = document.createElement('button');
+  addBtn.className = 'icon-btn';
+  addBtn.title = 'Search & add card';
+  addBtn.innerHTML = '&#x2b;';
+  addBtn.addEventListener('click', () => promptSearchAdd(img.id));
+  toolbar.appendChild(addBtn);
+    
+  // Per-card groups: each card gets its own X button, photo zoom, and candidate table
+  const cardsContainer = document.createElement('div');
+  cardsContainer.className = 'cards-container';
+
+  for (let i = 0; i < numCards; i++) {
+    const cardIdx = i;
+    const cardCandidates = matches[i] || [];
+    const sel = getSelectedCandidate(img, i);
+    const crop = crops[i];
+
+    const cardGroup = document.createElement('div');
+    cardGroup.className = 'card-group';
+
+    // Per-card photo zoom (cropped to this card's bounding box)
+    const photo = document.createElement('div');
+    photo.className = 'well-photo';
+
+    // X button overlaid on photo (bottom-right)
+    const xBtn = document.createElement('button');
+    xBtn.className = 'remove-btn';
+    xBtn.title = `Remove card ${i + 1}`;
+    xBtn.innerHTML = '&times;';
+    xBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await fetch('/api/ingest2/remove-card', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ image_id: img.id, card_idx: cardIdx }),
+      });
+      delete cardSelections[`${img.id}-${cardIdx}`];
+      reloadBatch();
+    });
+    photo.appendChild(xBtn);
+
+    const photoImg = document.createElement('img');
+    photoImg.onload = () => {
+      // Always compute transform against full (expanded) dimensions so it
+      // stays stable regardless of collapsed max-height clipping.
+      const cw = 130;
+      const ch = 200;
+      if (crop && crop.w && crop.h) {
+        const px1 = Math.max(0, crop.x);
+        const py1 = Math.max(0, crop.y);
+        const px2 = Math.min(photoImg.naturalWidth, crop.x + crop.w);
+        const py2 = Math.min(photoImg.naturalHeight, crop.y + crop.h);
+        const regionW = px2 - px1;
+        const regionH = py2 - py1;
+        const scale = Math.min(cw / regionW, ch / regionH);
+        const tx = -px1 * scale + (cw - regionW * scale) / 2;
+        const ty = -py1 * scale + (ch - regionH * scale) / 2;
+        photoImg.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+      } else {
+        const scale = Math.min(cw / photoImg.naturalWidth, ch / photoImg.naturalHeight);
+        const tx = (cw - photoImg.naturalWidth * scale) / 2;
+        const ty = (ch - photoImg.naturalHeight * scale) / 2;
+        photoImg.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+      }
+    };
+    photoImg.src = `/api/ingest/image/${img.stored_name}`;
+    photo.appendChild(photoImg);
+    photo.addEventListener('click', () => showPhotoModal(`/api/ingest/image/${img.stored_name}`));
+    cardGroup.appendChild(photo);
+
+    // Per-card candidate table
+    const table = document.createElement('table');
+    table.className = 'card-table';
+    table.id = `table-${img.id}-${cardIdx}`;
+
+    const tbody = document.createElement('tbody');
+    if (cardCandidates.length === 0) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td class="no-candidate" colspan="4">No candidates found</td>`;
+      tbody.appendChild(tr);
+    } else {
+      let selectionMarked = false;
+      for (let ci = 0; ci < cardCandidates.length; ci++) {
+        const c = cardCandidates[ci];
+        const tr = document.createElement('tr');
+        const isSelected = !selectionMarked && sel && sel.scryfallId === c.scryfall_id;
+        if (isSelected) selectionMarked = true;
+        tr.className = `candidate-row${isSelected ? ' selected-row' : ''}`;
+        tr.dataset.imageId = img.id;
+        tr.dataset.cardIdx = i;
+        tr.dataset.scryfallId = c.scryfall_id;
+
+        const setCode = keyruneSetCode(c.set_code);
+        const rarityClass = `ss-${c.rarity || 'common'}`;
+        const thumbSrc = c.image_uri || '';
+
+        tr.innerHTML = `
+          <td><span class="card-name">${escapeHtml(c.name || '(Unknown)')}</span></td>
+          <td><div class="set-cell"><i class="ss ss-${setCode} ${rarityClass} ss-grad"></i><span class="set-cn">${(c.set_code || '').toUpperCase()} #${c.collector_number || '?'}</span></div></td>
+          <td>${buildVersionBadges(c)}</td>
+          <td>${thumbSrc ? `<div class="card-cell"><img class="card-thumb" src="${thumbSrc}" loading="lazy"></div>` : ''}</td>
+        `;
+
+        // Click to toggle selection
+        tr.addEventListener('click', async () => {
+          const key = `${img.id}-${cardIdx}`;
+          const wasSelected = tr.classList.contains('selected-row');
+
+          // Clear selections in this card's table only
+          tbody.querySelectorAll('tr.selected-row').forEach(r => r.classList.remove('selected-row'));
+
+          if (wasSelected) {
+            cardSelections[key] = null;
+          } else {
+            tr.classList.add('selected-row');
+            const candidateFinish = c.agent_finish || (c.finishes || ['nonfoil'])[0];
+            cardSelections[key] = { scryfallId: c.scryfall_id, finish: candidateFinish };
+
+            const prevSel = sel;
+            const isCorrection = prevSel && prevSel.scryfallId && prevSel.scryfallId !== c.scryfall_id;
+            const endpoint = isCorrection ? '/api/ingest2/correct' : '/api/ingest2/confirm';
+            await fetch(endpoint, {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({
+                image_id: img.id,
+                card_idx: cardIdx,
+                scryfall_id: c.scryfall_id,
+                finish: candidateFinish,
+              }),
+            });
+          }
+          updateConfirmButton();
+          syncCollapseHeight(well);
+
+          // Auto-collapse if all cards in this well now have selections
+          if (!wasSelected && !well.classList.contains('collapsed') && allCardsSelectedInWell(img)) {
+            well.classList.add('collapsed');
+            const toggleBtn = well.querySelector('.well-toggle');
+            if (toggleBtn) toggleBtn.innerHTML = '<i class="ms ms-untap"></i>';
+            syncCollapseHeight(well);
+          }
+        });
+
+        tbody.appendChild(tr);
+      }
+    }
+    table.appendChild(tbody);
+    cardGroup.appendChild(table);
+    cardsContainer.appendChild(cardGroup);
+  }
+
+  body.appendChild(cardsContainer);
+  well.appendChild(body);
+
+  // Trace panel (hidden by default, expands from bottom of well)
+  const agentLines = img.agent_trace || [];
+  const claudeResult = img.claude_result || [];
+  if (agentLines.length) {
+    const filenameLine = `[FILE] ${img.filename} (id=${img.id})`;
+    const finalLines = claudeResult.length
+      ? ['', '[FINAL OUTPUT]', ...JSON.stringify({cards: claudeResult}, null, 2).split('\n')]
+      : [];
+    const allLines = [filenameLine, '', ...agentLines, ...finalLines];
+    const traceHtml = allLines.map(l =>
+      `<span class="${traceClass(l)}">${escapeHtml(l)}</span>`
+    ).join('\n');
+    const tracePanel = document.createElement('div');
+    tracePanel.className = 'trace-panel';
+    tracePanel.id = `trace-${img.id}`;
+    tracePanel.innerHTML = `<div class="trace-lines">${traceHtml}</div>`;
+    well.appendChild(tracePanel);
+  }
+
+  // Collapse/expand toggle
+  let totalRows = 0;
+  for (let i = 0; i < numCards; i++) totalRows += (matches[i] || []).length || 1;
+  const autoCollapse = totalRows === 1 || allCardsSelectedInWell(img);
+  if (autoCollapse) {
+    well.classList.add('collapsed');
+    requestAnimationFrame(() => syncCollapseHeight(well));
+  }
+
+  const toggle = document.createElement('button');
+  toggle.className = 'well-toggle';
+  toggle.innerHTML = autoCollapse ? '<i class="ms ms-untap"></i>' : '<i class="ms ms-tap"></i>';
+  toggle.addEventListener('click', (e) => {
+    e.stopPropagation();
+    body.style.maxHeight = '';
+    well.querySelectorAll('.card-group').forEach(g => g.style.maxHeight = '');
+    const isCollapsed = well.classList.toggle('collapsed');
+    toggle.innerHTML = isCollapsed ? '<i class="ms ms-untap"></i>' : '<i class="ms ms-tap"></i>';
+    if (isCollapsed) syncCollapseHeight(well);
+  });
+  well.appendChild(toggle);
+
+  return well;
+}
+
+// ── Search to add ──
+function promptSearchAdd(imageId) {
+  const well = document.getElementById(`well-${imageId}`);
+  const toolbar = well.querySelector('.well-toolbar');
+
+  // Toggle off if already open
+  const existing = toolbar.querySelector('.add-search-wrap');
+  if (existing) { existing.remove(); return; }
+
+  const wrap = document.createElement('div');
+  wrap.className = 'add-search-wrap';
+  wrap.style.cssText = 'position:relative;display:flex;align-items:center;';
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.placeholder = 'Missed a card? Add it here.';
+  input.style.cssText = 'padding:6px 10px;border:2px solid #335D8F;border-radius:10px;background:#16213e;color:#e0e0e0;font-size:0.8rem;width:200px;outline:none;';
+
+  const dropdown = document.createElement('div');
+  dropdown.className = 'search-results';
+  dropdown.style.cssText = 'position:absolute;top:100%;left:0;margin-top:4px;display:none;';
+
+  wrap.appendChild(input);
+  wrap.appendChild(dropdown);
+  toolbar.appendChild(wrap);
+  input.focus();
+
+  async function doSearch() {
+    const query = input.value.trim();
+    if (!query) { dropdown.style.display = 'none'; return; }
+
+    const resp = await fetch('/api/ingest2/search-card', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ query }),
+    });
+    const data = await resp.json();
+    dropdown.innerHTML = '';
+
+    for (const c of (data.candidates || []).slice(0, 10)) {
+      const item = document.createElement('div');
+      item.className = 'search-result-item';
+      item.innerHTML = `
+        ${c.image_uri ? `<img src="${c.image_uri}">` : ''}
+        <span>${escapeHtml(c.name)} — ${(c.set_code || '').toUpperCase()} #${c.collector_number || '?'}</span>
+      `;
+      item.addEventListener('click', async () => {
+        wrap.remove();
+        const addResp = await fetch('/api/ingest2/add-card', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            image_id: imageId,
+            scryfall_id: c.scryfall_id,
+            finish: 'nonfoil',
+          }),
+        });
+        const addData = await addResp.json();
+        if (addData.ok) loadBatch(currentBatch.id);
+      });
+      dropdown.appendChild(item);
+    }
+
+    if ((data.candidates || []).length === 0) {
+      dropdown.innerHTML = '<div style="padding:12px;color:#888;text-align:center;">No results</div>';
+    }
+    dropdown.style.display = '';
+  }
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') doSearch();
+    if (e.key === 'Escape') wrap.remove();
+  });
+
+  // Close on click outside
+  setTimeout(() => {
+    document.addEventListener('click', function closer(e) {
+      if (!wrap.contains(e.target) && e.target !== input) {
+        wrap.remove();
+        document.removeEventListener('click', closer);
+      }
+    });
+  }, 100);
+}
+
+async function reprocessBatch() {
+  if (!currentBatch) return;
+  if (!confirm('Reprocess all images in this batch? This will clear all DELETE all cards from this batch in your collection and reprocess the batch with a new ID.')) return;
+  const btn = document.getElementById('reprocess-btn');
+  btn.disabled = true;
+  btn.textContent = 'Reprocessing...';
+  const resp = await fetch('/api/ingest2/batch/reprocess', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ batch_id: currentBatch.id }),
+  });
+  const data = await resp.json();
+  btn.disabled = false;
+  btn.textContent = 'Reprocess Batch';
+  if (data.ok) {
+    // Reload batches and switch to the new batch
+    await loadBatches();
+    const select = document.getElementById('batch-select');
+    select.value = data.new_batch_id;
+    loadBatch(data.new_batch_id);
+  }
+}
+
+function toggleTrace(imageId) {
+  const panel = document.getElementById(`trace-${imageId}`);
+  if (!panel) return;
+  const visible = panel.style.display === 'block';
+  panel.style.display = visible ? 'none' : 'block';
+}
+
+async function reprocessImage(imageId) {
+  if (!confirm('Reprocess this image? This will clear its current identifications.')) return;
+  const resp = await fetch('/api/ingest2/image/reprocess', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ image_id: imageId }),
+  });
+  const data = await resp.json();
+  if (data.ok) {
+    // Mark the image as processing in client state and rebuild its well
+    const idx = batchImages.findIndex(img => img.id === imageId);
+    if (idx >= 0) {
+      batchImages[idx].status = 'PROCESSING';
+      batchImages[idx].scryfall_matches = null;
+      batchImages[idx].disambiguated = null;
+      batchImages[idx].crops = null;
+      batchImages[idx].agent_trace = null;
+      const oldWell = document.getElementById(`well-${imageId}`);
+      if (oldWell) oldWell.replaceWith(buildPhotoWell(batchImages[idx]));
+    }
+    startPolling();
+    updateConfirmButton();
+  }
+}
+
+// ── Confirm all ──
+document.getElementById('confirm-all-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('confirm-all-btn');
+  btn.disabled = true;
+  btn.textContent = 'Confirming...';
+
+  // Collect all card data
+  const cards = [];
+  for (const img of batchImages) {
+    const disambiguated = img.disambiguated || [];
+    const matches = img.scryfall_matches || [];
+    const numCards = Math.max(disambiguated.length, matches.length);
+
+    for (let i = 0; i < numCards; i++) {
+      // Check if card was removed (table rows with matching data attrs)
+      const tableEl = document.getElementById(`table-${img.id}-${i}`);
+      if (!tableEl) continue;
+
+      const sel = getSelectedCandidate(img, i);
+      if (!sel) continue;
+
+      const key = `${img.id}-${i}`;
+      const finish = cardSelections[key] ? cardSelections[key].finish : sel.finish || 'nonfoil';
+
+      cards.push({
+        image_id: img.id,
+        card_idx: i,
+        scryfall_id: sel.scryfallId,
+        finish: finish,
+      });
+    }
+  }
+
+  const resp = await fetch('/api/ingest2/batch/confirm-all', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ batch_id: currentBatch.id, cards }),
+  });
+  const data = await resp.json();
+
+  if (data.confirmed_count !== undefined) {
+    btn.textContent = `Confirmed ${data.confirmed_count} card(s)!`;
+    btn.style.background = '#4caf50';
+    btn.style.borderColor = '#4caf50';
+
+    document.getElementById('batch-status-text').textContent = 'Batch confirmed';
+    document.getElementById('batch-status-text').style.color = '#4caf50';
+
+    // Collapse the batch — hide wells, show clickable summary
+    const container = document.getElementById('wells-container');
+    container.style.display = 'none';
+    const summary = document.createElement('div');
+    summary.className = 'confirmed-summary';
+    summary.textContent = `Batch #${currentBatch.id} \u2014 ${data.confirmed_count} card(s) confirmed`;
+    summary.addEventListener('click', () => {
+      const visible = container.style.display !== 'none';
+      container.style.display = visible ? 'none' : '';
+      summary.classList.toggle('expanded', !visible);
+    });
+    container.parentNode.insertBefore(summary, container);
+  } else {
+    btn.textContent = 'Error';
+    btn.disabled = false;
+  }
+});
+
+document.getElementById('reprocess-btn').addEventListener('click', reprocessBatch);
+
+function updateConfirmButton() {
+  const btn = document.getElementById('confirm-all-btn');
+  const reprocessBtn = document.getElementById('reprocess-btn');
+  const statusText = document.getElementById('batch-status-text');
+
+  // Show reprocess button for closed batches (not open, not confirmed)
+  const showReprocess = currentBatch && currentBatch.status === 'closed';
+  reprocessBtn.style.display = showReprocess ? '' : 'none';
+
+  if (!currentBatch || currentBatch.status === 'open') {
+    btn.disabled = true;
+    statusText.textContent = '';
+    return;
+  }
+
+  if (currentBatch.status === 'confirmed') {
+    btn.disabled = true;
+    btn.textContent = 'Already Confirmed';
+    btn.style.background = '#4caf50';
+    btn.style.borderColor = '#4caf50';
+    statusText.textContent = 'Batch confirmed';
+    statusText.style.color = '#4caf50';
+    return;
+  }
+
+  // Check if all visible cards have a selection
+  let totalCards = 0;
+  let selectedCards = 0;
+
+  for (const img of batchImages) {
+    const disambiguated = img.disambiguated || [];
+    const matches = img.scryfall_matches || [];
+    const numCards = Math.max(disambiguated.length, matches.length);
+
+    for (let i = 0; i < numCards; i++) {
+      // Check if card was removed (no table rows with matching data attrs)
+      const tableEl = document.getElementById(`table-${img.id}-${i}`);
+      if (!tableEl) continue;
+      totalCards++;
+      const sel = getSelectedCandidate(img, i);
+      if (sel) selectedCards++;
+    }
+  }
+
+  btn.textContent = `Confirm (${selectedCards} cards)`;
+  btn.disabled = selectedCards < totalCards || totalCards === 0;
+  btn.style.background = '';
+  btn.style.borderColor = '';
+  statusText.textContent = '';
+  statusText.style.color = '';
+}
+
+// ── Polling for processing images ──
+let pollTimer = null;
+
+function startPolling() {
+  if (pollTimer) return;
+  pollTimer = setInterval(pollBatchUpdates, 3000);
+}
+
+function stopPolling() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+}
+
+async function pollBatchUpdates() {
+  if (!currentBatch) { stopPolling(); return; }
+  const resp = await fetch(`/api/ingest2/batch/${currentBatch.id}`);
+  const data = await resp.json();
+
+  let anyProcessing = false;
+  for (const img of (data.images || [])) {
+    const isProcessing = img.status === 'READY_FOR_OCR' || img.status === 'PROCESSING';
+    if (isProcessing) anyProcessing = true;
+
+    const existingIdx = batchImages.findIndex(bi => bi.id === img.id);
+    if (existingIdx >= 0) {
+      const old = batchImages[existingIdx];
+      const wasProcessing = old.status === 'READY_FOR_OCR' || old.status === 'PROCESSING';
+      if (wasProcessing && !isProcessing) {
+        // Image just finished — rebuild its well
+        batchImages[existingIdx] = img;
+        const oldWell = document.getElementById(`well-${img.id}`);
+        if (oldWell) oldWell.replaceWith(buildPhotoWell(img));
+      }
+    }
+  }
+
+  if (!anyProcessing) stopPolling();
+  updateConfirmButton();
+}
+
+// ── Init ──
+fetch('/api/settings').then(r => r.json()).then(s => { _settings = s; applySettings(); });
+loadBatches();
+</script>
+</body>
+</html>

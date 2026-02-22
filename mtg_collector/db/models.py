@@ -147,6 +147,109 @@ class WishlistEntry:
     fulfilled_at: Optional[str] = None
 
 
+@dataclass
+class IngestBatch:
+    """A batch of uploaded ingest images."""
+    id: Optional[int] = None
+    status: str = "open"
+    opened_at: Optional[str] = None
+    closed_at: Optional[str] = None
+
+
+class IngestBatchRepository:
+    """CRUD operations for ingest_batches table."""
+
+    def __init__(self, conn: sqlite3.Connection):
+        self.conn = conn
+
+    def create(self) -> int:
+        """Create a new open batch. Raises if one is already open."""
+        existing = self.get_open()
+        if existing is not None:
+            raise ValueError(f"An open batch already exists (id={existing.id})")
+        cursor = self.conn.execute(
+            "INSERT INTO ingest_batches (status, opened_at) VALUES ('open', ?)",
+            (now_iso(),),
+        )
+        return cursor.lastrowid
+
+    def get(self, batch_id: int) -> Optional[IngestBatch]:
+        """Get a batch by ID."""
+        row = self.conn.execute(
+            "SELECT * FROM ingest_batches WHERE id = ?", (batch_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_batch(row)
+
+    def get_open(self) -> Optional[IngestBatch]:
+        """Return the single open batch, or None."""
+        row = self.conn.execute(
+            "SELECT * FROM ingest_batches WHERE status = 'open' LIMIT 1"
+        ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_batch(row)
+
+    def get_or_create_open(self) -> IngestBatch:
+        """Return the open batch, creating one if none exists."""
+        batch = self.get_open()
+        if batch is not None:
+            return batch
+        batch_id = self.create()
+        return self.get(batch_id)
+
+    def close(self, batch_id: int) -> None:
+        """Close an open batch."""
+        batch = self.get(batch_id)
+        if batch is None:
+            raise ValueError(f"Batch {batch_id} not found")
+        if batch.status != "open":
+            raise ValueError(f"Batch {batch_id} is '{batch.status}', not 'open'")
+        self.conn.execute(
+            "UPDATE ingest_batches SET status = 'closed', closed_at = ? WHERE id = ?",
+            (now_iso(), batch_id),
+        )
+
+    def confirm(self, batch_id: int) -> None:
+        """Confirm a closed batch."""
+        batch = self.get(batch_id)
+        if batch is None:
+            raise ValueError(f"Batch {batch_id} not found")
+        if batch.status != "closed":
+            raise ValueError(f"Batch {batch_id} is '{batch.status}', not 'closed'")
+        self.conn.execute(
+            "UPDATE ingest_batches SET status = 'confirmed' WHERE id = ?",
+            (batch_id,),
+        )
+
+    def list_all(self) -> List[Dict[str, Any]]:
+        """All batches sorted by opened_at DESC, with image_count."""
+        rows = self.conn.execute(
+            """SELECT b.*,
+                      (SELECT COUNT(*) FROM ingest_images WHERE batch_id = b.id) as image_count
+               FROM ingest_batches b
+               ORDER BY b.opened_at DESC"""
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_batch_images(self, batch_id: int) -> List[Dict[str, Any]]:
+        """All ingest_images rows for a batch, ordered by id."""
+        rows = self.conn.execute(
+            "SELECT * FROM ingest_images WHERE batch_id = ? ORDER BY id",
+            (batch_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def _row_to_batch(self, row: sqlite3.Row) -> IngestBatch:
+        return IngestBatch(
+            id=row["id"],
+            status=row["status"],
+            opened_at=row["opened_at"],
+            closed_at=row["closed_at"],
+        )
+
+
 class CardRepository:
     """CRUD operations for cards table."""
 

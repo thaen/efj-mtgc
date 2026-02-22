@@ -1906,6 +1906,9 @@ function showCardModal(card) {
         <button class="want-btn${getWishlistEntry(card) ? ' wanted' : ''}" id="modal-want-btn">${getWishlistEntry(card) ? 'Wanted' : 'Want'}</button>
       </div>
       <div id="copies-container"><div style="color:#888;font-size:0.85rem;padding:8px 0;">Loading copies...</div></div>
+      ${card.ingest_lineage ? `<div class="modal-section"><span class="modal-section-title">Lineage</span>
+        ${card.ingest_lineage.map(l => `<div class="modal-row"><span class="label">${new Date(l.created_at).toLocaleDateString()}</span><span class="value"><a href="/batch-confirm?image_id=${l.image_id}">View image</a></span></div>`).join('')}
+      </div>` : ''}
     `;
     // Load per-copy data
     loadModalCopies(card);

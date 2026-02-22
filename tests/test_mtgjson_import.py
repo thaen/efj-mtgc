@@ -497,7 +497,7 @@ class TestMigrationV15ToV16:
         conn.commit()
         conn.close()
 
-        # Now init_db should migrate through v16 and v17
+        # Now init_db should migrate through v16, v17, and beyond
         conn2 = get_connection(db_path)
         init_db(conn2)
 

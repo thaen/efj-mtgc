@@ -4,6 +4,7 @@ from mtg_collector.db.connection import close_connection, get_connection, get_db
 from mtg_collector.db.models import (
     CardRepository,
     CollectionRepository,
+    IngestBatchRepository,
     OrderRepository,
     PrintingRepository,
     SetRepository,
@@ -23,4 +24,5 @@ __all__ = [
     "CollectionRepository",
     "OrderRepository",
     "WishlistRepository",
+    "IngestBatchRepository",
 ]

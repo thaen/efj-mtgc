@@ -189,8 +189,7 @@ body {
   <div class="ingest-group">
     <div class="group-label">Ingestor (OCR)</div>
     <a href="/upload">Upload<span id="upload-badge-wrap"></span></a>
-    <a href="/recent">Recent<span id="recent-badge-wrap"></span></a>
-    <a href="/disambiguate">Disambiguate<span id="disambig-badge-wrap"></span></a>
+    <a href="/batch-confirm">Batch Confirmation<span id="disambig-badge-wrap"></span></a>
   </div>
   <a href="/ingest-corners">Ingestor (Corners)<span>Add cards by photographing bottom-left corner text</span></a>
   <a href="/ingestor-ids">Ingestor (Manual ID)<span>Add cards by rarity, collector number, and set code</span></a>
@@ -293,13 +292,9 @@ async function loadIngestCounts() {
     const disambig = counts['READY_FOR_DISAMBIGUATION'] || 0;
     const inProgress = readyForOcr + processing;
 
-    if (inProgress > 0) {
-      document.getElementById('recent-badge-wrap').innerHTML =
-        `<span class="badge">${inProgress}</span> processing`;
-    }
     if (disambig > 0) {
       document.getElementById('disambig-badge-wrap').innerHTML =
-        `<span class="badge">${disambig}</span> ready to disambiguate`;
+        `<span class="badge">${disambig}</span> pending confirmation`;
     }
   } catch (e) {}
 }
