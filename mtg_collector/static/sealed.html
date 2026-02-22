@@ -428,6 +428,59 @@ button.secondary.active { background: #0f3460; border-color: #e94560; }
 }
 .market-price { color: #7ec8e3; font-size: 0.75rem; font-weight: 600; }
 
+/* Column config drawer */
+.col-drawer-backdrop {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  z-index: 89;
+}
+.col-drawer-backdrop.active { display: block; }
+
+.col-drawer {
+  position: fixed;
+  top: 0; right: -320px;
+  width: 260px;
+  height: 100vh;
+  background: #16213e;
+  border-left: 2px solid #0f3460;
+  padding: 16px;
+  overflow-y: auto;
+  z-index: 91;
+  transition: right 0.25s ease;
+  box-shadow: -4px 0 20px rgba(0,0,0,0.5);
+}
+.col-drawer.open { right: 0; }
+.col-drawer h3 {
+  font-size: 0.85rem;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0 0 12px;
+}
+.col-drawer label {
+  display: block;
+  padding: 6px 0;
+  cursor: pointer;
+  font-size: 0.85rem;
+  user-select: none;
+}
+.col-drawer input[type="checkbox"] {
+  margin-right: 8px;
+  accent-color: #e94560;
+}
+
+.col-config-th {
+  cursor: pointer !important;
+  color: #888 !important;
+  width: 28px;
+  padding: 8px 4px !important;
+  text-align: center !important;
+}
+.col-config-th:hover { color: #e94560 !important; }
+.col-config-th.active { color: #e94560 !important; }
+.col-config-th svg { width: 16px; height: 16px; vertical-align: middle; fill: currentColor; }
+
 /* Contents list in modal */
 .contents-list {
   list-style: none;
@@ -876,6 +929,11 @@ a.badge.link:hover { color: #fff; background: #555; border-color: #777; }
 </header>
 
 <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+<div class="col-drawer-backdrop" id="col-drawer-backdrop"></div>
+<aside class="sidebar col-drawer" id="col-drawer">
+  <h3>Columns</h3>
+  <div id="col-config-list"></div>
+</aside>
 <aside class="sidebar" id="sidebar">
   <h3>Set</h3>
   <div class="multi-select-wrap" id="set-filter-wrap">
@@ -948,10 +1006,28 @@ a.badge.link:hover { color: #fff; background: #555; border-color: #777; }
 let allEntries = [];
 let allEntriesFiltered = [];
 let allSets = [];
-let selectedSets = [];
+let selectedSets = new Map(); // code -> name
 let sortKey = 'added_at';
 let sortDir = -1; // -1 = desc
 let viewMode = localStorage.getItem('sealedViewMode') || 'grid';
+
+// ─── Column config ──────────────────────────────────────────────────────────
+const ALL_COLUMNS = [
+  { key: 'qty',      label: 'Qty',      sort: 'quantity',       defaultOn: true },
+  { key: 'name',     label: 'Product',   sort: 'name',           defaultOn: true },
+  { key: 'set',      label: 'Set',       sort: 'set_name',       defaultOn: true },
+  { key: 'category', label: 'Category',  sort: 'category',       defaultOn: true },
+  { key: 'cost',     label: 'Cost',      sort: 'purchase_price', defaultOn: true },
+  { key: 'market',   label: 'Market',    sort: 'market_price',   defaultOn: true },
+  { key: 'added',    label: 'Added',     sort: 'added_at',       defaultOn: false },
+  { key: 'status',   label: 'Status',    sort: 'status',         defaultOn: false },
+];
+const DEFAULT_COLS = ALL_COLUMNS.filter(c => c.defaultOn).map(c => c.key);
+let enabledCols = JSON.parse(localStorage.getItem('sealedCols') || 'null') || DEFAULT_COLS;
+const COL_SORT_MAP = Object.fromEntries(ALL_COLUMNS.map(c => [c.key, c.sort]));
+
+function getVisibleColumns() { return ALL_COLUMNS.filter(c => enabledCols.includes(c.key)); }
+function saveColumns() { localStorage.setItem('sealedCols', JSON.stringify(enabledCols)); }
 
 const CATEGORIES = [
   'booster_box', 'booster_pack', 'booster_case',
@@ -981,6 +1057,44 @@ const addBody = document.getElementById('add-modal-body');
 const productResults = document.getElementById('product-results');
 const detailOverlay = document.getElementById('detail-modal-overlay');
 const pricesStatus = document.getElementById('prices-status');
+const colConfigList = document.getElementById('col-config-list');
+const colDrawer = document.getElementById('col-drawer');
+const colDrawerBackdrop = document.getElementById('col-drawer-backdrop');
+
+// ─── Column config drawer ────────────────────────────────────────────────────
+function renderColConfig() {
+  colConfigList.innerHTML = '';
+  for (const col of ALL_COLUMNS) {
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.id = 'cc-' + col.key;
+    input.checked = enabledCols.includes(col.key);
+    input.addEventListener('change', () => {
+      if (input.checked) {
+        if (!enabledCols.includes(col.key)) enabledCols.push(col.key);
+      } else {
+        enabledCols = enabledCols.filter(k => k !== col.key);
+      }
+      saveColumns();
+      render();
+    });
+    const label = document.createElement('label');
+    label.htmlFor = 'cc-' + col.key;
+    label.textContent = col.label;
+    colConfigList.appendChild(input);
+    colConfigList.appendChild(label);
+  }
+}
+renderColConfig();
+
+function toggleColDrawer(open) {
+  if (open === undefined) open = !colDrawer.classList.contains('open');
+  colDrawer.classList.toggle('open', open);
+  colDrawerBackdrop.classList.toggle('active', open);
+  const th = document.getElementById('col-config-th');
+  if (th) th.classList.toggle('active', open);
+}
+colDrawerBackdrop.addEventListener('click', () => toggleColDrawer(false));
 
 // ─── Init ────────────────────────────────────────────────────────────────────
 (async () => {
@@ -1116,8 +1230,8 @@ function initEventListeners() {
   // Clear filters
   document.getElementById('clear-filters-btn').addEventListener('click', () => {
     searchInput.value = '';
-    selectedSets = [];
-    renderSetPills();
+    selectedSets.clear();
+    setMultiSelect.renderPills();
     document.querySelectorAll('.pill-group input[type="checkbox"]').forEach(cb => cb.checked = false);
     document.getElementById('price-min').value = '';
     document.getElementById('price-max').value = '';
@@ -1125,9 +1239,6 @@ function initEventListeners() {
     document.getElementById('date-max').value = '';
     refilterAndRender();
   });
-
-  // Set multi-select
-  initSetFilter();
 
   // View toggle
   const gridBtn = document.getElementById('view-grid-btn');
@@ -1160,6 +1271,9 @@ function initEventListeners() {
     if (e.key === 'Escape') {
       if (detailOverlay.classList.contains('active')) closeDetailModal();
       else if (addOverlay.classList.contains('active')) closeAddModal();
+      else if (colDrawer.classList.contains('open')) {
+        toggleColDrawer(false);
+      }
       else if (sidebar.classList.contains('open')) {
         sidebar.classList.remove('open');
         sidebarBackdrop.classList.remove('active');
@@ -1168,75 +1282,98 @@ function initEventListeners() {
   });
 }
 
-function initSetFilter() {
-  const input = document.getElementById('set-search');
-  const dropdown = document.getElementById('set-dropdown');
+// ─── Multi-select component (matches collection.html pattern) ────────────────
+function initMultiSelect(config) {
+  const searchEl = document.getElementById(config.searchId);
+  const dropdownEl = document.getElementById(config.dropdownId);
+  const pillsEl = document.getElementById(config.pillsId);
 
-  input.addEventListener('focus', () => renderSetDropdown(input.value));
-  input.addEventListener('input', () => renderSetDropdown(input.value));
-  document.addEventListener('click', e => {
-    if (!document.getElementById('set-filter-wrap').contains(e.target)) {
-      dropdown.classList.remove('open');
+  function renderDropdown(filter) {
+    const q = (filter || '').toLowerCase();
+    const items = config.getOptions().filter(item => {
+      const label = config.getLabel(item).toLowerCase();
+      return !q || label.includes(q);
+    });
+    dropdownEl.innerHTML = '';
+    for (const item of items.slice(0, 50)) {
+      const li = document.createElement('li');
+      const key = config.getKey(item);
+      li.textContent = config.getLabel(item);
+      if (config.isSelected(key)) li.classList.add('selected');
+      li.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        config.toggle(key, item);
+        renderPills();
+        renderDropdown(searchEl.value);
+        refilterAndRender();
+      });
+      dropdownEl.appendChild(li);
     }
+  }
+
+  function renderPills() {
+    pillsEl.innerHTML = '';
+    for (const [key, label] of config.getSelected()) {
+      const pill = document.createElement('span');
+      pill.className = 'selected-pill';
+      pill.innerHTML = `${label} <span class="remove-pill">&times;</span>`;
+      pill.querySelector('.remove-pill').addEventListener('click', () => {
+        config.remove(key);
+        renderPills();
+        renderDropdown(searchEl.value);
+        refilterAndRender();
+      });
+      pillsEl.appendChild(pill);
+    }
+  }
+
+  searchEl.addEventListener('focus', () => {
+    renderDropdown(searchEl.value);
+    dropdownEl.classList.add('open');
   });
+  searchEl.addEventListener('input', () => {
+    renderDropdown(searchEl.value);
+    dropdownEl.classList.add('open');
+  });
+  searchEl.addEventListener('blur', () => {
+    setTimeout(() => dropdownEl.classList.remove('open'), 150);
+  });
+
+  return { renderPills, renderDropdown };
 }
 
-function renderSetDropdown(query) {
-  const dropdown = document.getElementById('set-dropdown');
-  const q = query.toLowerCase();
-  // Get unique sets from current collection
-  const collectionSets = new Map();
+function getSetOptions() {
+  const merged = new Map();
   allEntries.forEach(e => {
-    if (e.set_code && !collectionSets.has(e.set_code)) {
-      collectionSets.set(e.set_code, e.set_name || e.set_code);
+    if (e.set_code && !merged.has(e.set_code)) {
+      merged.set(e.set_code, e.set_name || e.set_code);
     }
   });
-  // Also include allSets from the product catalog
   allSets.forEach(s => {
-    if (!collectionSets.has(s.set_code)) {
-      collectionSets.set(s.set_code, s.set_name);
+    if (!merged.has(s.set_code)) {
+      merged.set(s.set_code, s.set_name);
     }
   });
-
-  const entries = [...collectionSets.entries()]
-    .filter(([code, name]) => !q || name.toLowerCase().includes(q) || code.includes(q))
-    .sort((a, b) => a[1].localeCompare(b[1]))
-    .slice(0, 50);
-
-  dropdown.innerHTML = entries.map(([code, name]) =>
-    `<li data-code="${code}" class="${selectedSets.includes(code) ? 'selected' : ''}">${name} (${code})</li>`
-  ).join('');
-
-  dropdown.classList.add('open');
-  dropdown.querySelectorAll('li').forEach(li => {
-    li.addEventListener('click', () => {
-      const code = li.dataset.code;
-      if (selectedSets.includes(code)) {
-        selectedSets = selectedSets.filter(s => s !== code);
-      } else {
-        selectedSets.push(code);
-      }
-      renderSetPills();
-      renderSetDropdown(document.getElementById('set-search').value);
-      refilterAndRender();
-    });
-  });
+  return [...merged.entries()]
+    .map(([code, name]) => ({ code, name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function renderSetPills() {
-  const container = document.getElementById('set-pills');
-  container.innerHTML = selectedSets.map(code => {
-    const name = allSets.find(s => s.set_code === code)?.set_name || code;
-    return `<span class="selected-pill">${name} <span class="remove-pill" data-code="${code}">&times;</span></span>`;
-  }).join('');
-  container.querySelectorAll('.remove-pill').forEach(btn => {
-    btn.addEventListener('click', () => {
-      selectedSets = selectedSets.filter(s => s !== btn.dataset.code);
-      renderSetPills();
-      refilterAndRender();
-    });
-  });
-}
+const setMultiSelect = initMultiSelect({
+  searchId: 'set-search',
+  dropdownId: 'set-dropdown',
+  pillsId: 'set-pills',
+  getOptions: getSetOptions,
+  getLabel: (item) => `${item.name} (${item.code.toUpperCase()})`,
+  getKey: (item) => item.code,
+  isSelected: (key) => selectedSets.has(key),
+  toggle: (key, item) => {
+    if (selectedSets.has(key)) selectedSets.delete(key);
+    else selectedSets.set(key, item.name);
+  },
+  remove: (key) => selectedSets.delete(key),
+  getSelected: () => Array.from(selectedSets.entries()).map(([k, v]) => [k, `${v} (${k.toUpperCase()})`]),
+});
 
 // ─── Filter + Sort + Render ──────────────────────────────────────────────────
 function refilterAndRender() {
@@ -1250,7 +1387,7 @@ function refilterAndRender() {
 
   allEntriesFiltered = allEntries.filter(e => {
     if (query && !e.name?.toLowerCase().includes(query)) return false;
-    if (selectedSets.length && !selectedSets.includes(e.set_code)) return false;
+    if (selectedSets.size && !selectedSets.has(e.set_code)) return false;
     if (checkedCats.length && !checkedCats.includes(e.category)) return false;
     if (checkedStatuses.length && !checkedStatuses.includes(e.status)) return false;
     if (priceMin != null && (e.purchase_price == null || e.purchase_price < priceMin)) return false;
@@ -1278,6 +1415,18 @@ function applySort() {
   });
 }
 
+function handleSortClick(colKey) {
+  const dataKey = COL_SORT_MAP[colKey] || colKey;
+  if (sortKey === dataKey) {
+    sortDir *= -1;
+  } else {
+    sortKey = dataKey;
+    sortDir = (dataKey === 'name' || dataKey === 'set_name') ? 1 : -1;
+  }
+  applySort();
+  render();
+}
+
 function render() {
   if (allEntriesFiltered.length === 0) {
     if (allEntries.length === 0) {
@@ -1288,49 +1437,42 @@ function render() {
     return;
   }
 
-  const sortButtons = [
-    { key: 'name', label: 'Name' },
-    { key: 'set_name', label: 'Set' },
-    { key: 'added_at', label: 'Date Added' },
-    { key: 'purchase_price', label: 'Cost' },
-    { key: 'market_price', label: 'Market' },
-    { key: 'status', label: 'Status' },
-    { key: 'category', label: 'Category' },
-  ];
+  let html = '';
 
-  let html = '<div class="sort-bar">';
-  sortButtons.forEach(s => {
-    const active = sortKey === s.key;
-    const arrow = active ? (sortDir === 1 ? ' ▲' : ' ▼') : '';
-    html += `<span class="sort-btn${active ? ' active' : ''}" data-sort="${s.key}">${s.label}<span class="sort-arrow">${arrow}</span></span>`;
-  });
-  html += `<span style="flex:1"></span>`;
   if (viewMode === 'grid') {
+    // Sort bar only in grid view (table uses clickable <th> headers)
+    const visCols = getVisibleColumns();
+    html += '<div class="sort-bar">';
+    visCols.forEach(col => {
+      const dataKey = COL_SORT_MAP[col.key] || col.key;
+      const active = sortKey === dataKey;
+      const arrow = active ? (sortDir === 1 ? ' \u25B2' : ' \u25BC') : '';
+      html += `<span class="sort-btn${active ? ' active' : ''}" data-sort="${col.key}">${col.label}<span class="sort-arrow">${arrow}</span></span>`;
+    });
+    html += `<span style="flex:1"></span>`;
     html += `<span class="size-slider-wrap"><span>Size</span><input type="range" id="grid-size-slider" min="120" max="400" value="${parseInt(getComputedStyle(document.documentElement).getPropertyValue('--grid-card-width')) || 220}"></span>`;
-  }
-  html += '</div>';
-
-  if (viewMode === 'table') {
-    html += renderTable();
-  } else {
+    html += '</div>';
     html += renderGrid();
+  } else {
+    html += renderTable();
   }
   mainEl.innerHTML = html;
 
-  // Sort button clicks
+  // Sort button clicks (grid view)
   mainEl.querySelectorAll('.sort-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const key = btn.dataset.sort;
-      if (sortKey === key) {
-        sortDir *= -1;
-      } else {
-        sortKey = key;
-        sortDir = key === 'name' || key === 'set_name' ? 1 : -1;
-      }
-      applySort();
-      render();
-    });
+    btn.addEventListener('click', () => handleSortClick(btn.dataset.sort));
   });
+
+  // Table header sort clicks (table view)
+  mainEl.querySelectorAll('th[data-col]').forEach(th => {
+    th.addEventListener('click', () => handleSortClick(th.dataset.col));
+  });
+
+  // Column config button (table view)
+  const colTh = document.getElementById('col-config-th');
+  if (colTh) {
+    colTh.addEventListener('click', () => toggleColDrawer());
+  }
 
   // Grid size slider
   const slider = document.getElementById('grid-size-slider');
@@ -1383,24 +1525,40 @@ function renderGrid() {
 
 function renderTable() {
   const formatCat = c => c ? c.replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase()) : '';
+  const visCols = getVisibleColumns();
+  const drawerOpen = colDrawer.classList.contains('open');
+  const colIcon = `<svg viewBox="0 0 16 16"><path d="M1 1h4v4H1zm5 0h4v4H6zm5 0h4v4H11zM1 6h4v4H1zm5 0h4v4H6zm5 0h4v4H11zM1 11h4v4H1zm5 0h4v4H6zm5 0h4v4H11z"/></svg>`;
+
   let html = '<table class="sealed-table"><thead><tr>';
-  html += '<th>Product</th><th>Set</th><th>Category</th><th>Status</th><th>Qty</th><th>Cost</th><th>Market</th><th>Added</th>';
+  html += `<th class="col-config-th${drawerOpen ? ' active' : ''}" id="col-config-th" title="Configure columns">${colIcon}</th>`;
+  for (const col of visCols) {
+    const dataKey = COL_SORT_MAP[col.key] || col.key;
+    const isActive = sortKey === dataKey;
+    const arrow = isActive ? `<span class="sort-arrow">${sortDir === 1 ? '\u25B2' : '\u25BC'}</span>` : '';
+    html += `<th class="${isActive ? 'sorted' : ''}" data-col="${col.key}">${col.label}${arrow}</th>`;
+  }
   html += '</tr></thead><tbody>';
+
   allEntriesFiltered.forEach(entry => {
-    const imgTag = entry.image_url ? `<img class="table-thumb" src="${entry.image_url}" loading="lazy"> ` : '';
     const cost = entry.purchase_price != null ? `$${(entry.purchase_price * entry.quantity).toFixed(2)}` : '';
     const market = entry.market_price != null ? `$${entry.market_price.toFixed(2)}` : '';
     const added = entry.added_at ? entry.added_at.slice(0, 10) : '';
-    html += `<tr data-id="${entry.id}">
-      <td>${imgTag}${esc(entry.name || 'Unknown')}</td>
-      <td>${esc(entry.set_name || entry.set_code || '')}</td>
-      <td>${formatCat(entry.category)}</td>
-      <td><span class="disposition-badge ${entry.status}">${entry.status}</span></td>
-      <td>${entry.quantity}</td>
-      <td>${cost}</td>
-      <td>${market}</td>
-      <td>${added}</td>
-    </tr>`;
+
+    html += `<tr data-id="${entry.id}">`;
+    html += '<td></td>'; // spacer for col-config column
+    for (const col of visCols) {
+      switch (col.key) {
+        case 'qty':      html += `<td>${entry.quantity}</td>`; break;
+        case 'name':     html += `<td>${esc(entry.name || 'Unknown')}</td>`; break;
+        case 'set':      html += `<td>${esc(entry.set_name || entry.set_code || '')}</td>`; break;
+        case 'category': html += `<td>${formatCat(entry.category)}</td>`; break;
+        case 'cost':     html += `<td>${cost}</td>`; break;
+        case 'market':   html += `<td>${market}</td>`; break;
+        case 'added':    html += `<td>${added}</td>`; break;
+        case 'status':   html += `<td><span class="disposition-badge ${entry.status}">${entry.status}</span></td>`; break;
+      }
+    }
+    html += '</tr>';
   });
   html += '</tbody></table>';
   return html;
