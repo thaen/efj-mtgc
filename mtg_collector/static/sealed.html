@@ -586,7 +586,7 @@ button.secondary.active { background: #0f3460; border-color: #e94560; }
 }
 
 .card-modal-details {
-  width: 340px;
+  width: 420px;
   padding: 24px;
   overflow-y: auto;
   display: flex;
@@ -903,10 +903,53 @@ a.badge.link:hover { color: #fff; background: #555; border-color: #777; }
   margin-top: 8px;
 }
 
+/* Entry rows in aggregated detail modal */
+.entry-row {
+  border: 1px solid #0f3460;
+  border-radius: 6px;
+  margin-bottom: 6px;
+  overflow: hidden;
+}
+.entry-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  font-size: 0.82rem;
+  cursor: default;
+  flex-wrap: wrap;
+}
+.entry-summary .entry-detail { color: #aaa; }
+.entry-summary .entry-actions { margin-left: auto; display: flex; gap: 4px; }
+.entry-summary .entry-actions button {
+  padding: 2px 8px;
+  font-size: 0.75rem;
+  border-radius: 3px;
+}
+.entry-edit-pane {
+  display: none;
+  padding: 10px;
+  background: #0f1a2e;
+  border-top: 1px solid #0f3460;
+  flex-direction: column;
+  gap: 6px;
+}
+.entry-edit-pane.open { display: flex; }
+.entry-edit-pane .modal-edit-row { font-size: 0.82rem; }
+.entry-edit-pane .entry-edit-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
+/* Status badges in aggregated grid/table */
+.status-badges { display: flex; gap: 3px; flex-wrap: wrap; }
+
 @media (max-width: 768px) {
   .card-modal { flex-direction: column; max-height: 95vh; }
   .card-modal-img img { height: auto; width: 70vw; }
-  .card-modal-details { width: auto; }
+  .card-modal-details { width: auto; min-width: 0; }
   #search-input { width: 140px; }
   .add-modal { width: 95vw; }
 }
@@ -1004,6 +1047,7 @@ a.badge.link:hover { color: #fff; background: #555; border-color: #777; }
 // ─── State ───────────────────────────────────────────────────────────────────
 let allEntries = [];
 let allEntriesFiltered = [];
+let aggregatedProducts = [];
 let allSets = [];
 let selectedSets = new Map(); // code -> name
 let sortKey = 'added_at';
@@ -1012,17 +1056,24 @@ let viewMode = localStorage.getItem('sealedViewMode') || 'table';
 
 // ─── Column config ──────────────────────────────────────────────────────────
 const ALL_COLUMNS = [
-  { key: 'qty',      label: 'Qty',      sort: 'quantity',       defaultOn: true },
-  { key: 'image',    label: '',          sort: null,             defaultOn: true },
+  { key: 'qty',      label: 'Qty',      sort: 'total_quantity',  defaultOn: true },
+  { key: 'image',    label: '',          sort: null,              defaultOn: true },
   { key: 'name',     label: 'Set',       sort: 'set_name',       defaultOn: true },
   { key: 'set',      label: 'Type',      sort: 'category',       defaultOn: true },
-  { key: 'cost',     label: 'Cost',      sort: 'purchase_price', defaultOn: true },
-  { key: 'market',   label: 'Market',    sort: 'market_price',   defaultOn: true },
+  { key: 'min_cost', label: 'Min Cost',  sort: 'min_cost',       defaultOn: true },
+  { key: 'max_cost', label: 'Max Cost',  sort: 'max_cost',       defaultOn: false },
+  { key: 'avg_cost', label: 'Avg Cost',  sort: 'avg_cost',       defaultOn: false },
+  { key: 'market',   label: 'Market',    sort: 'market_total',   defaultOn: true },
   { key: 'added',    label: 'Added',     sort: 'added_at',       defaultOn: false },
-  { key: 'status',   label: 'Status',    sort: 'status',         defaultOn: false },
+  { key: 'status',   label: 'Status',    sort: 'primary_status', defaultOn: false },
 ];
 const DEFAULT_COLS = ALL_COLUMNS.filter(c => c.defaultOn).map(c => c.key);
+// Migrate old 'cost' column to 'min_cost'
 let enabledCols = JSON.parse(localStorage.getItem('sealedCols') || 'null') || DEFAULT_COLS;
+if (enabledCols.includes('cost')) {
+  enabledCols = enabledCols.map(k => k === 'cost' ? 'min_cost' : k);
+  localStorage.setItem('sealedCols', JSON.stringify(enabledCols));
+}
 const COL_SORT_MAP = Object.fromEntries(ALL_COLUMNS.map(c => [c.key, c.sort]));
 
 function getVisibleColumns() { return ALL_COLUMNS.filter(c => enabledCols.includes(c.key)); }
@@ -1383,6 +1434,101 @@ const setMultiSelect = initMultiSelect({
   getSelected: () => Array.from(selectedSets.entries()).map(([k, v]) => [k, `${v} (${k.toUpperCase()})`]),
 });
 
+// ─── Aggregation ─────────────────────────────────────────────────────────────
+function buildAggregatedProducts(filteredEntries) {
+  const groups = new Map();
+  for (const entry of filteredEntries) {
+    const key = entry.sealed_product_uuid;
+    if (!key) continue;
+    let group = groups.get(key);
+    if (!group) {
+      group = {
+        uuid: key,
+        name: entry.name,
+        set_name: entry.set_name,
+        set_code: entry.set_code,
+        category: entry.category,
+        subtype: entry.subtype,
+        release_date: entry.release_date,
+        card_count: entry.card_count,
+        image_url: entry.image_url,
+        contents_json: entry.contents_json,
+        tcgplayer_product_id: entry.tcgplayer_product_id,
+        purchase_url_tcgplayer: entry.purchase_url_tcgplayer,
+        purchase_url_cardkingdom: entry.purchase_url_cardkingdom,
+        market_price: entry.market_price,
+        low_price: entry.low_price,
+        mid_price: entry.mid_price,
+        high_price: entry.high_price,
+        total_quantity: 0,
+        min_cost: null,
+        max_cost: null,
+        avg_cost: null,
+        market_total: null,
+        status_counts: {},
+        primary_status: null,
+        added_at: entry.added_at,
+        entries: [],
+      };
+      groups.set(key, group);
+    }
+    group.entries.push(entry);
+    group.total_quantity += entry.quantity;
+
+    // Track per-unit purchase price for min/max/avg
+    if (entry.purchase_price != null) {
+      if (group.min_cost == null || entry.purchase_price < group.min_cost) group.min_cost = entry.purchase_price;
+      if (group.max_cost == null || entry.purchase_price > group.max_cost) group.max_cost = entry.purchase_price;
+    }
+
+    // Status counts
+    const s = entry.status || 'owned';
+    group.status_counts[s] = (group.status_counts[s] || 0) + entry.quantity;
+
+    // Earliest added_at
+    if (entry.added_at && (!group.added_at || entry.added_at < group.added_at)) {
+      group.added_at = entry.added_at;
+    }
+  }
+
+  // Finalize computed fields
+  for (const group of groups.values()) {
+    // Weighted average cost (weighted by quantity)
+    let totalCost = 0, totalCostQty = 0;
+    for (const entry of group.entries) {
+      if (entry.purchase_price != null) {
+        totalCost += entry.purchase_price * entry.quantity;
+        totalCostQty += entry.quantity;
+      }
+    }
+    if (totalCostQty > 0) group.avg_cost = totalCost / totalCostQty;
+
+    // Market total
+    if (group.market_price != null) {
+      group.market_total = group.market_price * group.total_quantity;
+    }
+
+    // Primary status = most common
+    let maxCount = 0;
+    for (const [status, count] of Object.entries(group.status_counts)) {
+      if (count > maxCount) { maxCount = count; group.primary_status = status; }
+    }
+  }
+
+  return Array.from(groups.values());
+}
+
+function renderStatusBadges(statusCounts) {
+  const statuses = Object.entries(statusCounts);
+  if (statuses.length === 1) {
+    const [s] = statuses[0];
+    return `<span class="disposition-badge ${s}">${s}</span>`;
+  }
+  return '<span class="status-badges">' +
+    statuses.map(([s, n]) => `<span class="disposition-badge ${s}">${n} ${s}</span>`).join('') +
+    '</span>';
+}
+
 // ─── Filter + Sort + Render ──────────────────────────────────────────────────
 function refilterAndRender() {
   const query = searchInput.value.toLowerCase().trim();
@@ -1405,12 +1551,13 @@ function refilterAndRender() {
     return true;
   });
 
+  aggregatedProducts = buildAggregatedProducts(allEntriesFiltered);
   applySort();
   render();
 }
 
 function applySort() {
-  allEntriesFiltered.sort((a, b) => {
+  aggregatedProducts.sort((a, b) => {
     let va = a[sortKey], vb = b[sortKey];
     if (va == null && vb == null) return 0;
     if (va == null) return 1;
@@ -1436,7 +1583,7 @@ function handleSortClick(colKey) {
 }
 
 function render() {
-  if (allEntriesFiltered.length === 0) {
+  if (aggregatedProducts.length === 0) {
     if (allEntries.length === 0) {
       mainEl.innerHTML = '<div class="empty-state">No sealed products in your collection yet. Click "+ Add" to get started.</div>';
     } else {
@@ -1492,11 +1639,11 @@ function render() {
   }
 
   // Card/row clicks open detail modal
-  mainEl.querySelectorAll('[data-id]').forEach(el => {
+  mainEl.querySelectorAll('[data-uuid]').forEach(el => {
     el.addEventListener('click', () => {
-      const id = parseInt(el.dataset.id);
-      const entry = allEntries.find(e => e.id === id);
-      if (entry) openDetailModal(entry);
+      const uuid = el.dataset.uuid;
+      const product = aggregatedProducts.find(p => p.uuid === uuid);
+      if (product) openDetailModal(product);
     });
   });
 }
@@ -1510,27 +1657,27 @@ function formatCategory(entry) {
 
 function renderGrid() {
   let html = '<div class="card-grid">';
-  allEntriesFiltered.forEach(entry => {
-    const imgHtml = entry.image_url
-      ? `<img src="${entry.image_url}" alt="${esc(entry.name)}" loading="lazy">`
-      : `<div class="no-image">${esc(entry.name || 'Unknown Product')}</div>`;
+  aggregatedProducts.forEach(product => {
+    const imgHtml = product.image_url
+      ? `<img src="${product.image_url}" alt="${esc(product.name)}" loading="lazy">`
+      : `<div class="no-image">${esc(product.name || 'Unknown Product')}</div>`;
 
-    const qtyBadge = entry.quantity > 1 ? `<span class="qty-badge">${entry.quantity}x</span>` : '';
-    const statusBadge = `<span class="status-badge ${entry.status}">${entry.status}</span>`;
-    const costText = entry.purchase_price != null ? `$${(entry.purchase_price * entry.quantity).toFixed(2)}` : '';
-    const marketText = entry.market_price != null ? `$${(entry.market_price * entry.quantity).toFixed(2)}` : '';
+    const qtyBadge = product.total_quantity > 1 ? `<span class="qty-badge">${product.total_quantity}x</span>` : '';
+    const statusBadge = `<span class="status-badge ${product.primary_status}">${product.primary_status}</span>`;
+    const costText = product.min_cost != null ? `$${product.min_cost.toFixed(2)}` : '';
+    const marketText = product.market_total != null ? `$${product.market_total.toFixed(2)}` : '';
 
-    html += `<div class="sheet-card" data-id="${entry.id}">
+    html += `<div class="sheet-card" data-uuid="${product.uuid}">
       <div class="sheet-card-img-wrap">
         ${imgHtml}
         ${qtyBadge}
         ${statusBadge}
       </div>
       <div class="card-info">
-        <div class="card-name">${esc(entry.set_name || entry.set_code || '')}</div>
-        <div class="card-set">${esc(formatCategory(entry))}</div>
+        <div class="card-name">${esc(product.set_name || product.set_code || '')}</div>
+        <div class="card-set">${esc(formatCategory(product))}</div>
         ${marketText ? `<div class="market-price">${marketText} mkt</div>` : ''}
-        ${costText ? `<div class="card-price">${costText} cost</div>` : ''}
+        ${costText ? `<div class="card-price">${costText}/ea cost</div>` : ''}
       </div>
     </div>`;
   });
@@ -1557,26 +1704,30 @@ function renderTable() {
   }
   html += '</tr></thead><tbody>';
 
-  allEntriesFiltered.forEach(entry => {
-    const cost = entry.purchase_price != null ? `$${(entry.purchase_price * entry.quantity).toFixed(2)}` : '';
-    const market = entry.market_price != null ? `$${(entry.market_price * entry.quantity).toFixed(2)}` : '';
-    const added = entry.added_at ? entry.added_at.slice(0, 10) : '';
+  aggregatedProducts.forEach(product => {
+    const minCost = product.min_cost != null ? `$${product.min_cost.toFixed(2)}` : '';
+    const maxCost = product.max_cost != null ? `$${product.max_cost.toFixed(2)}` : '';
+    const avgCost = product.avg_cost != null ? `$${product.avg_cost.toFixed(2)}` : '';
+    const market = product.market_total != null ? `$${product.market_total.toFixed(2)}` : '';
+    const added = product.added_at ? product.added_at.slice(0, 10) : '';
 
-    html += `<tr data-id="${entry.id}">`;
+    html += `<tr data-uuid="${product.uuid}">`;
     html += '<td></td>';
-    const thumbHtml = entry.image_url
-      ? `<img class="table-thumb" src="${entry.image_url}" alt="" loading="lazy">`
+    const thumbHtml = product.image_url
+      ? `<img class="table-thumb" src="${product.image_url}" alt="" loading="lazy">`
       : '';
     for (const col of visCols) {
       switch (col.key) {
-        case 'qty':      html += `<td>${entry.quantity}</td>`; break;
+        case 'qty':      html += `<td>${product.total_quantity}</td>`; break;
         case 'image':    html += `<td class="col-image">${thumbHtml}</td>`; break;
-        case 'name':     html += `<td>${esc(entry.set_name || entry.set_code || '')}</td>`; break;
-        case 'set':      html += `<td>${esc(formatCategory(entry))}</td>`; break;
-        case 'cost':     html += `<td>${cost}</td>`; break;
+        case 'name':     html += `<td>${esc(product.set_name || product.set_code || '')}</td>`; break;
+        case 'set':      html += `<td>${esc(formatCategory(product))}</td>`; break;
+        case 'min_cost': html += `<td>${minCost}</td>`; break;
+        case 'max_cost': html += `<td>${maxCost}</td>`; break;
+        case 'avg_cost': html += `<td>${avgCost}</td>`; break;
         case 'market':   html += `<td>${market}</td>`; break;
         case 'added':    html += `<td>${added}</td>`; break;
-        case 'status':   html += `<td><span class="disposition-badge ${entry.status}">${entry.status}</span></td>`; break;
+        case 'status':   html += `<td>${renderStatusBadges(product.status_counts)}</td>`; break;
       }
     }
     html += '</tr>';
@@ -1586,46 +1737,57 @@ function renderTable() {
 }
 
 // ─── Detail Modal ────────────────────────────────────────────────────────────
-function openDetailModal(entry) {
+function openDetailModal(product) {
   const imgPane = document.getElementById('detail-img-pane');
   const detailsPane = document.getElementById('detail-details-pane');
 
-  if (entry.image_url) {
-    imgPane.innerHTML = `<img src="${entry.image_url}" alt="${esc(entry.name)}">`;
+  if (product.image_url) {
+    imgPane.innerHTML = `<img src="${product.image_url}" alt="${esc(product.name)}">`;
     imgPane.style.display = '';
   } else {
     imgPane.innerHTML = '';
     imgPane.style.display = 'none';
   }
 
-  const transitions = VALID_TRANSITIONS[entry.status] || [];
-  const formatCategory = c => c ? c.replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase()) : '—';
+  const fmtCat = c => c ? c.replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase()) : '—';
+  const fmtPrice = v => v != null ? `$${v.toFixed(2)}` : '—';
 
-  let html = `<h2>${esc(entry.name || 'Unknown Product')}</h2>`;
+  let html = `<h2>${esc(product.name || 'Unknown Product')}</h2>`;
 
   // Product info section
   html += `<div class="modal-section">
     <div class="modal-section-title">Product</div>
-    <div class="modal-row"><span class="label">Set</span><span class="value">${esc(entry.set_name || entry.set_code || '—')}</span></div>
-    <div class="modal-row"><span class="label">Category</span><span class="value">${formatCategory(entry.category)}</span></div>
-    ${entry.subtype ? `<div class="modal-row"><span class="label">Subtype</span><span class="value">${formatCategory(entry.subtype)}</span></div>` : ''}
-    ${entry.release_date ? `<div class="modal-row"><span class="label">Release</span><span class="value">${entry.release_date}</span></div>` : ''}
-    ${entry.card_count ? `<div class="modal-row"><span class="label">Cards</span><span class="value">${entry.card_count}</span></div>` : ''}
+    <div class="modal-row"><span class="label">Set</span><span class="value">${esc(product.set_name || product.set_code || '—')}</span></div>
+    <div class="modal-row"><span class="label">Category</span><span class="value">${fmtCat(product.category)}</span></div>
+    ${product.subtype ? `<div class="modal-row"><span class="label">Subtype</span><span class="value">${fmtCat(product.subtype)}</span></div>` : ''}
+    ${product.release_date ? `<div class="modal-row"><span class="label">Release</span><span class="value">${product.release_date}</span></div>` : ''}
+    ${product.card_count ? `<div class="modal-row"><span class="label">Cards</span><span class="value">${product.card_count}</span></div>` : ''}
+    <div class="modal-row"><span class="label">Total Qty</span><span class="value">${product.total_quantity}</span></div>
   </div>`;
 
+  // Cost summary section
+  if (product.min_cost != null) {
+    html += `<div class="modal-section">
+      <div class="modal-section-title">Cost (per unit)</div>
+      <div class="modal-row"><span class="label">Min</span><span class="value">${fmtPrice(product.min_cost)}</span></div>
+      <div class="modal-row"><span class="label">Max</span><span class="value">${fmtPrice(product.max_cost)}</span></div>
+      <div class="modal-row"><span class="label">Avg</span><span class="value">${fmtPrice(product.avg_cost)}</span></div>
+    </div>`;
+  }
+
   // Market price section
-  if (entry.market_price != null) {
+  if (product.market_price != null) {
     html += `<div class="modal-section">
       <div class="modal-section-title">Market Price</div>
-      <div class="modal-row"><span class="label">Market</span><span class="value" style="color:#7ec8e3;font-weight:700">$${(entry.market_price * entry.quantity).toFixed(2)}${entry.quantity > 1 ? ` (${entry.quantity} × $${entry.market_price.toFixed(2)})` : ''}</span></div>
-      ${entry.low_price != null ? `<div class="modal-row"><span class="label">Low</span><span class="value">$${entry.low_price.toFixed(2)}</span></div>` : ''}
-      ${entry.mid_price != null ? `<div class="modal-row"><span class="label">Mid</span><span class="value">$${entry.mid_price.toFixed(2)}</span></div>` : ''}
-      ${entry.high_price != null ? `<div class="modal-row"><span class="label">High</span><span class="value">$${entry.high_price.toFixed(2)}</span></div>` : ''}
+      <div class="modal-row"><span class="label">Total</span><span class="value" style="color:#7ec8e3;font-weight:700">${fmtPrice(product.market_total)}${product.total_quantity > 1 ? ` (${product.total_quantity} × ${fmtPrice(product.market_price)})` : ''}</span></div>
+      ${product.low_price != null ? `<div class="modal-row"><span class="label">Low</span><span class="value">${fmtPrice(product.low_price)}</span></div>` : ''}
+      ${product.mid_price != null ? `<div class="modal-row"><span class="label">Mid</span><span class="value">${fmtPrice(product.mid_price)}</span></div>` : ''}
+      ${product.high_price != null ? `<div class="modal-row"><span class="label">High</span><span class="value">${fmtPrice(product.high_price)}</span></div>` : ''}
     </div>`;
   }
 
   // Price history placeholder (loaded async)
-  if (entry.tcgplayer_product_id) {
+  if (product.tcgplayer_product_id) {
     html += `<div class="modal-section" id="price-history-section" style="display:none">
       <div class="modal-section-title">Price History</div>
       <div id="price-history-body"></div>
@@ -1633,9 +1795,9 @@ function openDetailModal(entry) {
   }
 
   // Contents breakdown
-  if (entry.contents_json) {
+  if (product.contents_json) {
     try {
-      const contents = typeof entry.contents_json === 'string' ? JSON.parse(entry.contents_json) : entry.contents_json;
+      const contents = typeof product.contents_json === 'string' ? JSON.parse(product.contents_json) : product.contents_json;
       const items = [];
       if (contents.sealed) contents.sealed.forEach(s => items.push(`${s.count || 1}x ${s.name}`));
       if (contents.deck) contents.deck.forEach(d => items.push(`${d.name} deck`));
@@ -1650,61 +1812,67 @@ function openDetailModal(entry) {
     } catch (e) {}
   }
 
-  // Collection info (editable)
+  // Entries section — one collapsible row per collection entry
   html += `<div class="modal-section">
-    <div class="modal-section-title">Collection</div>
-    <div class="modal-row"><span class="label">Status</span><span class="value"><span class="disposition-badge ${entry.status}">${entry.status}</span></span></div>
-    <div class="modal-edit-row"><span class="label">Qty</span><input type="number" id="edit-qty" value="${entry.quantity}" min="1"></div>
-    <div class="modal-edit-row"><span class="label">Condition</span><select id="edit-condition">
-      ${['Near Mint','Lightly Played','Moderately Played','Heavily Played','Damaged'].map(c =>
-        `<option value="${c}" ${entry.condition === c ? 'selected' : ''}>${c}</option>`
-      ).join('')}
-    </select></div>
-    <div class="modal-edit-row"><span class="label">Price</span><input type="number" id="edit-price" value="${entry.purchase_price ?? ''}" min="0" step="0.01" placeholder="0.00"></div>
-    <div class="modal-edit-row"><span class="label">Date</span><input type="date" id="edit-date" value="${entry.purchase_date || ''}"></div>
-    <div class="modal-edit-row"><span class="label">Source</span><input type="text" id="edit-source" value="${esc(entry.source || '')}" placeholder="e.g. TCGPlayer, LGS"></div>
-    <div class="modal-edit-row"><span class="label">Seller</span><input type="text" id="edit-seller" value="${esc(entry.seller_name || '')}" placeholder="Store name"></div>
-    <div class="modal-edit-row"><span class="label">Notes</span><textarea id="edit-notes" rows="2" placeholder="Optional notes">${esc(entry.notes || '')}</textarea></div>
-    ${entry.sale_price != null ? `<div class="modal-row"><span class="label">Sale Price</span><span class="value">$${entry.sale_price.toFixed(2)}</span></div>` : ''}
-    ${entry.added_at ? `<div class="modal-row"><span class="label">Added</span><span class="value">${entry.added_at.replace('T', ' ').slice(0, 16)}</span></div>` : ''}
-  </div>`;
+    <div class="modal-section-title">Entries (${product.entries.length})</div>`;
+  product.entries.forEach((entry, idx) => {
+    const transitions = VALID_TRANSITIONS[entry.status] || [];
+    const costStr = entry.purchase_price != null ? `${entry.quantity} × $${entry.purchase_price.toFixed(2)}` : `${entry.quantity}x`;
+    const dateStr = entry.purchase_date || (entry.added_at ? entry.added_at.slice(0, 10) : '');
+    const sourceStr = [entry.source, entry.seller_name].filter(Boolean).join(' / ');
 
-  // Save button
-  html += `<div class="modal-actions">
-    <button id="save-entry-btn" data-id="${entry.id}">Save Changes</button>
-  </div>`;
-
-  // Dispose section
-  if (transitions.length > 0) {
-    html += `<div class="modal-section">
-      <div class="modal-section-title">Dispose</div>
-      <div class="dispose-controls">
-        <select id="dispose-status">${transitions.map(t => `<option value="${t}">${t}</option>`).join('')}</select>
-        <input type="number" id="dispose-price" placeholder="Sale $" min="0" step="0.01">
-        <button class="dispose-btn" id="dispose-btn" data-id="${entry.id}">Dispose</button>
+    html += `<div class="entry-row">
+      <div class="entry-summary">
+        <span class="disposition-badge ${entry.status}">${entry.status}</span>
+        <span>${costStr}</span>
+        ${entry.condition && entry.condition !== 'Near Mint' ? `<span class="entry-detail">${entry.condition}</span>` : ''}
+        ${sourceStr ? `<span class="entry-detail">${esc(sourceStr)}</span>` : ''}
+        ${dateStr ? `<span class="entry-detail">${dateStr}</span>` : ''}
+        <span class="entry-actions">
+          <button class="secondary entry-edit-toggle" data-idx="${idx}">Edit</button>
+        </span>
+      </div>
+      <div class="entry-edit-pane" id="entry-edit-${idx}">
+        <div class="modal-edit-row"><span class="label">Qty</span><input type="number" class="ee-qty" value="${entry.quantity}" min="1"></div>
+        <div class="modal-edit-row"><span class="label">Condition</span><select class="ee-condition">
+          ${['Near Mint','Lightly Played','Moderately Played','Heavily Played','Damaged'].map(c =>
+            `<option value="${c}" ${entry.condition === c ? 'selected' : ''}>${c}</option>`
+          ).join('')}
+        </select></div>
+        <div class="modal-edit-row"><span class="label">Price</span><input type="number" class="ee-price" value="${entry.purchase_price ?? ''}" min="0" step="0.01" placeholder="0.00"></div>
+        <div class="modal-edit-row"><span class="label">Date</span><input type="date" class="ee-date" value="${entry.purchase_date || ''}"></div>
+        <div class="modal-edit-row"><span class="label">Source</span><input type="text" class="ee-source" value="${esc(entry.source || '')}" placeholder="e.g. TCGPlayer, LGS"></div>
+        <div class="modal-edit-row"><span class="label">Seller</span><input type="text" class="ee-seller" value="${esc(entry.seller_name || '')}" placeholder="Store name"></div>
+        <div class="modal-edit-row"><span class="label">Notes</span><textarea class="ee-notes" rows="2" placeholder="Optional notes">${esc(entry.notes || '')}</textarea></div>
+        ${entry.sale_price != null ? `<div class="modal-row"><span class="label">Sale Price</span><span class="value">$${entry.sale_price.toFixed(2)}</span></div>` : ''}
+        <div class="entry-edit-actions">
+          <button class="entry-save-btn" data-entry-id="${entry.id}" data-idx="${idx}">Save</button>
+          ${transitions.length > 0 ? `
+            <select class="ee-dispose-status">${transitions.map(t => `<option value="${t}">${t}</option>`).join('')}</select>
+            <input type="number" class="ee-dispose-price" placeholder="Sale $" min="0" step="0.01" style="width:70px">
+            <button class="dispose-btn entry-dispose-btn" data-entry-id="${entry.id}" data-idx="${idx}">Dispose</button>
+          ` : ''}
+          <button class="delete-btn entry-delete-btn" data-entry-id="${entry.id}">Delete</button>
+        </div>
       </div>
     </div>`;
-  }
+  });
+  html += '</div>';
 
   // Links
   const links = [];
-  if (entry.purchase_url_tcgplayer) links.push(`<a class="badge link" href="${entry.purchase_url_tcgplayer}" target="_blank" rel="noopener">TCGPlayer</a>`);
-  if (entry.purchase_url_cardkingdom) links.push(`<a class="badge link" href="${entry.purchase_url_cardkingdom}" target="_blank" rel="noopener">Card Kingdom</a>`);
+  if (product.purchase_url_tcgplayer) links.push(`<a class="badge link" href="${product.purchase_url_tcgplayer}" target="_blank" rel="noopener">TCGPlayer</a>`);
+  if (product.purchase_url_cardkingdom) links.push(`<a class="badge link" href="${product.purchase_url_cardkingdom}" target="_blank" rel="noopener">Card Kingdom</a>`);
   if (links.length) {
     html += `<div class="modal-section"><div class="modal-section-title">Links</div><div class="modal-links">${links.join('')}</div></div>`;
   }
-
-  // Delete
-  html += `<div class="modal-section">
-    <button class="delete-btn" id="delete-entry-btn" data-id="${entry.id}">Delete Entry</button>
-  </div>`;
 
   detailsPane.innerHTML = html;
   detailOverlay.classList.add('active');
 
   // Load price history async
-  if (entry.tcgplayer_product_id) {
-    fetch(`/api/sealed/prices/${entry.tcgplayer_product_id}`)
+  if (product.tcgplayer_product_id) {
+    fetch(`/api/sealed/prices/${product.tcgplayer_product_id}`)
       .then(r => r.json())
       .then(prices => {
         const section = document.getElementById('price-history-section');
@@ -1722,36 +1890,50 @@ function openDetailModal(entry) {
       .catch(() => {});
   }
 
-  // Save handler
-  document.getElementById('save-entry-btn').addEventListener('click', async () => {
-    const id = entry.id;
-    const body = {
-      quantity: parseInt(document.getElementById('edit-qty').value) || 1,
-      condition: document.getElementById('edit-condition').value,
-      purchase_price: parseFloat(document.getElementById('edit-price').value) || null,
-      purchase_date: document.getElementById('edit-date').value || null,
-      source: document.getElementById('edit-source').value || null,
-      seller_name: document.getElementById('edit-seller').value || null,
-      notes: document.getElementById('edit-notes').value || null,
-    };
-    const res = await fetch(`/api/sealed/collection/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+  // Edit toggle handlers
+  detailsPane.querySelectorAll('.entry-edit-toggle').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const pane = document.getElementById(`entry-edit-${btn.dataset.idx}`);
+      if (pane) {
+        pane.classList.toggle('open');
+        btn.textContent = pane.classList.contains('open') ? 'Close' : 'Edit';
+      }
     });
-    if (res.ok) {
-      closeDetailModal();
-      await fetchCollection();
-    }
   });
 
-  // Dispose handler
-  const disposeBtn = document.getElementById('dispose-btn');
-  if (disposeBtn) {
-    disposeBtn.addEventListener('click', async () => {
-      const id = entry.id;
-      const body = { new_status: document.getElementById('dispose-status').value };
-      const salePrice = parseFloat(document.getElementById('dispose-price').value);
+  // Save handlers per entry
+  detailsPane.querySelectorAll('.entry-save-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = parseInt(btn.dataset.entryId);
+      const pane = document.getElementById(`entry-edit-${btn.dataset.idx}`);
+      const body = {
+        quantity: parseInt(pane.querySelector('.ee-qty').value) || 1,
+        condition: pane.querySelector('.ee-condition').value,
+        purchase_price: parseFloat(pane.querySelector('.ee-price').value) || null,
+        purchase_date: pane.querySelector('.ee-date').value || null,
+        source: pane.querySelector('.ee-source').value || null,
+        seller_name: pane.querySelector('.ee-seller').value || null,
+        notes: pane.querySelector('.ee-notes').value || null,
+      };
+      const res = await fetch(`/api/sealed/collection/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        closeDetailModal();
+        await fetchCollection();
+      }
+    });
+  });
+
+  // Dispose handlers per entry
+  detailsPane.querySelectorAll('.entry-dispose-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = parseInt(btn.dataset.entryId);
+      const pane = document.getElementById(`entry-edit-${btn.dataset.idx}`);
+      const body = { new_status: pane.querySelector('.ee-dispose-status').value };
+      const salePrice = parseFloat(pane.querySelector('.ee-dispose-price').value);
       if (!isNaN(salePrice)) body.sale_price = salePrice;
       const res = await fetch(`/api/sealed/collection/${id}/dispose`, {
         method: 'POST',
@@ -1763,17 +1945,19 @@ function openDetailModal(entry) {
         await fetchCollection();
       }
     });
-  }
+  });
 
-  // Delete handler
-  document.getElementById('delete-entry-btn').addEventListener('click', async () => {
-    if (!confirm('Delete this sealed collection entry? This cannot be undone.')) return;
-    const id = entry.id;
-    const res = await fetch(`/api/sealed/collection/${id}?confirm=true`, { method: 'DELETE' });
-    if (res.ok) {
-      closeDetailModal();
-      await fetchCollection();
-    }
+  // Delete handlers per entry
+  detailsPane.querySelectorAll('.entry-delete-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('Delete this sealed collection entry? This cannot be undone.')) return;
+      const id = parseInt(btn.dataset.entryId);
+      const res = await fetch(`/api/sealed/collection/${id}?confirm=true`, { method: 'DELETE' });
+      if (res.ok) {
+        closeDetailModal();
+        await fetchCollection();
+      }
+    });
   });
 }
 
