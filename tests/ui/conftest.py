@@ -33,6 +33,14 @@ def pytest_addoption(parser):
         )
     except ValueError:
         pass
+    try:
+        parser.addoption(
+            "--base-url",
+            default=None,
+            help="Base URL to test against directly, skipping container discovery (e.g. http://localhost:8000)",
+        )
+    except ValueError:
+        pass
 
 
 @pytest.fixture(scope="session")
@@ -55,8 +63,28 @@ def _discover_container(instance_name):
 
 
 @pytest.fixture(scope="session")
-def base_url(instance_name):
-    """Discover the HTTPS base URL for the running container instance."""
+def base_url(request, instance_name):
+    """Discover the base URL for the running server.
+
+    Use --base-url to point at a local dev server directly (e.g.
+    http://localhost:8000), or --instance for Podman container discovery.
+    """
+    explicit = request.config.getoption("--base-url")
+    if explicit:
+        # Verify the instance is responding.
+        try:
+            req = urllib.request.Request(f"{explicit}/")
+            kwargs = {"timeout": 5}
+            if explicit.startswith("https"):
+                ctx = ssl.create_default_context()
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+                kwargs["context"] = ctx
+            urllib.request.urlopen(req, **kwargs)
+        except Exception:
+            pytest.skip(f"Server at {explicit} not responding")
+        return explicit
+
     container_name = _discover_container(instance_name)
     if container_name is None:
         pytest.skip(

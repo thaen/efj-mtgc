@@ -181,6 +181,38 @@ header a:hover { color: #e94560; }
 .img-card { cursor: pointer; }
 .img-card.done:hover { border-color: #66bb6a; }
 .img-card.needs_disambiguation:hover { border-color: #f06080; }
+.img-card.selected {
+  border-color: #e94560;
+  box-shadow: 0 0 12px rgba(233, 69, 96, 0.6);
+  transform: scale(1.03);
+  overflow: visible;
+  z-index: 1;
+  transition: transform 0.15s, border-color 0.2s, box-shadow 0.15s;
+}
+.img-card.selected::after {
+  content: '';
+  position: absolute;
+  bottom: -10px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-left: 10px solid transparent;
+  border-right: 10px solid transparent;
+  border-top: 10px solid #e94560;
+  z-index: 2;
+}
+
+.accordion-content {
+  display: none;
+  grid-column: 1 / -1;
+  background: #1a2744;
+  border: 2px solid #e94560;
+  border-radius: 8px;
+  padding: 12px;
+  min-height: 60px;
+  color: #ccc;
+  font-size: 0.85rem;
+}
+.accordion-content.open { display: block; }
 
 #usage-box {
   margin-left: auto;
@@ -278,8 +310,7 @@ function buildInfoStrip(img) {
 }
 
 function createCardEl(img) {
-  const card = document.createElement('a');
-  card.href = '/correct?image_id=' + img.id;
+  const card = document.createElement('div');
   card.className = `img-card ${img.border_status}`;
   card.dataset.id = String(img.id);
   const errorIcon = img.border_status === 'error' ? '<div class="error-icon">&times;</div>' : '';
@@ -292,12 +323,51 @@ function createCardEl(img) {
     ${errorTooltip}
     ${buildInfoStrip(img)}
   `;
+  card.addEventListener('click', () => toggleAccordion(img.id));
   return card;
 }
 
+// Single shared accordion panel — repositioned into the correct row on click
+const accordionPanel = document.createElement('div');
+accordionPanel.className = 'accordion-content';
+accordionPanel.id = 'accordion-panel';
+
+function toggleAccordion(imgId) {
+  const id = String(imgId);
+  const grid = document.getElementById('grid');
+  const card = grid.querySelector(`.img-card[data-id="${id}"]`);
+  if (!card) return;
+
+  // Clicking the already-selected card closes the panel
+  if (card.classList.contains('selected')) {
+    accordionPanel.classList.remove('open');
+    card.classList.remove('selected');
+    return;
+  }
+
+  // Deselect previous
+  const prev = grid.querySelector('.img-card.selected');
+  if (prev) prev.classList.remove('selected');
+
+  // Figure out how many columns the grid currently has
+  const cols = getComputedStyle(grid).gridTemplateColumns.split(' ').length;
+
+  // Get all card elements (exclude the accordion itself)
+  const cards = Array.from(grid.querySelectorAll('.img-card'));
+  const idx = cards.indexOf(card);
+  const rowEnd = Math.min(Math.floor(idx / cols) * cols + cols - 1, cards.length - 1);
+
+  // Move accordion after the last card in this row
+  cards[rowEnd].after(accordionPanel);
+  accordionPanel.textContent = 'Details for image ' + id;
+  accordionPanel.classList.add('open');
+  card.classList.add('selected');
+}
+
 function updateCardEl(card, img) {
+  const wasSelected = card.classList.contains('selected');
   card.className = `img-card ${img.border_status}`;
-  card.href = '/correct?image_id=' + img.id;
+  if (wasSelected) card.classList.add('selected');
   card.querySelector('.badge').innerHTML = buildCardBadge(img);
 
   let errorIcon = card.querySelector('.error-icon');
@@ -389,6 +459,12 @@ async function loadRecent() {
   const newIds = new Set(images.map(img => String(img.id)));
   for (const [id, el] of Object.entries(existingCards)) {
     if (!newIds.has(id)) el.remove();
+  }
+
+  // Close accordion if its card was removed
+  const selectedId = grid.querySelector('.img-card.selected')?.dataset.id;
+  if (selectedId && !newIds.has(selectedId)) {
+    accordionPanel.classList.remove('open');
   }
 
   let prevEl = null;

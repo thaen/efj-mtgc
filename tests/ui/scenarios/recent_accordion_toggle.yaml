@@ -1,0 +1,13 @@
+# Scenario: Accordion pop-down toggles on Recent Images cards
+#
+# Related:
+#   issues: []
+#   pull_requests: []
+
+description: >
+  Navigate to the Recent Images page. If no images are visible, expand
+  the time window by clicking the 24h pill. Then click on any image card.
+  Verify that a full-width panel reading "Details for image ..." appears
+  below that row of cards and that the clicked card has a red highlight
+  border. The test passes once you can see both the red-bordered card
+  and the details panel text.
