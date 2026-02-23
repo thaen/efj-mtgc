@@ -51,6 +51,41 @@ header a:hover { color: #e94560; }
 .pill-row .pill.active { background: #e94560; border-color: #e94560; color: #fff; }
 .pill-row .pill:hover:not(.active) { border-color: #e94560; color: #e0e0e0; }
 
+.col-controls {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+.col-btn {
+  width: 28px; height: 28px;
+  border: 1px solid #0f3460;
+  background: #16213e;
+  color: #888;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+}
+.col-btn:first-child { border-radius: 6px 0 0 6px; }
+.col-btn:last-child { border-radius: 0 6px 6px 0; }
+.col-btn + .col-btn { border-left: none; }
+.col-btn:hover { border-color: #e94560; color: #e0e0e0; }
+.col-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+.col-count {
+  width: 28px; height: 28px;
+  border: 1px solid #0f3460; border-left: none; border-right: none;
+  background: #16213e;
+  color: #e0e0e0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .disambig-link {
   margin-left: auto;
   padding: 6px 16px;
@@ -72,7 +107,7 @@ header a:hover { color: #e94560; }
 #grid {
   margin: 0 12px 12px;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  grid-template-columns: repeat(var(--grid-cols, 6), 1fr);
   gap: 10px;
 }
 
@@ -184,10 +219,8 @@ header a:hover { color: #e94560; }
 .img-card.selected {
   border-color: #e94560;
   box-shadow: 0 0 12px rgba(233, 69, 96, 0.6);
-  transform: scale(1.03);
   overflow: visible;
   z-index: 1;
-  transition: transform 0.15s, border-color 0.2s, box-shadow 0.15s;
 }
 .img-card.selected::after {
   content: '';
@@ -213,6 +246,151 @@ header a:hover { color: #e94560; }
   font-size: 0.85rem;
 }
 .accordion-content.open { display: block; }
+
+/* Accordion inline content */
+.accordion-content button {
+  padding: 6px 14px;
+  border: 1px solid #e94560;
+  border-radius: 6px;
+  background: #e94560;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+.accordion-content button:hover { background: #c73651; }
+.accordion-content button:disabled { opacity: 0.5; cursor: not-allowed; }
+.accordion-content button.secondary { background: #333; border-color: #555; }
+.accordion-content button.secondary:hover { background: #444; }
+.accordion-content button.danger { background: #c62828; border-color: #c62828; }
+.accordion-content button.danger:hover { background: #a31515; }
+
+.acc-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 8px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid #0f3460;
+  flex-wrap: wrap;
+}
+.acc-toolbar .filename { color: #888; font-size: 0.8rem; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.acc-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.acc-card-header .card-name { font-weight: 600; color: #e94560; font-size: 0.9rem; }
+.acc-card-status {
+  padding: 2px 8px;
+  border-radius: 8px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #fff;
+}
+.acc-card-status.confirmed { background: #4caf50; }
+.acc-card-status.pending { background: #e94560; }
+.acc-card-status.skipped { background: #555; }
+
+.acc-candidates {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+  gap: 4px;
+  margin-bottom: 10px;
+}
+.acc-candidate {
+  border: 2px solid transparent;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  position: relative;
+  padding: 2px;
+}
+.acc-candidate:hover { background: #1a1a3e; border-color: #0f3460; }
+.acc-candidate.selected { border-color: #e94560; background: #1a1a3e; }
+.acc-candidate img {
+  width: 100%;
+  aspect-ratio: 63 / 88;
+  object-fit: cover;
+  object-position: top center;
+  border-radius: 3px;
+  display: block;
+}
+.acc-candidate .set-icon {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  font-size: 1.4rem;
+  width: 28px; height: 28px; line-height: 28px;
+  text-align: center;
+  background: #efefef;
+  border-radius: 3px;
+  border: 1px solid #0f3460;
+  z-index: 1;
+}
+
+.acc-search-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.acc-search-row input {
+  flex: 1;
+  padding: 5px 8px;
+  border-radius: 4px;
+  border: 1px solid #0f3460;
+  background: #0d1117;
+  color: #e0e0e0;
+  font-size: 0.8rem;
+}
+
+.acc-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.accordion-content details.agent-trace {
+  margin-top: 10px;
+  border: 1px solid #0f3460;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.accordion-content details.agent-trace summary {
+  padding: 6px 10px;
+  background: #0d1117;
+  cursor: pointer;
+  font-size: 0.7rem;
+  color: #888;
+  user-select: none;
+}
+.accordion-content details.agent-trace summary:hover { color: #e0e0e0; }
+.accordion-content .trace-lines {
+  padding: 6px 10px;
+  background: #0a0a14;
+  font-family: monospace;
+  font-size: 0.65rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.accordion-content .trace-lines .tl-ocr    { color: #666; }
+.accordion-content .trace-lines .tl-agent  { color: #7ec8e3; }
+.accordion-content .trace-lines .tl-tool   { color: #f0ad4e; }
+.accordion-content .trace-lines .tl-result { color: #888; }
+.accordion-content .trace-lines .tl-final  { color: #4caf50; }
+
+.acc-multi-link {
+  display: block;
+  color: #e94560;
+  font-size: 0.85rem;
+  margin-top: 6px;
+}
 
 #usage-box {
   margin-left: auto;
@@ -248,6 +426,12 @@ header a:hover { color: #e94560; }
     <div class="pill" data-hours="12">12h</div>
     <div class="pill" data-hours="24">24h</div>
   </div>
+  <label>Columns:</label>
+  <div class="col-controls">
+    <button class="col-btn" id="col-minus">&minus;</button>
+    <div class="col-count" id="col-count"></div>
+    <button class="col-btn" id="col-plus">+</button>
+  </div>
   <a id="disambig-btn" class="disambig-link" href="/disambiguate" style="display:none">Disambiguate</a>
 </div>
 
@@ -262,6 +446,30 @@ header a:hover { color: #e94560; }
 let currentHours = 2;
 const activePolls = new Map(); // image_id (number) → intervalId
 let discoveryTimer = null;
+
+// ── Column count ─────────────────────────────────────────────────────────────
+
+const MIN_COLS = 1;
+const MAX_COLS = 12;
+let gridCols = window.innerWidth < 600 ? 2 : 6;
+
+function applyGridCols() {
+  document.getElementById('grid').style.setProperty('--grid-cols', gridCols);
+  document.getElementById('col-count').textContent = gridCols;
+  document.getElementById('col-minus').disabled = gridCols <= MIN_COLS;
+  document.getElementById('col-plus').disabled = gridCols >= MAX_COLS;
+}
+
+document.getElementById('col-minus').addEventListener('click', () => {
+  if (gridCols > MIN_COLS) { gridCols--; applyGridCols(); repositionAccordion(); }
+});
+document.getElementById('col-plus').addEventListener('click', () => {
+  if (gridCols < MAX_COLS) { gridCols++; applyGridCols(); repositionAccordion(); }
+});
+
+applyGridCols();
+
+// ── Time pills ───────────────────────────────────────────────────────────────
 
 document.querySelectorAll('#time-pills .pill').forEach(pill => {
   pill.addEventListener('click', () => {
@@ -332,7 +540,377 @@ const accordionPanel = document.createElement('div');
 accordionPanel.className = 'accordion-content';
 accordionPanel.id = 'accordion-panel';
 
-function toggleAccordion(imgId) {
+// ── Accordion detail cache + helpers ─────────────────────────────────────────
+
+const detailCache = new Map();
+
+async function loadAccordionDetail(imgId) {
+  if (detailCache.has(imgId)) return detailCache.get(imgId);
+  const resp = await fetch(`/api/ingest2/images/${imgId}`);
+  const detail = await resp.json();
+  detailCache.set(imgId, detail);
+  return detail;
+}
+
+function invalidateDetailCache(imgId) {
+  detailCache.delete(imgId);
+}
+
+function narrowCandidates(candidates, cardInfo) {
+  if (candidates.length <= 1) return candidates;
+  let result = candidates;
+  const artist = cardInfo.artist;
+  if (artist) {
+    const al = artist.toLowerCase();
+    const matched = result.filter(c => (c.artist || '').toLowerCase().includes(al));
+    if (matched.length) result = matched;
+  }
+  const setCode = cardInfo.set_code;
+  if (setCode) {
+    const sl = setCode.toLowerCase();
+    const matched = result.filter(c => c.set_code.toLowerCase() === sl);
+    if (matched.length) result = matched;
+  }
+  const cn = cardInfo.collector_number;
+  if (cn) {
+    const matched = result.filter(c => c.collector_number === cn);
+    if (matched.length) result = matched;
+  }
+  return result;
+}
+
+function renderAccCandidates(containerEl, candidates, currentSid, onSelect) {
+  containerEl.innerHTML = '';
+  if (!candidates.length) {
+    containerEl.innerHTML = '<div style="padding:8px;color:#888;text-align:center;font-size:0.8rem;">No candidates found. Try searching.</div>';
+    return;
+  }
+  containerEl.className = 'acc-candidates';
+  for (const c of candidates) {
+    const el = document.createElement('div');
+    el.className = 'acc-candidate';
+    el.dataset.scryfallId = c.scryfall_id;
+    const setCode = keyruneSetCode(c.set_code);
+    const rarityClass = `ss-${c.rarity || 'common'}`;
+    el.innerHTML = `
+      <i class="ss ss-${setCode} ${rarityClass} ss-grad ss-fw set-icon"></i>
+      ${c.image_uri ? `<img src="${c.image_uri}" loading="lazy" title="${escapeHtml(c.name)} — ${escapeHtml(c.set_name || '')}">` : `<div style="width:100%;aspect-ratio:63/88;background:#0d1117;border-radius:3px;"></div>`}
+    `;
+    el.title = `${c.name} — ${c.set_name || ''}`;
+    if (currentSid && c.scryfall_id === currentSid) el.classList.add('selected');
+    el.addEventListener('click', () => {
+      containerEl.querySelectorAll('.acc-candidate').forEach(r => r.classList.remove('selected'));
+      el.classList.add('selected');
+      onSelect(c);
+    });
+    containerEl.appendChild(el);
+  }
+}
+
+function buildAccTraceEl(detail) {
+  const agentLines = detail.agent_trace || [];
+  const ocrFragments = detail.ocr_result || [];
+  if (!agentLines.length && !ocrFragments.length) return null;
+
+  const ocrLines = [`[OCR] ${ocrFragments.length} fragment(s):`];
+  for (let i = 0; i < ocrFragments.length; i++) {
+    const f = ocrFragments[i];
+    const b = f.bbox || {};
+    ocrLines.push(
+      `[${i}] (x=${Math.round(b.x ?? 0)},y=${Math.round(b.y ?? 0)} ` +
+      `w=${Math.round(b.w ?? 0)},h=${Math.round(b.h ?? 0)} ` +
+      `conf=${(f.confidence ?? 0).toFixed(2)}): "${f.text ?? ''}"`
+    );
+  }
+  const claudeResult = detail.claude_result || [];
+  const finalLines = claudeResult.length
+    ? ['', '[FINAL OUTPUT]', ...JSON.stringify({cards: claudeResult}, null, 2).split('\n')]
+    : [];
+  const allLines = [...ocrLines, '', ...agentLines, ...finalLines];
+
+  function traceClass(line) {
+    if (line.startsWith('[OCR]') || line.match(/^\[\d+\]/)) return 'tl-ocr';
+    if (line === '') return 'tl-ocr';
+    if (line.startsWith('[TOOL RESULT]')) return 'tl-result';
+    if (line.startsWith('[TOOL CALL'))    return 'tl-tool';
+    if (line.startsWith('[FINAL') || line.startsWith('[USAGE]')) return 'tl-final';
+    return 'tl-agent';
+  }
+
+  const traceHtml = allLines.map(l =>
+    `<span class="${traceClass(l)}">${escapeHtml(l)}</span>`
+  ).join('\n');
+  const details = document.createElement('details');
+  details.className = 'agent-trace';
+  details.innerHTML = `<summary>Ingest trace (${ocrFragments.length} OCR \u00b7 ${agentLines.length} agent)</summary><div class="trace-lines">${traceHtml}</div>`;
+  return details;
+}
+
+function renderAccordionContent(imgId, detail) {
+  // Race guard: panel may have moved to a different image
+  if (accordionPanel.dataset.imgId !== String(imgId)) return;
+
+  const disambiguated = detail.disambiguated || [];
+  const matches = detail.scryfall_matches || [];
+  const claude = detail.claude_result || [];
+  const cardNames = detail.card_names || [];
+  const filename = detail.filename || detail.stored_name || '';
+
+  let html = '';
+
+  // Toolbar: filename + reprocess/delete
+  html += `<div class="acc-toolbar">`;
+  html += `<span class="filename">${escapeHtml(filename)}</span>`;
+  html += `<button class="secondary" onclick="accReprocess(${imgId})">\u21ba Reprocess</button>`;
+  html += `<button class="danger" onclick="accDeleteImage(${imgId})">Delete Image</button>`;
+  html += `</div>`;
+
+  // Multi-card fallback
+  if (disambiguated.length > 1) {
+    html += `<div style="font-size:0.85rem;color:#888;">${disambiguated.length} cards detected</div>`;
+    html += `<a class="acc-multi-link" href="/correct?image_id=${imgId}">Open in Correct page \u2192</a>`;
+    accordionPanel.innerHTML = html;
+    // Still show trace
+    const traceEl = buildAccTraceEl(detail);
+    if (traceEl) accordionPanel.appendChild(traceEl);
+    return;
+  }
+
+  // Single card (or zero cards)
+  if (disambiguated.length === 0) {
+    html += `<div style="font-size:0.85rem;color:#888;">No cards detected.</div>`;
+    accordionPanel.innerHTML = html;
+    const traceEl = buildAccTraceEl(detail);
+    if (traceEl) accordionPanel.appendChild(traceEl);
+    return;
+  }
+
+  // Exactly one card
+  const sid = disambiguated[0];
+  const cardInfo = claude[0] || {};
+  const candidates = matches[0] || [];
+  const cardName = cardInfo.name || (cardNames[0] || {}).claude_name || '(Unknown)';
+  const isPending = sid === null || sid === 'skipped';
+
+  // Card header with name + status
+  const statusLabel = sid === 'already_ingested' ? 'Already ingested'
+    : isPending ? (sid === 'skipped' ? 'Skipped' : 'Pending')
+    : 'Confirmed';
+  const statusClass = sid === 'already_ingested' ? 'confirmed'
+    : isPending ? (sid === 'skipped' ? 'skipped' : 'pending')
+    : 'confirmed';
+  html += `<div class="acc-card-header">`;
+  html += `<span class="card-name">${escapeHtml(cardName)}</span>`;
+  html += `<span class="acc-card-status ${statusClass}">${statusLabel}</span>`;
+  html += `</div>`;
+
+  if (sid === 'already_ingested') {
+    accordionPanel.innerHTML = html;
+    const traceEl = buildAccTraceEl(detail);
+    if (traceEl) accordionPanel.appendChild(traceEl);
+    return;
+  }
+
+  // Search row
+  html += `<div class="acc-search-row">`;
+  html += `<input type="text" id="acc-search-input-${imgId}" placeholder="Search by card name..." value="${escapeHtml(cardInfo.name || '')}">`;
+  html += `<button class="secondary" onclick="accSearchCard(${imgId})">Search</button>`;
+  html += `</div>`;
+
+  // Candidates container
+  html += `<div id="acc-candidates-${imgId}" class="acc-candidates"></div>`;
+
+  // Actions
+  const actionBtn = isPending
+    ? `<button id="acc-confirm-${imgId}" disabled onclick="accConfirmCard(${imgId})">Confirm</button>`
+    : `<button id="acc-correct-${imgId}" disabled onclick="accCorrectCard(${imgId})">Correct</button>`;
+  html += `<div class="acc-actions">`;
+  html += actionBtn;
+  html += `<button class="danger" onclick="accDeleteCard(${imgId}, '${sid || ''}')">Delete Card</button>`;
+  html += `</div>`;
+
+  accordionPanel.innerHTML = html;
+
+  // Wire up enter key on search
+  const searchInput = document.getElementById(`acc-search-input-${imgId}`);
+  if (searchInput) {
+    searchInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') accSearchCard(imgId);
+    });
+  }
+
+  // Render candidates
+  const highlightSid = isPending ? null : sid;
+  const narrowed = isPending ? narrowCandidates(candidates, cardInfo) : candidates;
+  const containerEl = document.getElementById(`acc-candidates-${imgId}`);
+
+  // Store selected candidate on the panel
+  accordionPanel._selectedCandidate = null;
+
+  const onSelect = (c) => {
+    accordionPanel._selectedCandidate = c;
+    const confirmBtn = document.getElementById(`acc-confirm-${imgId}`);
+    const correctBtn = document.getElementById(`acc-correct-${imgId}`);
+    if (confirmBtn) confirmBtn.disabled = false;
+    if (correctBtn) correctBtn.disabled = false;
+  };
+
+  renderAccCandidates(containerEl, narrowed, highlightSid, onSelect);
+
+  // Show all button if narrowed
+  if (narrowed.length < candidates.length) {
+    const showAllDiv = document.createElement('div');
+    showAllDiv.style.cssText = 'padding:6px;text-align:center;grid-column:1/-1;';
+    const btn = document.createElement('button');
+    btn.className = 'secondary';
+    btn.style.cssText = 'font-size:0.75rem;padding:3px 10px;';
+    btn.textContent = `Show all ${candidates.length} candidates`;
+    btn.addEventListener('click', () => {
+      renderAccCandidates(containerEl, candidates, highlightSid, onSelect);
+    });
+    showAllDiv.appendChild(btn);
+    containerEl.appendChild(showAllDiv);
+  }
+
+  // Trace
+  const traceEl = buildAccTraceEl(detail);
+  if (traceEl) accordionPanel.appendChild(traceEl);
+}
+
+// ── Accordion mutation handlers ──────────────────────────────────────────────
+
+async function accRefresh(imgId) {
+  invalidateDetailCache(imgId);
+  const detail = await loadAccordionDetail(imgId);
+  if (accordionPanel.dataset.imgId === String(imgId)) {
+    renderAccordionContent(imgId, detail);
+  }
+  // Also refresh the grid card
+  const resp = await fetch(`/api/ingest2/recent?hours=${currentHours}&id=${imgId}`);
+  const images = await resp.json();
+  if (images.length) {
+    const card = document.querySelector(`#grid .img-card[data-id="${imgId}"]`);
+    if (card) updateCardEl(card, images[0]);
+  }
+  updateSummaryFromGrid();
+}
+
+function updateSummaryFromGrid() {
+  // Re-fetch summary from server to stay accurate
+  fetch(`/api/ingest2/recent?hours=${currentHours}`)
+    .then(r => r.json())
+    .then(images => updateSummary(images));
+}
+
+async function accConfirmCard(imgId) {
+  const candidate = accordionPanel._selectedCandidate;
+  if (!candidate) return;
+  const btn = document.getElementById(`acc-confirm-${imgId}`);
+  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+  await fetch('/api/ingest2/confirm', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ image_id: imgId, card_idx: 0, scryfall_id: candidate.scryfall_id, finish: 'nonfoil' }),
+  });
+  await accRefresh(imgId);
+}
+
+async function accCorrectCard(imgId) {
+  const candidate = accordionPanel._selectedCandidate;
+  if (!candidate) return;
+  const btn = document.getElementById(`acc-correct-${imgId}`);
+  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+  await fetch('/api/ingest2/correct', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ image_id: imgId, card_idx: 0, scryfall_id: candidate.scryfall_id, finish: 'nonfoil' }),
+  });
+  await accRefresh(imgId);
+}
+
+async function accDeleteCard(imgId, sid) {
+  const isConfirmed = sid && sid !== 'null' && sid !== 'skipped' && sid !== 'already_ingested';
+  const msg = isConfirmed
+    ? 'Remove this card from the image and your collection?'
+    : 'Remove this card slot from the image?';
+  if (!confirm(msg)) return;
+  await fetch('/api/ingest2/remove-card', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ image_id: imgId, card_idx: 0 }),
+  });
+  await accRefresh(imgId);
+}
+
+async function accSearchCard(imgId) {
+  const input = document.getElementById(`acc-search-input-${imgId}`);
+  const query = (input ? input.value : '').trim();
+  if (!query) return;
+  const resp = await fetch('/api/ingest2/search-card', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ image_id: imgId, card_idx: 0, query }),
+  });
+  const data = await resp.json();
+  accordionPanel._selectedCandidate = null;
+  const confirmBtn = document.getElementById(`acc-confirm-${imgId}`);
+  const correctBtn = document.getElementById(`acc-correct-${imgId}`);
+  if (confirmBtn) confirmBtn.disabled = true;
+  if (correctBtn) correctBtn.disabled = true;
+  const containerEl = document.getElementById(`acc-candidates-${imgId}`);
+  if (containerEl) {
+    renderAccCandidates(containerEl, data.candidates || [], null, (c) => {
+      accordionPanel._selectedCandidate = c;
+      if (confirmBtn) confirmBtn.disabled = false;
+      if (correctBtn) correctBtn.disabled = false;
+    });
+  }
+}
+
+async function accReprocess(imgId) {
+  if (!confirm('Reset this image and reprocess from scratch?\n\nAny cards already added from this image will be removed.')) return;
+  await fetch('/api/ingest2/reset', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ image_id: imgId }),
+  });
+  invalidateDetailCache(imgId);
+  accordionPanel.classList.remove('open');
+  const card = document.querySelector(`#grid .img-card.selected`);
+  if (card) card.classList.remove('selected');
+
+  await loadRecent();
+}
+
+async function accDeleteImage(imgId) {
+  if (!confirm('Delete this image and any collection entries from it?')) return;
+  await fetch('/api/ingest2/delete', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ image_id: imgId }),
+  });
+  invalidateDetailCache(imgId);
+  accordionPanel.classList.remove('open');
+  const card = document.querySelector(`#grid .img-card[data-id="${imgId}"]`);
+  if (card) card.remove();
+
+  updateSummaryFromGrid();
+}
+
+// ── Toggle accordion ─────────────────────────────────────────────────────────
+
+function repositionAccordion() {
+  if (!accordionPanel.classList.contains('open')) return;
+  const grid = document.getElementById('grid');
+  const sel = grid.querySelector('.img-card.selected');
+  if (!sel) return;
+  const cards = Array.from(grid.querySelectorAll('.img-card'));
+  const idx = cards.indexOf(sel);
+  const rowEnd = Math.min(Math.floor(idx / gridCols) * gridCols + gridCols - 1, cards.length - 1);
+  cards[rowEnd].after(accordionPanel);
+}
+
+async function toggleAccordion(imgId) {
   const id = String(imgId);
   const grid = document.getElementById('grid');
   const card = grid.querySelector(`.img-card[data-id="${id}"]`);
@@ -349,19 +927,21 @@ function toggleAccordion(imgId) {
   const prev = grid.querySelector('.img-card.selected');
   if (prev) prev.classList.remove('selected');
 
-  // Figure out how many columns the grid currently has
-  const cols = getComputedStyle(grid).gridTemplateColumns.split(' ').length;
-
   // Get all card elements (exclude the accordion itself)
   const cards = Array.from(grid.querySelectorAll('.img-card'));
   const idx = cards.indexOf(card);
-  const rowEnd = Math.min(Math.floor(idx / cols) * cols + cols - 1, cards.length - 1);
+  const rowEnd = Math.min(Math.floor(idx / gridCols) * gridCols + gridCols - 1, cards.length - 1);
 
   // Move accordion after the last card in this row
   cards[rowEnd].after(accordionPanel);
-  accordionPanel.textContent = 'Details for image ' + id;
+  accordionPanel.dataset.imgId = id;
+  accordionPanel.innerHTML = '<div style="color:#888;padding:8px;">Loading...</div>';
   accordionPanel.classList.add('open');
   card.classList.add('selected');
+
+  // Fetch detail and render
+  const detail = await loadAccordionDetail(imgId);
+  renderAccordionContent(imgId, detail);
 }
 
 function updateCardEl(card, img) {
@@ -465,6 +1045,7 @@ async function loadRecent() {
   const selectedId = grid.querySelector('.img-card.selected')?.dataset.id;
   if (selectedId && !newIds.has(selectedId)) {
     accordionPanel.classList.remove('open');
+  
   }
 
   let prevEl = null;
