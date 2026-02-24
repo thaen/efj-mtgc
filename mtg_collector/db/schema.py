@@ -2,7 +2,7 @@
 
 import sqlite3
 
-SCHEMA_VERSION = 23
+SCHEMA_VERSION = 24
 
 SCHEMA_SQL = """
 -- Abstract cards (oracle-level, cached from Scryfall)
@@ -157,6 +157,7 @@ CREATE TABLE IF NOT EXISTS ingest_images (
     names_data TEXT,
     names_disambiguated TEXT,
     user_card_edits TEXT,
+    confirmed_finishes TEXT,
     error_message TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
@@ -493,6 +494,8 @@ def init_db(conn: sqlite3.Connection, force: bool = False) -> bool:
             _migrate_v21_to_v22(conn)
         if current < 23:
             _migrate_v22_to_v23(conn)
+        if current < 24:
+            _migrate_v23_to_v24(conn)
 
     # Record schema version
     conn.execute(
@@ -1406,7 +1409,7 @@ def _migrate_v22_to_v23(conn: sqlite3.Connection):
     conn.execute("CREATE INDEX IF NOT EXISTS idx_ingest_images_status ON ingest_images(status)")
 
 
-def _migrate_v22_to_v23(conn: sqlite3.Connection):
+def _migrate_v23_to_v24(conn: sqlite3.Connection):
     """Add confirmed_finishes column to ingest_images."""
     cursor = conn.execute("PRAGMA table_info(ingest_images)")
     cols = [r[1] for r in cursor.fetchall()]

@@ -605,13 +605,13 @@ function buildCardOverlays(img) {
     const c = cards[0];
     const resolved = img.border_status === 'done';
     const hasFinishBadges = c.finish_options && c.finish_options.length >= 1;
-    const finishResolved = hasFinishBadges && c.finish_scryfall_id;
+    const finishResolved = hasFinishBadges && c.finish_printing_id;
     if ((resolved || finishResolved) && c.set_code) {
       const sc = keyruneSetCode(c.set_code.toLowerCase());
       setHtml = `<i class="ss ss-${sc} set-overlay" title="${escapeHtml(c.set_code)}"></i>`;
     }
     if (hasFinishBadges) {
-      const sid = c.finish_scryfall_id || '';
+      const sid = c.finish_printing_id || '';
       const badges = c.finish_options.map(f => {
         const isActive = c.finish === f;
         return `<span class="finish-badge${isActive ? ' active' : ''}" data-img-id="${img.id}" data-scryfall-id="${escapeHtml(sid)}" data-finish="${escapeHtml(f)}">${escapeHtml(f)}</span>`;
@@ -720,7 +720,7 @@ function renderAccCandidates(containerEl, candidates, currentSid, onSelect, curr
   for (const c of expanded) {
     const el = document.createElement('div');
     el.className = 'acc-candidate';
-    el.dataset.scryfallId = c.scryfall_id;
+    el.dataset.scryfallId = c.printing_id;
     const setCode = keyruneSetCode(c.set_code);
     const rarityClass = `ss-${c.rarity || 'common'}`;
     el.innerHTML = `
@@ -732,7 +732,7 @@ function renderAccCandidates(containerEl, candidates, currentSid, onSelect, curr
       </div>
     `;
     el.title = `${c.name} — ${c.set_name || ''}`;
-    if (currentSid && c.scryfall_id === currentSid && (!currentFinish || c._finish === currentFinish)) el.classList.add('selected');
+    if (currentSid && c.printing_id === currentSid && (!currentFinish || c._finish === currentFinish)) el.classList.add('selected');
     el.addEventListener('click', () => {
       containerEl.querySelectorAll('.acc-candidate').forEach(r => r.classList.remove('selected'));
       el.classList.add('selected');
@@ -881,7 +881,7 @@ function renderAccordionContent(imgId, detail) {
     await fetch(endpoint, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ image_id: imgId, card_idx: 0, scryfall_id: c.scryfall_id, finish: c._finish || 'nonfoil' }),
+      body: JSON.stringify({ image_id: imgId, card_idx: 0, printing_id: c.printing_id, finish: c._finish || 'nonfoil' }),
     });
     await accRefresh(imgId);
   };
@@ -967,7 +967,7 @@ async function accSearchCard(imgId) {
       await fetch(endpoint, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ image_id: imgId, card_idx: 0, scryfall_id: c.scryfall_id, finish: c._finish || 'nonfoil' }),
+        body: JSON.stringify({ image_id: imgId, card_idx: 0, printing_id: c.printing_id, finish: c._finish || 'nonfoil' }),
       });
       await accRefresh(imgId);
     });
@@ -1331,7 +1331,7 @@ document.getElementById('grid').addEventListener('click', async (e) => {
   await fetch(endpoint, {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ image_id: imgId, card_idx: 0, scryfall_id: scryfallId, finish }),
+    body: JSON.stringify({ image_id: imgId, card_idx: 0, printing_id: scryfallId, finish }),
   });
 
   // Refresh the single card

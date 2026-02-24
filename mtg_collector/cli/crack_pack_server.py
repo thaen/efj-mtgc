@@ -656,7 +656,7 @@ def _process_image_background(db_path, image_id):
             and all_matches[0]
         ):
             narrowed = _narrow_candidates(all_matches[0], claude_cards[0])
-            unique_ids = {c["scryfall_id"] for c in narrowed}
+            unique_ids = {c["printing_id"] for c in narrowed}
             if len(unique_ids) == 1:
                 sid = next(iter(unique_ids))
                 all_finishes = set()
@@ -1821,12 +1821,12 @@ class CrackPackHandler(BaseHTTPRequestHandler):
                 # Detect finish options across ALL candidates for badge UI
                 candidates = scryfall_matches[idx] if idx < len(scryfall_matches) else []
                 if candidates:
-                    unique_ids = {c["scryfall_id"] for c in candidates}
+                    unique_ids = {c["printing_id"] for c in candidates}
                     per_candidate = [frozenset(c.get("finishes", ["nonfoil"])) for c in candidates]
                     if per_candidate and all(fs == per_candidate[0] for fs in per_candidate):
                         entry["finish_options"] = sorted(per_candidate[0])
                         if len(unique_ids) == 1:
-                            entry["finish_scryfall_id"] = next(iter(unique_ids))
+                            entry["finish_printing_id"] = next(iter(unique_ids))
 
                 cards_summary.append(entry)
 
@@ -2631,12 +2631,6 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             collection_repo.delete(old_collection_id)
 
             if card_idx < len(scryfall_matches):
-                existing_ids = {c["scryfall_id"] for c in scryfall_matches[card_idx]}
-                if scryfall_id not in existing_ids:
-                    formatted = _format_candidates([card_data]) if card_data else []
-                    scryfall_matches[card_idx] = formatted + scryfall_matches[card_idx]
-
-            if card_idx < len(scryfall_matches):
                 existing_ids = {c["printing_id"] for c in scryfall_matches[card_idx]}
                 if printing_id not in existing_ids:
                     formatted = _format_candidates([card_data]) if card_data else []
@@ -2839,7 +2833,7 @@ class CrackPackHandler(BaseHTTPRequestHandler):
                 finish = finishes[0] if finishes else "nonfoil"
                 entry = CollectionEntry(
                     id=None,
-                    scryfall_id=sid,
+                    printing_id=sid,
                     finish=finish,
                     condition="Near Mint",
                     source="ocr_ingest",

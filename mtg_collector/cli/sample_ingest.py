@@ -72,7 +72,7 @@ def register(subparsers):
 
 def _format_candidate(printing):
     """Format a Printing into the candidate shape the recent page expects."""
-    data = printing.get_scryfall_data()
+    data = printing.get_card_data()
     if not data:
         return None
 
@@ -88,7 +88,7 @@ def _format_candidate(printing):
     price = prices.get("usd") or prices.get("usd_foil")
 
     return {
-        "scryfall_id": data["id"],
+        "printing_id": data["id"],
         "name": data.get("name", "???"),
         "set_code": data.get("set", "???"),
         "set_name": data.get("set_name", ""),
@@ -169,7 +169,7 @@ def run(args):
             if not target:
                 print(f"  error: printing {sample['set_code']}#{sample['collector_number']} not found")
                 continue
-            disambiguated = [target.scryfall_id]
+            disambiguated = [target.printing_id]
             claude_cn = sample["collector_number"]
         else:
             disambiguated = [None]
