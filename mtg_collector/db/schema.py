@@ -2,7 +2,7 @@
 
 import sqlite3
 
-SCHEMA_VERSION = 22
+SCHEMA_VERSION = 24
 
 SCHEMA_SQL = """
 -- Abstract cards (oracle-level, cached from Scryfall)
@@ -145,7 +145,7 @@ CREATE TABLE IF NOT EXISTS ingest_images (
     stored_name TEXT NOT NULL,
     md5 TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'READY_FOR_OCR'
-        CHECK(status IN ('READY_FOR_OCR','PROCESSING','READY_FOR_DISAMBIGUATION','DONE','ERROR')),
+        CHECK(status IN ('READY_FOR_OCR','PROCESSING','READY_FOR_DISAMBIGUATION','DONE','ERROR','INGESTED')),
     mode TEXT,
     ocr_result TEXT,
     claude_result TEXT,
@@ -157,6 +157,7 @@ CREATE TABLE IF NOT EXISTS ingest_images (
     names_data TEXT,
     names_disambiguated TEXT,
     user_card_edits TEXT,
+    confirmed_finishes TEXT,
     error_message TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
@@ -491,6 +492,10 @@ def init_db(conn: sqlite3.Connection, force: bool = False) -> bool:
             _migrate_v20_to_v21(conn)
         if current < 22:
             _migrate_v21_to_v22(conn)
+        if current < 23:
+            _migrate_v22_to_v23(conn)
+        if current < 24:
+            _migrate_v23_to_v24(conn)
 
     # Record schema version
     conn.execute(
@@ -792,7 +797,7 @@ def _migrate_v9_to_v10(conn: sqlite3.Connection):
             stored_name TEXT NOT NULL,
             md5 TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'READY_FOR_OCR'
-                CHECK(status IN ('READY_FOR_OCR','PROCESSING','READY_FOR_DISAMBIGUATION','DONE','ERROR')),
+                CHECK(status IN ('READY_FOR_OCR','PROCESSING','READY_FOR_DISAMBIGUATION','DONE','ERROR','INGESTED')),
             mode TEXT,
             ocr_result TEXT,
             claude_result TEXT,
@@ -802,6 +807,7 @@ def _migrate_v9_to_v10(conn: sqlite3.Connection):
             names_data TEXT,
             names_disambiguated TEXT,
             user_card_edits TEXT,
+            confirmed_finishes TEXT,
             error_message TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
@@ -1380,6 +1386,35 @@ def _migrate_v21_to_v22(conn: sqlite3.Connection):
         refresh_latest_prices(conn)
     conn.commit()
 
+
+def _migrate_v22_to_v23(conn: sqlite3.Connection):
+    """Add INGESTED to ingest_images status CHECK constraint."""
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='ingest_images'"
+    ).fetchone()
+    if not row:
+        return
+    old_ddl = row[0]
+    old_check = "CHECK(status IN ('READY_FOR_OCR','PROCESSING','READY_FOR_DISAMBIGUATION','DONE','ERROR'))"
+    new_check = "CHECK(status IN ('READY_FOR_OCR','PROCESSING','READY_FOR_DISAMBIGUATION','DONE','ERROR','INGESTED'))"
+    if old_check not in old_ddl:
+        return  # already migrated or different schema
+    new_ddl = old_ddl.replace("ingest_images", "ingest_images_new", 1).replace(old_check, new_check)
+    cursor = conn.execute("PRAGMA table_info(ingest_images)")
+    cols = ", ".join(r[1] for r in cursor.fetchall())
+    conn.execute(new_ddl)
+    conn.execute(f"INSERT INTO ingest_images_new ({cols}) SELECT {cols} FROM ingest_images")
+    conn.execute("DROP TABLE ingest_images")
+    conn.execute("ALTER TABLE ingest_images_new RENAME TO ingest_images")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_ingest_images_status ON ingest_images(status)")
+
+
+def _migrate_v23_to_v24(conn: sqlite3.Connection):
+    """Add confirmed_finishes column to ingest_images."""
+    cursor = conn.execute("PRAGMA table_info(ingest_images)")
+    cols = [r[1] for r in cursor.fetchall()]
+    if "confirmed_finishes" not in cols:
+        conn.execute("ALTER TABLE ingest_images ADD COLUMN confirmed_finishes TEXT")
 
 
 def drop_all_tables(conn: sqlite3.Connection):

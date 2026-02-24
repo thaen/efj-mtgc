@@ -53,19 +53,20 @@ Each module has `register(subparsers)` and `run(args)`.
 
 | File | Lines | Purpose |
 |------|------:|---------|
-| `crack_pack_server.py` | 4543 | **Web server**: all HTTP routes, API handlers, SSE endpoints |
-| `data_cmd.py` | 915 | MTGJSON + price data import/export commands |
-| `ingest_ocr.py` | 411 | CLI image-based card ingestion via EasyOCR + Claude |
-| `ingest_corners.py` | 340 | CLI corner-photo card ingestion via Claude Vision |
+| `crack_pack_server.py` | 4692 | **Web server**: all HTTP routes, API handlers, SSE endpoints |
+| `data_cmd.py` | 922 | MTGJSON + price data import/export commands |
+| `ingest_ocr.py` | 393 | CLI image-based card ingestion via EasyOCR + Claude |
+| `ingest_corners.py` | 320 | CLI corner-photo card ingestion via Claude Vision |
 | `demo_data.py` | 300 | Load demo collection for testing |
-| `ingest_ids.py` | 286 | Manual card entry by rarity/collector-number/set |
+| `ingest_ids.py` | 246 | Manual card entry by rarity/collector-number/set |
+| `sample_ingest.py` | 234 |  |
 
 ### `mtg_collector/db/` — SQLite layer
 
 | File | Lines | Purpose |
 |------|------:|---------|
-| `models.py` | 1574 | Dataclasses + repository classes (CRUD for every table) |
-| `schema.py` | 1279 | Schema DDL, all migrations, `init_db()` |
+| `models.py` | 1604 | Dataclasses + repository classes (CRUD for every table) |
+| `schema.py` | 1450 | Schema DDL, all migrations, `init_db()` |
 
 Repository classes in `models.py`: `CardRepository`, `SetRepository`, `PrintingRepository`, `CollectionRepository`, `OrderRepository`, `WishlistRepository`.
 
@@ -73,27 +74,26 @@ Repository classes in `models.py`: `CardRepository`, `SetRepository`, `PrintingR
 
 | File | Lines | Purpose |
 |------|------:|---------|
-| `agent.py` | 528 | Agentic OCR: Claude tool-use loop with `query_local_db` and `analyze_image` tools |
+| `agent.py` | 532 | Agentic OCR: Claude tool-use loop with `query_local_db` and `analyze_image` tools |
 | `claude.py` | 504 | Claude Vision API: corner reading, card identification |
-| `bulk_import.py` | 350 | `ScryfallBulkClient` class (bulk cache only), `cache_card_data()`, `ensure_set_populated()` |
-| `scryfall.py` | 10 | Compatibility wrapper re-exporting from `bulk_import.py` |
 | `order_parser.py` | 414 | Parse TCGPlayer HTML/text and Card Kingdom text into `ParsedOrder` |
-| `order_resolver.py` | 353 | Resolve parsed orders to local DB cards, treatment-aware matching |
 | `pack_generator.py` | 329 | MTGJSON-based booster pack simulation from SQLite |
+| `order_resolver.py` | 303 | Resolve parsed orders to local DB cards, treatment-aware matching |
+| `bulk_import.py` | 263 | `ScryfallBulkClient` class (bulk cache only), `cache_card_data()`, `ensure_set_populated()` |
 
 ### `mtg_collector/static/` — Web UI (single-file HTML pages)
 
 | File | Lines | Purpose |
 |------|------:|---------|
-| `collection.html` | 3302 | **Collection browser**: filters, sorting, card grid, inline editing. Canonical card display. |
+| `collection.html` | 3462 | **Collection browser**: filters, sorting, card grid, inline editing. Canonical card display. |
 | `sealed.html` | 2116 |  |
+| `recent.html` | 1358 | Recently ingested images gallery |
 | `correct.html` | 1048 | Fix misidentified cards in ingest pipeline |
 | `crack_pack.html` | 1007 | Booster pack simulator with rarity borders and badge system |
 | `explore_sheets.html` | 824 | Browse MTGJSON booster sheet layouts |
 | `ingest_ids.html` | 680 | Manual card entry web UI |
 | `disambiguate.html` | 634 | Resolve ambiguous card matches |
 | `ingest_corners.html` | 561 | Corner photo ingest web UI |
-| `recent.html` | 507 | Recently ingested images gallery |
 | `ingest_order.html` | 494 | Order ingestion web UI |
 | `import_csv.html` | 492 | CSV import web UI |
 | `process.html` | 406 | OCR processing + Claude identification |
@@ -117,9 +117,9 @@ Repository classes in `models.py`: `CardRepository`, `SetRepository`, `PrintingR
 |------|------:|---------|
 | `test_sealed_products.py` | 1346 |  |
 | `test_import.py` | 620 | CSV import (Moxfield, Archidekt, Deckbox, decklist) |
-| `test_price_import.py` | 526 | MTGJSON price import pipeline |
+| `test_price_import.py` | 530 | MTGJSON price import pipeline |
 | `test_mtgjson_import.py` | 515 | MTGJSON AllPrintings import |
-| `test_ingest_ids.py` | 423 | Manual card entry + `resolve_and_add_ids()` |
+| `test_ingest_ids.py` | 392 | Manual card entry + `resolve_and_add_ids()` |
 | `test_order_parser.py` | 368 | Order parsing (TCGPlayer HTML/text, Card Kingdom) |
 | `test_order_resolver.py` | 302 | Order resolution to local DB cards |
 
@@ -131,9 +131,9 @@ Claude Vision agent loop that drives a headless browser through UX flows. Each s
 |------|---------|
 | `test_sealed_products.py` | 1346 |  |
 | `test_import.py` | 620 |  |
-| `test_price_import.py` | 526 |  |
+| `test_price_import.py` | 530 |  |
 | `test_mtgjson_import.py` | 515 |  |
-| `test_ingest_ids.py` | 423 |  |
+| `test_ingest_ids.py` | 392 |  |
 | `test_order_parser.py` | 368 |  |
 | `test_order_resolver.py` | 302 |  |
 
