@@ -79,6 +79,27 @@ SAMPLES = [
         ],
         "image_size": [1080, 1920],
     },
+    {
+        # Agent identified the card but returned a digital-only printing.
+        # Digital filtering removed all candidates, leaving 0 results.
+        # The card exists in paper sets (fdn) so manual search can find it.
+        "name": "Llanowar Elves",
+        "set_code": "fdn",
+        "collector_number": None,
+        "zero_candidates": True,  # simulate digital filtering removing all results
+        "agent_set_code": "j21",  # what the agent "found" (digital)
+        "agent_cn": "383",
+        "fixture": "sample-zero-candidates.jpg",
+        "stored_name": "sample_zero_candidates.jpg",
+        "status": "READY_FOR_DISAMBIGUATION",
+        "ocr_fragments": [
+            {"text": "Llanowar Elves", "bbox": {"x": 180, "y": 120, "w": 240, "h": 45}, "confidence": 0.96},
+            {"text": "Creature - Elf Druid", "bbox": {"x": 180, "y": 780, "w": 280, "h": 35}, "confidence": 0.98},
+            {"text": "T: Add G.", "bbox": {"x": 200, "y": 850, "w": 120, "h": 30}, "confidence": 0.99},
+            {"text": "Illus. Anson Maddocks", "bbox": {"x": 190, "y": 1100, "w": 260, "h": 30}, "confidence": 0.90},
+        ],
+        "image_size": [400, 560],
+    },
 ]
 
 
@@ -167,26 +188,31 @@ def run(args):
         card = cards[0]
         all_printings = printing_repo.get_by_oracle_id(card.oracle_id)
 
-        # Filter to the target set
-        set_printings = [p for p in all_printings if p.set_code == sample["set_code"]]
-        if not set_printings:
-            print(f"  error: no printings for '{sample['name']}' in set '{sample['set_code']}' — run 'mtg setup' first")
-            continue
+        if sample.get("zero_candidates"):
+            # Agent found a digital-only printing — all candidates filtered out.
+            # Just verify the card exists (search needs it), skip candidate building.
+            candidates = []
+        else:
+            # Filter to the target set
+            set_printings = [p for p in all_printings if p.set_code == sample["set_code"]]
+            if not set_printings:
+                print(f"  error: no printings for '{sample['name']}' in set '{sample['set_code']}' — run 'mtg setup' first")
+                continue
 
-        # Build candidates list (target set + any extra_sets)
-        candidate_printings = list(set_printings)
-        for extra_sc in sample.get("extra_sets", []):
-            candidate_printings.extend(p for p in all_printings if p.set_code == extra_sc)
+            # Build candidates list (target set + any extra_sets)
+            candidate_printings = list(set_printings)
+            for extra_sc in sample.get("extra_sets", []):
+                candidate_printings.extend(p for p in all_printings if p.set_code == extra_sc)
 
-        candidates = []
-        for p in candidate_printings:
-            c = _format_candidate(p)
-            if c:
-                candidates.append(c)
+            candidates = []
+            for p in candidate_printings:
+                c = _format_candidate(p)
+                if c:
+                    candidates.append(c)
 
-        if not candidates:
-            print(f"  error: no scryfall data for '{sample['name']}' in '{sample['set_code']}'")
-            continue
+            if not candidates:
+                print(f"  error: no scryfall data for '{sample['name']}' in '{sample['set_code']}'")
+                continue
 
         # Resolve the specific printing for DONE cards
         if sample["collector_number"]:
@@ -205,14 +231,17 @@ def run(args):
         all_indices = list(range(len(ocr_result)))
         claude_entry = {
             "name": sample["name"],
-            "set_code": sample["set_code"],
-            "confidence": sample["confidence"],
+            "set_code": sample.get("agent_set_code", sample["set_code"]),
             "fragment_indices": all_indices,
         }
         if claude_cn:
             claude_entry["collector_number"] = claude_cn
+        elif sample.get("agent_cn"):
+            claude_entry["collector_number"] = sample["agent_cn"]
         if sample.get("artist"):
             claude_entry["artist"] = sample["artist"]
+        if sample.get("confidence"):
+            claude_entry["confidence"] = sample["confidence"]
         claude_result = [claude_entry]
 
         # Copy fixture image to ingest_images dir

@@ -977,7 +977,7 @@ async function accSearchCard(imgId) {
   const data = await resp.json();
   const containerEl = document.getElementById(`acc-candidates-${imgId}`);
   if (containerEl) {
-    const detail = detailCache.get(String(imgId));
+    const detail = detailCache.get(imgId);
     const searchIsPending = detail && (detail.disambiguated || [])[0] == null;
     renderAccCandidates(containerEl, data.candidates || [], null, async (c) => {
       const endpoint = searchIsPending ? '/api/ingest2/confirm' : '/api/ingest2/correct';
