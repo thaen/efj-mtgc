@@ -2631,6 +2631,10 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             scryfall_matches=json.dumps(scryfall_matches),
         )
 
+        # Check if all cards done
+        if all(d is not None for d in disambiguated):
+            self._ingest2_update_image(conn, image_id, status="DONE")
+
         conn.commit()
         conn.close()
 
