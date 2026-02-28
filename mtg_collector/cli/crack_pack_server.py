@@ -4741,6 +4741,7 @@ def run(args):
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ctx.load_cert_chain(str(cert_file), str(key_file))
         server.socket = ctx.wrap_socket(server.socket, server_side=True)
+        server.socket.settimeout(10)
         scheme = "https"
     else:
         scheme = "http"
