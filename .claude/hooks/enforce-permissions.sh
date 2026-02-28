@@ -5,8 +5,8 @@
 #   https://github.com/anthropics/claude-code/issues/18846
 #   https://github.com/anthropics/claude-code/issues/20449
 #
-# Deny rules are checked first, then allow, then falls through to
-# the normal permission prompt for anything unrecognized.
+# Only auto-approves known-good commands. Everything else falls through
+# to Claude's normal permission prompt (including deny decisions).
 
 set -e
 
@@ -18,43 +18,16 @@ COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 # Extract first real command word, skipping env var assignments (VAR=val)
 first_word=$(echo "$COMMAND" | awk '{for(i=1;i<=NF;i++){if(index($i,"=")==0){print $i;exit}}}')
 
-decide() {
-  local decision="$1" reason="$2"
-  jq -n --arg d "$decision" --arg r "$reason" '{
+approve() {
+  jq -n --arg r "$1" '{
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
-      permissionDecision: $d,
+      permissionDecision: "allow",
       permissionDecisionReason: $r
     }
   }'
   exit 0
 }
-
-# --- DENY (checked first) ---
-
-if [ "$first_word" = "rm" ]; then
-  if echo "$COMMAND" | grep -qE '^rm\s+(-rf|-fr)\s'; then
-    decide deny "Blocked: rm -rf"
-  fi
-fi
-
-if [ "$first_word" = "sudo" ]; then
-  decide deny "Blocked: sudo"
-fi
-
-if [ "$first_word" = "git" ]; then
-  if echo "$COMMAND" | grep -qE '^git\s+push\s+.*--force'; then
-    decide deny "Blocked: git push --force"
-  fi
-  if echo "$COMMAND" | grep -qE '^git\s+reset\s+--hard'; then
-    decide deny "Blocked: git reset --hard"
-  fi
-  if echo "$COMMAND" | grep -qE '^git\s+clean\s+-f'; then
-    decide deny "Blocked: git clean -f"
-  fi
-fi
-
-# --- ALLOW ---
 
 allowed_commands=(
   ls pwd cat head tail wc find grep echo which date mkdir
@@ -64,14 +37,14 @@ allowed_commands=(
 
 for allowed in "${allowed_commands[@]}"; do
   if [ "$first_word" = "$allowed" ]; then
-    decide allow "Auto-approved: $first_word"
+    approve "Auto-approved: $first_word"
   fi
 done
 
-# systemctl/journalctl --user only
+# systemctl/journalctl only with --user
 if [ "$first_word" = "systemctl" ] || [ "$first_word" = "journalctl" ]; then
   if echo "$COMMAND" | grep -q -- '--user'; then
-    decide allow "Auto-approved: $first_word --user"
+    approve "Auto-approved: $first_word --user"
   fi
 fi
 
