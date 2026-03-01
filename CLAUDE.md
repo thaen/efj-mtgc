@@ -389,9 +389,9 @@ Data-driven UX regression tests using Claude Vision + Playwright. Each scenario 
 5. Harness executes the action via Playwright, waits for async updates
 6. Repeats until Claude calls `done` (pass) or `fail` (fail), or 20 steps hit
 
-### Writing scenarios
+### Writing intents
 
-Create a YAML file in `tests/ui/scenarios/`:
+Create a YAML file in `tests/ui/intents/`:
 
 ```yaml
 # Related:
@@ -402,42 +402,73 @@ description: >
   I can do the thing and then verify the result.
 ```
 
-That's it — just a goal description and metadata. Claude figures out the steps.
+Intents are **immutable** descriptions of what a feature should do — 2-5 sentences, no UI mechanics or step-by-step instructions. If a feature changes, delete the intent and create a new one.
 
-**Tips for reliable scenarios:**
-- Search for specific card names before clicking — don't say "click any card" (the agent may pick one with wrong state)
-- Use card names from the test fixture DB (not Scryfall names — e.g. FDN #132 is "Scrawling Crawler", not "Lightning Bolt")
-- Keep steps under 12 to stay well within the 20-step limit
-- Reference visible UI elements by label, not position
-- The sidebar filter panel is long — "Saved Views" is at the top, most filters are below
+**Tips for writing intents:**
+- Describe the user journey and expected outcomes, not the steps to get there
+- Use fixture names when they matter to the test (e.g., "move a card from Bolt Tribal to Trade Binder")
+- Use generic references when any card/deck will do (e.g., "add a card to the collection")
+- Do not reference specific UI controls, CSS classes, or layout details
+
+Optionally create a hints file in `tests/ui/hints/` (same name as the intent):
+
+```yaml
+start_page: /binders
+involves:
+  - "New Binder" button opens a creation form
+  - binder detail view with "Add Cards" button
+fixture_data:
+  binder_name: "Test Binder"
+notes: >
+  The sidebar must be opened first via the Filters button.
+```
+
+Hints provide navigation guidance to the Claude harness during generation. They can change as the implementation evolves — the intent stays immutable, the hints adapt. The intent is always the primary key.
 
 ### Running
 
 ```bash
-# Requires a running container instance + ANTHROPIC_API_KEY
+# Deterministic replay (no Claude calls, $0) — requires generated implementations
 uv run pytest tests/ui/ -v --instance <instance>
 
-# Override the model (default: claude-sonnet-4-6)
-UI_TEST_MODEL=claude-haiku-4-5-20251001 uv run pytest tests/ui/ -v --instance <instance>
+# Generate implementations for intents that don't have one
+uv run pytest tests/ui/ -v --instance <instance> --generate-missing
+
+# Generate a specific implementation
+uv run pytest tests/ui/ --generate <intent_name> --instance <instance>
+
+# Force regenerate a specific implementation
+uv run pytest tests/ui/ --regenerate <intent_name> --instance <instance>
+
+# Diagnose failures (one Claude call per failure)
+uv run pytest tests/ui/ -v --instance <instance> --diagnose
+
+# Force all tests through Claude harness (ignore implementations)
+uv run pytest tests/ui/ -v --instance <instance> --intents-only
 ```
 
 Screenshots are saved to `screenshots/ui/<timestamp>/` (gitignored).
 
-### When to write UI scenarios
+### When to write intents
 
-**Every UX-focused issue and PR should include a UI scenario.** When planning, implementing, or reviewing a UX change:
+**Every UX-focused issue and PR should include an intent.** When planning, implementing, or reviewing a UX change:
 
-1. Write a scenario YAML describing what the user should be able to do
+1. Write an intent YAML describing what the user should be able to do
 2. Annotate it with the relevant issue/PR numbers
-3. Run it against a test instance to verify the feature works end-to-end
-4. The scenario becomes a permanent regression test
+3. Generate an implementation: `--generate <intent_name>`
+4. Run it against a test instance to verify the feature works end-to-end
+5. The intent becomes a permanent regression test; the implementation provides cheap replay
 
 ### Key files
 
-- `tests/ui/harness.py` — `UIHarness` class (Playwright + Claude Vision agent loop)
-- `tests/ui/conftest.py` — Fixtures (browser, port discovery, screenshot dir)
-- `tests/ui/test_scenarios.py` — Parametrized pytest runner for YAML scenarios
-- `tests/ui/scenarios/*.yaml` — One file per scenario
+- `tests/ui/harness.py` — `UIHarness` class (Claude Vision agent loop, used for generation)
+- `tests/ui/replay.py` — `ReplayHarness` class (deterministic replay, no Claude)
+- `tests/ui/generator.py` — Generates implementation modules from intents
+- `tests/ui/resolver.py` — Diagnoses test failures (test vs system vs environment)
+- `tests/ui/conftest.py` — Fixtures (browser, port discovery, screenshot dir, CLI flags)
+- `tests/ui/test_scenarios.py` — Parametrized test runner (prefers implementations, falls back to harness)
+- `tests/ui/intents/*.yaml` — Immutable intent files (one per feature)
+- `tests/ui/implementations/*.py` — Generated deterministic test scripts
 
 ## Web UI Shared Conventions (crack_pack.html)
 
