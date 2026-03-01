@@ -45,7 +45,7 @@ The repo is at `/app` on a branch called `claude/issue-${ISSUE_NUMBER}` (based o
    ```bash
    cd /app && uv run mtg crack-pack-server --port 8555 > /tmp/server.log 2>&1 & SERVER_PID=$! && for i in $(seq 1 30); do curl -ksf https://localhost:8555/ > /dev/null && break; sleep 1; done && mkdir -p docs/screenshots && uv run shot-scraper "https://localhost:8555/<TARGET_PATH>" --browser-arg '--ignore-certificate-errors' -o docs/screenshots/issue-${ISSUE_NUMBER}.png && kill $SERVER_PID 2>/dev/null
    ```
-   Set a **120-second timeout** on this Bash command. If it times out or fails, **skip the screenshot and move on** — do not spend multiple turns debugging server startup. The screenshot is nice-to-have, not a blocker for the PR.
+   Set a **120-second timeout** on this Bash command. If the server fails to start, check `/tmp/server.log` for the error and fix it. The screenshot is **required** for UI changes — do not skip it or move on without it.
 
 6. **Commit and push.** Stage only the files you changed (use `git add` with specific file paths, not `git add -A`). If you took a screenshot, stage it:
    ```bash
