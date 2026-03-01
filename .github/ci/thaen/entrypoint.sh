@@ -48,6 +48,8 @@ fi
 if [ "$MODE" = "implement" ]; then
     BRANCH="claude/issue-${ISSUE_NUMBER}"
     git checkout -B "$BRANCH"
+    # Overlay upper layer is root-owned; give ci write access to source files.
+    chown -R ci:ci /app
 fi
 
 # --- Build prompt from template ---
