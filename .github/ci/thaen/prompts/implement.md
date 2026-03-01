@@ -41,9 +41,9 @@ The repo is at `/app` on a branch called `claude/issue-${ISSUE_NUMBER}` (based o
 
    **CRITICAL: The Bash tool does not persist shell state across calls. You MUST run the server, screenshot, and kill in ONE Bash command joined with `&&`. Do NOT use separate Bash calls. Do NOT use newlines between commands.**
 
-   Copy-paste this exactly (only change `<TARGET_PATH>`, e.g. `/collection`, `/sealed`, `/`):
+   **Use this command exactly — it overrides any screenshot instructions in the plan.** The server runs plain HTTP (no `--https`, no `--ignore-certificate-errors`). Only change `<TARGET_PATH>` (e.g. `/collection`, `/sealed`, `/`):
    ```bash
-   cd /app && uv run mtg crack-pack-server --port 8555 > /tmp/server.log 2>&1 & SERVER_PID=$! && for i in $(seq 1 30); do curl -ksf https://localhost:8555/ > /dev/null && break; sleep 1; done && mkdir -p docs/screenshots && uv run shot-scraper "https://localhost:8555/<TARGET_PATH>" --browser-arg '--ignore-certificate-errors' -o docs/screenshots/issue-${ISSUE_NUMBER}.png && kill $SERVER_PID 2>/dev/null
+   cd /app && uv run mtg crack-pack-server --port 8555 > /tmp/server.log 2>&1 & SERVER_PID=$! && for i in $(seq 1 30); do curl -sf http://localhost:8555/ > /dev/null && break; sleep 1; done && mkdir -p docs/screenshots && uv run shot-scraper "http://localhost:8555/<TARGET_PATH>" -o docs/screenshots/issue-${ISSUE_NUMBER}.png && kill $SERVER_PID 2>/dev/null
    ```
    Set a **120-second timeout** on this Bash command. If the server fails to start, check `/tmp/server.log` for the error and fix it. The screenshot is **required** for UI changes — do not skip it or move on without it.
 

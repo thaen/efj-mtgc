@@ -23,8 +23,11 @@ podman run --rm \
         cp /data/collection.sqlite /tmp/collection.sqlite
         chown ci:ci /tmp/collection.sqlite
         runuser -u ci -- env MTGC_DB=/tmp/collection.sqlite uv run mtg crack-pack-server --port 8555 &
-        for i in $(seq 1 15); do curl -ksf https://localhost:8555/ > /dev/null 2>&1 && break; sleep 1; done
-        STATUS=$(curl -ks -o /dev/null -w "%{http_code}" https://localhost:8555/)
+        for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+            curl -sf http://localhost:8555/ > /dev/null 2>&1 && break
+            sleep 1
+        done
+        STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8555/)
         if [ "$STATUS" = "200" ]; then
             echo "Server started OK (HTTP $STATUS)"
             exit 0
