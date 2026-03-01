@@ -53,9 +53,9 @@ Each module has `register(subparsers)` and `run(args)`.
 
 | File | Lines | Purpose |
 |------|------:|---------|
-| `crack_pack_server.py` | 5362 | **Web server**: all HTTP routes, API handlers, SSE endpoints |
+| `crack_pack_server.py` | 5393 | **Web server**: all HTTP routes, API handlers, SSE endpoints |
 | `data_cmd.py` | 922 | MTGJSON + price data import/export commands |
-| `demo_data.py` | 413 | Load demo collection for testing (cards, decks, binders, views) |
+| `demo_data.py` | 427 | Load demo collection for testing (cards, decks, binders, views) |
 | `ingest_ocr.py` | 393 | CLI image-based card ingestion via EasyOCR + Claude |
 | `ingest_corners.py` | 320 | CLI corner-photo card ingestion via Claude Vision |
 | `sample_ingest.py` | 289 |  |
@@ -85,12 +85,12 @@ Repository classes in `models.py`: `CardRepository`, `SetRepository`, `PrintingR
 
 | File | Lines | Purpose |
 |------|------:|---------|
-| `collection.html` | 3835 | **Collection browser**: filters, sorting, card grid, inline editing. Canonical card display. |
+| `collection.html` | 3898 | **Collection browser**: filters, sorting, card grid, inline editing. Canonical card display. |
 | `sealed.html` | 2116 |  |
 | `recent.html` | 1370 | Recently ingested images gallery |
 | `correct.html` | 1048 | Fix misidentified cards in ingest pipeline |
 | `crack_pack.html` | 1040 | Booster pack simulator with rarity borders and badge system |
-| `explore_sheets.html` | 824 | Browse MTGJSON booster sheet layouts |
+| `explore_sheets.html` | 881 | Browse MTGJSON booster sheet layouts |
 | `decks.html` | 748 | Deck list/detail/edit with card management |
 | `ingest_ids.html` | 708 | Manual card entry web UI |
 | `disambiguate.html` | 634 | Resolve ambiguous card matches |
