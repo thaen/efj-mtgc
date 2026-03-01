@@ -1,0 +1,10 @@
+# Scenario: Create a new deck inline from the card modal
+#
+# Related:
+#   issues: []
+#   pull_requests: []
+
+description: >
+  I can create a new deck directly from the card detail modal's Copies section
+  by selecting the "New Deck..." option in the Add to Deck dropdown. After
+  entering a name, the deck is created and the copy is assigned to it.

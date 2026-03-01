@@ -1,0 +1,11 @@
+# Scenario: Create a new deck from the multi-select assign modal
+#
+# Related:
+#   issues: []
+#   pull_requests: []
+
+description: >
+  I can multi-select cards in the collection, click "Add to Deck", and
+  create a new deck inline by choosing the "New Deck..." option in the
+  assign modal. After entering a name, the deck is created and the
+  selected cards are assigned to it.
