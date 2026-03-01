@@ -486,27 +486,6 @@ let selectedSetCode = '';
 let activeDropdownIndex = -1;
 let _settings = {};
 
-// Column count (+/- buttons)
-const COL_MIN = 1, COL_MAX = 12;
-let gridCols = parseInt(localStorage.getItem('exploreGridCols')) || (window.innerWidth < 600 ? 3 : 6);
-
-function applyGridCols() {
-  document.documentElement.style.setProperty('--grid-cols', gridCols);
-  document.getElementById('col-count').textContent = gridCols;
-  document.getElementById('col-minus').disabled = gridCols <= COL_MIN;
-  document.getElementById('col-plus').disabled = gridCols >= COL_MAX;
-  localStorage.setItem('exploreGridCols', gridCols);
-}
-
-document.getElementById('col-minus').addEventListener('click', () => {
-  if (gridCols > COL_MIN) { gridCols--; applyGridCols(); }
-});
-document.getElementById('col-plus').addEventListener('click', () => {
-  if (gridCols < COL_MAX) { gridCols++; applyGridCols(); }
-});
-
-applyGridCols();
-
 // --- Border colors ---
 
 const RARITY_COLORS = {common: '#111', uncommon: '#6a6a6a', rare: '#c9a816', mythic: '#d4422a'};
