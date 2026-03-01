@@ -1,7 +1,21 @@
 """Demo fixture data for new installations.
 
-Provides ~50 curated cards across various sets, statuses, conditions, and finishes
+Provides ~45 curated cards across various sets, statuses, conditions, and finishes
 so the web UI has realistic data to browse immediately after setup.
+
+Card names in comments are resolved from the local Scryfall DB at runtime.
+The names listed here match test-data.sqlite (built by scripts/build_test_fixture.py).
+To verify: query `printings JOIN cards` by (set_code, collector_number).
+
+Index layout:
+  0-7:   Bolt Tribal deck (FDN cards)
+  8-13:  Trade Binder (DSK cards)
+  14-19: Foil Collection binder (BLB + OTJ cards)
+  20-25: Eldrazi Ramp deck (OTJ + MH3 cards)
+  26-32: Unassigned owned (SPG, WOE, LCI, MKM)
+  33-34: Duplicate copies (unassigned owned)
+  35-39: TCG order (owned, linked to DEMO-TCG-001)
+  40-44: CK order (ordered, linked to DEMO-CK-001)
 """
 
 import sqlite3
@@ -29,74 +43,74 @@ from mtg_collector.utils import now_iso
 # Cards tagged "ordered" will be linked to a demo order.
 DEMO_CARDS = [
     # --- Foundations (FDN) — commons/uncommons/rares ---
-    ("fdn", "132", "nonfoil", "Near Mint", "owned"),         # Lightning Bolt
-    ("fdn", "132", "foil", "Near Mint", "owned"),             # Lightning Bolt (foil dupe)
-    ("fdn", "100", "nonfoil", "Near Mint", "owned"),          # Llanowar Elves
-    ("fdn", "60", "nonfoil", "Near Mint", "owned"),           # Counterspell
-    ("fdn", "34", "nonfoil", "Near Mint", "owned"),           # Day of Judgment
-    ("fdn", "90", "nonfoil", "Near Mint", "owned"),           # Doom Blade
-    ("fdn", "191", "nonfoil", "Near Mint", "owned"),          # Sol Ring
-    ("fdn", "103", "nonfoil", "Lightly Played", "owned"),     # Naturalize
+    ("fdn", "132", "nonfoil", "Near Mint", "owned"),         # 0: Scrawling Crawler
+    ("fdn", "132", "foil", "Near Mint", "owned"),             # 1: Scrawling Crawler (foil dupe)
+    ("fdn", "100", "nonfoil", "Near Mint", "owned"),          # 2: Beast-Kin Ranger
+    ("fdn", "60", "nonfoil", "Near Mint", "owned"),           # 3: Gutless Plunderer
+    ("fdn", "34", "nonfoil", "Near Mint", "owned"),           # 4: Curator of Destinies
+    ("fdn", "90", "nonfoil", "Near Mint", "owned"),           # 5: Incinerating Blast
+    ("fdn", "191", "nonfoil", "Near Mint", "owned"),          # 6: Brazen Scourge
+    ("fdn", "103", "nonfoil", "Lightly Played", "owned"),     # 7: Elfsworn Giant
 
     # --- Duskmourn (DSK) — horror set variety ---
-    ("dsk", "1", "nonfoil", "Near Mint", "owned"),            # Abhorrent Oculus
-    ("dsk", "119", "nonfoil", "Near Mint", "owned"),          # Blazemaw Hellion
-    ("dsk", "197", "foil", "Near Mint", "owned"),             # Enduring Courage
-    ("dsk", "216", "nonfoil", "Moderately Played", "owned"),  # Overlord of the Hauntwoods
-    ("dsk", "107", "nonfoil", "Near Mint", "owned"),          # Unholy Annex // Broken Concentration (DFC)
-    ("dsk", "224", "nonfoil", "Near Mint", "owned"),          # Valgavoth, Terror Eater
+    ("dsk", "1", "nonfoil", "Near Mint", "owned"),            # 8: Acrobatic Cheerleader
+    ("dsk", "119", "nonfoil", "Near Mint", "owned"),          # 9: Unstoppable Slasher
+    ("dsk", "197", "foil", "Near Mint", "owned"),             # 10: Say Its Name
+    ("dsk", "216", "nonfoil", "Moderately Played", "owned"),  # 11: Growing Dread
+    ("dsk", "107", "nonfoil", "Near Mint", "owned"),          # 12: Live or Die
+    ("dsk", "224", "nonfoil", "Near Mint", "owned"),          # 13: Niko, Light of Hope
 
     # --- Bloomburrow (BLB) — cute animal set ---
-    ("blb", "198", "nonfoil", "Near Mint", "owned"),          # Innkeeper's Talent
-    ("blb", "124", "nonfoil", "Near Mint", "owned"),          # Fireglass Mentor
-    ("blb", "156", "nonfoil", "Near Mint", "owned"),          # Camellia, the Seedmiser
-    ("blb", "215", "foil", "Near Mint", "owned"),             # Ygra, Eater of All
+    ("blb", "198", "nonfoil", "Near Mint", "owned"),          # 14: Three Tree Rootweaver
+    ("blb", "124", "nonfoil", "Near Mint", "owned"),          # 15: Artist's Talent
+    ("blb", "156", "nonfoil", "Near Mint", "owned"),          # 16: Take Out the Trash
+    ("blb", "215", "foil", "Near Mint", "owned"),             # 17: Glarb, Calamity's Augur
 
     # --- Outlaws of Thunder Junction (OTJ) ---
-    ("otj", "178", "nonfoil", "Near Mint", "owned"),          # Bristly Bill, Spine Sower
-    ("otj", "90", "nonfoil", "Near Mint", "owned"),           # Caustic Bronco
-    ("otj", "196", "nonfoil", "Near Mint", "owned"),          # Obeka, Splitter of Seconds
-    ("otj", "233", "foil", "Near Mint", "owned"),             # Worldwalker Helm
+    ("otj", "178", "nonfoil", "Near Mint", "owned"),          # 18: Reach for the Sky
+    ("otj", "90", "nonfoil", "Near Mint", "owned"),           # 19: Hollow Marauder
+    ("otj", "196", "nonfoil", "Near Mint", "owned"),          # 20: Bonny Pall, Clearcutter
+    ("otj", "233", "foil", "Near Mint", "owned"),             # 21: Slick Sequence
 
     # --- Modern Horizons 3 (MH3) ---
-    ("mh3", "209", "nonfoil", "Near Mint", "owned"),          # Nadu, Winged Wisdom
-    ("mh3", "293", "nonfoil", "Near Mint", "owned"),          # Flare of Denial
-    ("mh3", "197", "nonfoil", "Lightly Played", "owned"),     # Emrakul, the World Anew
-    ("mh3", "196", "etched", "Near Mint", "owned"),           # Eldrazi Conscription
+    ("mh3", "209", "nonfoil", "Near Mint", "owned"),          # 22: Disruptor Flute
+    ("mh3", "293", "nonfoil", "Near Mint", "owned"),          # 23: Junk Diver
+    ("mh3", "197", "nonfoil", "Lightly Played", "owned"),     # 24: Phlage, Titan of Fire's Fury
+    ("mh3", "196", "etched", "Near Mint", "owned"),           # 25: Ondu Knotmaster // Throw a Line
 
     # --- Special Guests (SPG) — borderless promos ---
-    ("spg", "74", "nonfoil", "Near Mint", "owned"),           # Rhystic Study
+    ("spg", "74", "nonfoil", "Near Mint", "owned"),           # 26: Condemn
 
     # --- Wilds of Eldraine (WOE) ---
-    ("woe", "56", "nonfoil", "Near Mint", "owned"),           # Beseech the Mirror
-    ("woe", "171", "nonfoil", "Near Mint", "owned"),          # Virtue of Strength // Garenbrig Growth (DFC)
+    ("woe", "56", "nonfoil", "Near Mint", "owned"),           # 27: Ingenious Prodigy
+    ("woe", "171", "nonfoil", "Near Mint", "owned"),          # 28: Graceful Takedown
 
     # --- The Lost Caverns of Ixalan (LCI) ---
-    ("lci", "68", "nonfoil", "Near Mint", "owned"),           # Deepfathom Echo
-    ("lci", "113", "nonfoil", "Lightly Played", "owned"),     # Trumpeting Carnosaur
+    ("lci", "68", "nonfoil", "Near Mint", "owned"),           # 29: Orazca Puzzle-Door
+    ("lci", "113", "nonfoil", "Lightly Played", "owned"),     # 30: Preacher of the Schism
 
     # --- Murders at Karlov Manor (MKM) ---
-    ("mkm", "172", "nonfoil", "Near Mint", "owned"),          # Leyline of the Guildpact
-    ("mkm", "210", "foil", "Near Mint", "owned"),             # Teysa, Opulent Oligarch
+    ("mkm", "172", "nonfoil", "Near Mint", "owned"),          # 31: The Pride of Hull Clade
+    ("mkm", "210", "foil", "Near Mint", "owned"),             # 32: Judith, Carnage Connoisseur
 
     # --- Duplicate cards (same printing, different copies) ---
-    ("fdn", "132", "nonfoil", "Near Mint", "owned"),           # Lightning Bolt #3 (same finish+condition → aggregates)
-    ("dsk", "119", "nonfoil", "Near Mint", "owned"),          # Blazemaw Hellion #2
+    ("fdn", "132", "nonfoil", "Near Mint", "owned"),          # 33: Scrawling Crawler #3
+    ("dsk", "119", "nonfoil", "Near Mint", "owned"),          # 34: Unstoppable Slasher #2
 
     # === ORDERED cards (linked to demo orders) ===
     # Order 1: TCGPlayer order (received — these become "owned")
-    ("fdn", "63", "nonfoil", "Near Mint", "owned"),           # Cryptic Command
-    ("fdn", "166", "nonfoil", "Near Mint", "owned"),          # Cultivate
-    ("fdn", "94", "foil", "Near Mint", "owned"),              # Dark Ritual
-    ("fdn", "139", "nonfoil", "Near Mint", "owned"),          # Goblin Guide
-    ("fdn", "168", "nonfoil", "Near Mint", "owned"),          # Elvish Mystic
+    ("fdn", "63", "nonfoil", "Near Mint", "owned"),           # 35: Infernal Vessel
+    ("fdn", "166", "nonfoil", "Near Mint", "owned"),          # 36: Time Stop
+    ("fdn", "94", "foil", "Near Mint", "owned"),              # 37: Slumbering Cerberus
+    ("fdn", "139", "nonfoil", "Near Mint", "owned"),          # 38: Cathar Commando
+    ("fdn", "168", "nonfoil", "Near Mint", "owned"),          # 39: Witness Protection
 
     # Order 2: Card Kingdom order (pending — status=ordered)
-    ("mh3", "174", "nonfoil", "Near Mint", "ordered"),        # Ajani, Nacatl Pariah // Ajani, Nacatl Avenger
-    ("mh3", "295", "nonfoil", "Near Mint", "ordered"),        # Flare of Fortitude
-    ("mh3", "234", "nonfoil", "Near Mint", "ordered"),        # Ugin's Labyrinth
-    ("blb", "188", "foil", "Near Mint", "ordered"),           # Beza, the Bounding Spring
-    ("dsk", "173", "nonfoil", "Near Mint", "ordered"),        # Fear of Missing Out
+    ("mh3", "174", "nonfoil", "Near Mint", "ordered"),        # 40: Thief of Existence
+    ("mh3", "295", "nonfoil", "Near Mint", "ordered"),        # 41: Ruby Medallion
+    ("mh3", "234", "nonfoil", "Near Mint", "ordered"),        # 42: Urza's Cave
+    ("blb", "188", "foil", "Near Mint", "ordered"),           # 43: Peerless Recycling
+    ("dsk", "173", "nonfoil", "Near Mint", "ordered"),        # 44: Coordinated Clobbering
 ]
 
 # Demo orders
@@ -127,11 +141,11 @@ DEMO_ORDERS = [
     },
 ]
 
-# Demo wishlist entries: (set_code, collector_number) — looked up by printing to get oracle_id
+# Demo wishlist entries: (set_code, collector_number, notes, priority, max_price)
 DEMO_WISHLIST = [
-    ("mh3", "209", "Need for Commander deck", 2, 50.00),      # Nadu
-    ("dsk", "224", None, 1, None),                              # Valgavoth
-    ("otj", "196", "For Obeka combo deck", 3, 25.00),         # Obeka
+    ("mh3", "209", "Need for Commander deck", 2, 50.00),      # Disruptor Flute
+    ("dsk", "224", None, 1, None),                              # Niko, Light of Hope
+    ("otj", "196", "For combo deck", 3, 25.00),                # Bonny Pall, Clearcutter
 ]
 
 # Each tuple: (set_code, category_keyword, quantity, purchase_price, status)

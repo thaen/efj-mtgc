@@ -107,6 +107,24 @@ TOOLS = [
         },
     },
     {
+        "name": "press_key",
+        "description": "Press a keyboard key (e.g. Enter, Escape, Tab, ArrowDown).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "key": {
+                    "type": "string",
+                    "description": "Key name (e.g. Enter, Escape, Tab, ArrowDown)",
+                },
+                "element": {
+                    "type": "integer",
+                    "description": "Optional element index to target. If omitted, presses on the focused element.",
+                },
+            },
+            "required": ["key"],
+        },
+    },
+    {
         "name": "scroll",
         "description": "Scroll the page up or down.",
         "input_schema": {
@@ -274,7 +292,7 @@ class UIHarness:
             if hint_parts:
                 augmented_goal = goal + "\n\nHints:\n" + "\n".join(f"- {h}" for h in hint_parts)
 
-        log.info("[%s] Goal: %s", self.scenario_name, augmented_goal.strip()[:200])
+        log.info("[%s] Goal: %s", self.scenario_name, augmented_goal.strip()[:500])
 
         # Auto-accept JS dialogs (confirm/alert) and provide a default for prompt().
         self._last_dialog_message = None
@@ -294,9 +312,19 @@ class UIHarness:
 
         for _ in range(max_steps):
             screenshot_b64, elements = self._observe()
+            # Log element summary so callers can follow along.
+            el_summary = "; ".join(
+                f'[{e["idx"]}] {e["tag"]}'
+                + (f' "{e["text"][:40]}"' if e.get("text") else "")
+                + (f' placeholder="{e["placeholder"]}"' if e.get("placeholder") else "")
+                + (f' value="{e["value"]}"' if e.get("value") else "")
+                for e in elements[:20]
+            )
             log.info(
-                "[%s] Step %d — %d interactive elements visible",
+                "[%s] Step %d — %d elements: %s%s",
                 self.scenario_name, self._step, len(elements),
+                el_summary,
+                " ..." if len(elements) > 20 else "",
             )
             action = self._decide(augmented_goal, screenshot_b64, elements)
 
@@ -413,7 +441,7 @@ class UIHarness:
         # Log any reasoning text before the tool call.
         reasoning = "".join(b.text for b in response.content if b.type == "text")
         if reasoning:
-            log.info("[%s] Reasoning: %s", self.scenario_name, reasoning.strip()[:200])
+            log.info("[%s] Reasoning: %s", self.scenario_name, reasoning.strip()[:500])
 
         # Collect tool_results for ALL tool_use blocks in this response.
         # The API requires every tool_use to have a matching tool_result.
@@ -460,6 +488,15 @@ class UIHarness:
                 self.page.select_option(selector, label=inputs["label"], timeout=timeout)
                 return "selected"
 
+            if action == "press_key":
+                key = inputs["key"]
+                if "element" in inputs:
+                    selector = f'[data-uitest="{inputs["element"]}"]'
+                    self.page.press(selector, key, timeout=timeout)
+                else:
+                    self.page.keyboard.press(key)
+                return f"pressed {key}"
+
             if action == "scroll":
                 delta = -500 if inputs["direction"] == "up" else 500
                 self.page.mouse.wheel(0, delta)
@@ -497,9 +534,9 @@ class UIHarness:
         if el.get("testid"):
             return ("test_id", el["testid"])
 
-        # Unique text — only usable if no other visible element has the same text.
+        # Unique text — only usable if single-line and unique on the page.
         text = el.get("text")
-        if text:
+        if text and "\n" not in text:
             same_text = [e for e in self._last_elements if e.get("text") == text]
             if len(same_text) == 1:
                 return ("text", text)

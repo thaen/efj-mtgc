@@ -7,6 +7,7 @@ Usage (via pytest flags, see conftest.py):
     uv run pytest tests/ui/ --generate-missing --instance <instance>
 """
 
+import ast
 import hashlib
 import logging
 import re
@@ -188,6 +189,8 @@ def _translate_step(step: dict, scenario_name: str, base_url: str) -> str | None
             return f'    harness.click_by_text("{escaped}")'
         if strategy == "aria_label":
             return f'    harness.click_by_selector(\'[aria-label="{escaped}"]\')'
+        if strategy == "placeholder":
+            return f'    harness.click_by_selector(\'[placeholder="{escaped}"]\')'
         return f'    harness.click_by_selector("{escaped}")'
 
     if action == "fill":
@@ -212,7 +215,29 @@ def _translate_step(step: dict, scenario_name: str, base_url: str) -> str | None
             return f'    harness.select_by_label(\'[data-testid="{escaped}"]\', "{label}")'
         if strategy == "selector":
             return f'    harness.select_by_label("{escaped}", "{label}")'
-        return f'    harness.select_by_label("{escaped}", "{label}")'
+        # text/placeholder/aria_label are not valid CSS selectors for <select> —
+        # fall back to the element's CSS path if available.
+        element_idx = inputs.get("element")
+        elements = step.get("elements_snapshot", [])
+        el = next((e for e in elements if e["idx"] == element_idx), None)
+        if el and el.get("css_path"):
+            css = _escape_for_python(el["css_path"])
+            return f'    harness.select_by_label("{css}", "{label}")'
+        return f"    # WARNING: no CSS selector for select step {step['step']} (strategy={strategy})"
+
+    if action == "press_key":
+        key = _escape_for_python(inputs["key"])
+        if selector_info and "element" in inputs:
+            strategy, sel_value = selector_info
+            escaped = _escape_for_python(sel_value)
+            if strategy == "placeholder":
+                # Use the placeholder selector for targeting
+                return f'    harness.press_key("{key}", selector=\'[placeholder="{escaped}"]\')'
+            if strategy == "test_id":
+                return f'    harness.press_key("{key}", selector=\'[data-testid="{escaped}"]\')'
+            if strategy == "selector":
+                return f'    harness.press_key("{key}", selector="{escaped}")'
+        return f'    harness.press_key("{key}")'
 
     return None
 
@@ -259,9 +284,30 @@ def generate(
         )
 
     # Translate recorded steps into ReplayHarness calls.
+    # Also detect async element appearances (modals, overlays) between steps
+    # and emit wait_for_visible calls.
     lines = []
+    prev_elements = None
     for step in result["steps"]:
         selector_info = step.get("stable_selector")
+        cur_elements = step.get("elements_snapshot", [])
+
+        # Detect async elements that appeared since the previous step.
+        # Look for modals/overlays that just became visible.
+        if prev_elements is not None:
+            prev_ids = {e.get("id") for e in prev_elements if e.get("id")}
+            for el in cur_elements:
+                el_id = el.get("id", "")
+                if not el_id:
+                    continue
+                # Detect modal/overlay elements that are new.
+                is_async_el = any(
+                    kw in el_id.lower()
+                    for kw in ("modal", "overlay", "dialog", "popup")
+                )
+                if is_async_el and el_id not in prev_ids:
+                    lines.append(f'    harness.wait_for_visible("#{el_id}", timeout=10_000)')
+        prev_elements = cur_elements
 
         # If the stable selector fell back to data-uitest (ephemeral), try to
         # add a data-testid to the HTML source.
@@ -301,6 +347,19 @@ def generate(
         def steps(harness):
     ''')
     module_content += "\n".join(lines) + "\n"
+
+    # Validate generated Python before writing.
+    try:
+        ast.parse(module_content, filename=scenario_name)
+    except SyntaxError as e:
+        log.error(
+            "Generated code has syntax error at line %d: %s\n%s",
+            e.lineno, e.msg, module_content,
+        )
+        raise RuntimeError(
+            f"Generated implementation for {scenario_name} has a syntax error "
+            f"at line {e.lineno}: {e.msg}"
+        ) from e
 
     # Write the implementation file, mirroring the intent directory structure.
     rel = intent_path.relative_to(INTENTS_DIR).with_suffix(".py")
