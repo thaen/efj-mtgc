@@ -1,0 +1,13 @@
+start_page: /collection
+involves:
+  - card detail modal for an unassigned card
+  - '"Add to Deck" dropdown in Copies section always visible, even with no existing decks'
+  - '"New Deck..." option at the end of the dropdown triggers a prompt dialog'
+  - prompt dialog auto-accepts with default "Test View"
+fixture_data:
+  card_name: "Condemn"
+notes: >
+  Search for Condemn (SPG, index 26, unassigned). Open its card modal. The
+  Copies section will show an "Add to Deck" dropdown even if no decks existed.
+  Select "New Deck..." — the browser prompt is auto-accepted with "Test View".
+  The copy should then show the newly created deck name.
