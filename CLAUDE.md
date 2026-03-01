@@ -53,7 +53,7 @@ Each module has `register(subparsers)` and `run(args)`.
 
 | File | Lines | Purpose |
 |------|------:|---------|
-| `crack_pack_server.py` | 5360 | **Web server**: all HTTP routes, API handlers, SSE endpoints |
+| `crack_pack_server.py` | 5354 | **Web server**: all HTTP routes, API handlers, SSE endpoints |
 | `data_cmd.py` | 922 | MTGJSON + price data import/export commands |
 | `demo_data.py` | 413 | Load demo collection for testing (cards, decks, binders, views) |
 | `ingest_ocr.py` | 393 | CLI image-based card ingestion via EasyOCR + Claude |
@@ -74,7 +74,7 @@ Repository classes in `models.py`: `CardRepository`, `SetRepository`, `PrintingR
 
 | File | Lines | Purpose |
 |------|------:|---------|
-| `order_parser.py` | 600 | Parse TCGPlayer HTML/text and Card Kingdom text into `ParsedOrder` |
+| `order_parser.py` | 724 | Parse TCGPlayer HTML/text and Card Kingdom text into `ParsedOrder` |
 | `agent.py` | 555 | Agentic OCR: Claude tool-use loop with `query_local_db` and `analyze_image` tools |
 | `claude.py` | 507 | Claude Vision API: corner reading, card identification |
 | `pack_generator.py` | 329 | MTGJSON-based booster pack simulation from SQLite |
@@ -87,7 +87,7 @@ Repository classes in `models.py`: `CardRepository`, `SetRepository`, `PrintingR
 |------|------:|---------|
 | `collection.html` | 3835 | **Collection browser**: filters, sorting, card grid, inline editing. Canonical card display. |
 | `sealed.html` | 2116 |  |
-| `recent.html` | 1407 | Recently ingested images gallery |
+| `recent.html` | 1370 | Recently ingested images gallery |
 | `correct.html` | 1048 | Fix misidentified cards in ingest pipeline |
 | `crack_pack.html` | 1040 | Booster pack simulator with rarity borders and badge system |
 | `explore_sheets.html` | 824 | Browse MTGJSON booster sheet layouts |
@@ -119,7 +119,7 @@ Repository classes in `models.py`: `CardRepository`, `SetRepository`, `PrintingR
 | File | Lines | What it covers |
 |------|------:|---------|
 | `test_sealed_products.py` | 1346 |  |
-| `test_order_parser.py` | 622 | Order parsing (TCGPlayer HTML/text, Card Kingdom) |
+| `test_order_parser.py` | 785 | Order parsing (TCGPlayer HTML/text, Card Kingdom) |
 | `test_price_import.py` | 530 | MTGJSON price import pipeline |
 | `test_mtgjson_import.py` | 515 | MTGJSON AllPrintings import |
 | `test_import.py` | 484 | CSV import (Moxfield, Archidekt, Deckbox, decklist) |
@@ -363,66 +363,13 @@ bash deploy/mac-teardown.sh <instance> --purge   # Stop + remove container, volu
 
 ## UI Scenario Tests
 
-Data-driven UX regression tests using Claude Vision + Playwright. Each scenario is a YAML file describing a UX goal in natural language. A Claude Vision agent loop drives a headless browser to accomplish the goal, screenshotting at every step.
-
-### How it works
-
-1. Harness loads the homepage in headless Chromium
-2. Screenshots the page + extracts all visible interactive elements
-3. Sends screenshot + element list + goal to Claude (tool-use mode)
-4. Claude picks an action: `navigate`, `click`, `fill`, `select_option`, `scroll`, `done`, or `fail`
-5. Harness executes the action via Playwright, waits for async updates
-6. Repeats until Claude calls `done` (pass) or `fail` (fail), or 20 steps hit
-
-### Writing scenarios
-
-Create a YAML file in `tests/ui/scenarios/`:
-
-```yaml
-# Related:
-#   issues: [42]
-#   pull_requests: [93]
-
-description: >
-  I can do the thing and then verify the result.
-```
-
-That's it — just a goal description and metadata. Claude figures out the steps.
-
-**Tips for reliable scenarios:**
-- Search for specific card names before clicking — don't say "click any card" (the agent may pick one with wrong state)
-- Use card names from the test fixture DB (not Scryfall names — e.g. FDN #132 is "Scrawling Crawler", not "Lightning Bolt")
-- Keep steps under 12 to stay well within the 20-step limit
-- Reference visible UI elements by label, not position
-- The sidebar filter panel is long — "Saved Views" is at the top, most filters are below
-
-### Running
+Data-driven UX regression tests using Claude Vision + Playwright. Excluded from `uv run pytest` by default (expensive — each scenario makes Claude API calls). Run them explicitly:
 
 ```bash
-# Requires a running container instance + ANTHROPIC_API_KEY
 uv run pytest tests/ui/ -v --instance <instance>
-
-# Override the model (default: claude-sonnet-4-6)
-UI_TEST_MODEL=claude-haiku-4-5-20251001 uv run pytest tests/ui/ -v --instance <instance>
 ```
 
-Screenshots are saved to `screenshots/ui/<timestamp>/` (gitignored).
-
-### When to write UI scenarios
-
-**Every UX-focused issue and PR should include a UI scenario.** When planning, implementing, or reviewing a UX change:
-
-1. Write a scenario YAML describing what the user should be able to do
-2. Annotate it with the relevant issue/PR numbers
-3. Run it against a test instance to verify the feature works end-to-end
-4. The scenario becomes a permanent regression test
-
-### Key files
-
-- `tests/ui/harness.py` — `UIHarness` class (Playwright + Claude Vision agent loop)
-- `tests/ui/conftest.py` — Fixtures (browser, port discovery, screenshot dir)
-- `tests/ui/test_scenarios.py` — Parametrized pytest runner for YAML scenarios
-- `tests/ui/scenarios/*.yaml` — One file per scenario
+Do NOT create or modify UI scenario tests in automated workflows. They are managed by humans.
 
 ## Web UI Shared Conventions (crack_pack.html)
 

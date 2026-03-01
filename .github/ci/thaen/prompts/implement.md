@@ -20,6 +20,7 @@ The repo is at `/app` on a branch called `claude/issue-${ISSUE_NUMBER}` (based o
 - Do NOT reinstall dependencies — everything is pre-installed.
 - Do NOT use `git add -A` or `git add .` — stage specific files by path.
 - **Bash tool limitation:** Shell state (variables, background PIDs) does NOT persist between separate Bash tool calls. If you need to background a process and interact with it, chain everything with `&&` in a single Bash call. Never use separate Bash calls for `cmd &` then `sleep` then `kill $PID`.
+- Do NOT create or modify UI scenario tests (`tests/ui/`). UI tests use Claude Vision and are expensive. They are managed separately by humans.
 
 ## Steps
 
@@ -31,7 +32,7 @@ The repo is at `/app` on a branch called `claude/issue-${ISSUE_NUMBER}` (based o
 
 4. **Run tests and linting.** Execute:
    ```
-   uv run pytest
+   uv run pytest --ignore=tests/ui/
    uv run ruff check $(git diff --name-only main -- '*.py')
    ```
    This lints only files you changed, avoiding pre-existing warnings in other files. If there are failures, fix them and re-run until tests pass and linting is clean.
