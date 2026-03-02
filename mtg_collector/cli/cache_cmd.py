@@ -131,7 +131,7 @@ def cache_all(force: bool, db_path: str):
             skipped += 1
             continue
 
-        # Skip cards without oracle_id (tokens, etc.)
+        # Skip cards without oracle_id (art series, reversible backs, etc.)
         if "oracle_id" not in card_data:
             continue
 
@@ -161,7 +161,41 @@ def cache_all(force: bool, db_path: str):
         set_repo.mark_cards_cached(sc)
     conn.commit()
 
-    # Step 7: Clean up temp file
+    # Step 7: Backfill under-populated token sets.
+    # The bulk data snapshot can lag behind the live API for newly released
+    # token sets, and the cached-set skip (step 5) means a token set that was
+    # marked cached with incomplete data won't get re-processed on subsequent
+    # runs.  Find token-type sets with 0 printings and fetch them via the
+    # per-set search API.
+    token_backfill = 0
+    cursor = conn.execute(
+        "SELECT s.set_code FROM sets s"
+        " LEFT JOIN printings p ON s.set_code = p.set_code"
+        " WHERE s.set_type = 'token'"
+        " GROUP BY s.set_code"
+        " HAVING COUNT(p.printing_id) = 0"
+    )
+    empty_token_sets = [row["set_code"] for row in cursor.fetchall()]
+
+    for token_code in empty_token_sets:
+        cards = api.get_set_cards(token_code)
+        if not cards:
+            continue
+        for card_data in cards:
+            if "oracle_id" not in card_data:
+                continue
+            card = api.to_card_model(card_data)
+            card_repo.upsert(card)
+            printing = api.to_printing_model(card_data)
+            printing_repo.upsert(printing)
+            token_backfill += 1
+        set_repo.mark_cards_cached(token_code)
+        conn.commit()
+
+    if token_backfill:
+        print(f"  Backfilled {token_backfill} token cards via per-set API")
+
+    # Step 8: Clean up temp file
     tmp_path.unlink(missing_ok=True)
 
     # Summary
