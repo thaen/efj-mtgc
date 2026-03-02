@@ -63,7 +63,7 @@ def run(args):
     else:
         print("\n=== Step 2: Scryfall cache ===")
         from mtg_collector.cli.cache_cmd import cache_all
-        cache_all(force=False, db_path=db_path)
+        cache_all(db_path=db_path)
 
     # Step 3: Fetch MTGJSON data + import into SQLite
     if args.skip_data:

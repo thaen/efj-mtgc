@@ -19,29 +19,23 @@ def register(subparsers):
     )
     cache_sub = parser.add_subparsers(dest="cache_command", metavar="<subcommand>")
 
-    all_parser = cache_sub.add_parser(
+    cache_sub.add_parser(
         "all",
         help="Download and cache all cards from Scryfall bulk data",
     )
-    all_parser.add_argument(
-        "--force",
-        action="store_true",
-        help="Reprocess all sets, even those already cached",
-    )
-
     parser.set_defaults(func=run)
 
 
 def run(args):
     """Run the cache command."""
     if args.cache_command == "all":
-        cache_all(force=args.force, db_path=args.db_path)
+        cache_all(db_path=args.db_path)
     else:
-        print("Usage: mtg cache all [--force]")
+        print("Usage: mtg cache all")
         sys.exit(1)
 
 
-def cache_all(force: bool, db_path: str):
+def cache_all(db_path: str):
     """Download Scryfall bulk data and cache all cards/sets/printings."""
     conn = get_connection(db_path)
     init_db(conn)
@@ -61,18 +55,7 @@ def cache_all(force: bool, db_path: str):
         set_repo.upsert(set_model)
     conn.commit()
 
-    # Step 2: Build skip set (already-cached set codes)
-    if force:
-        cached_sets = set()
-        print("  --force: will reprocess all sets")
-    else:
-        cursor = conn.execute(
-            "SELECT set_code FROM sets WHERE cards_fetched_at IS NOT NULL"
-        )
-        cached_sets = {row["set_code"] for row in cursor}
-        print(f"  {len(cached_sets)} sets already cached")
-
-    # Step 3: Get bulk data download URL
+    # Step 2: Get bulk data download URL
     print("Fetching bulk data metadata...")
     resp = api.session.get(_BULK_DATA_URL)
     resp.raise_for_status()
@@ -88,7 +71,7 @@ def cache_all(force: bool, db_path: str):
         print("Error: Could not find default_cards bulk data entry")
         sys.exit(1)
 
-    # Step 4: Stream-download bulk JSON to temp file
+    # Step 3: Stream-download bulk JSON to temp file
     tmp_dir = get_mtgc_home()
     tmp_dir.mkdir(parents=True, exist_ok=True)
     tmp_path = tmp_dir / "bulk-default-cards.json"
@@ -111,7 +94,7 @@ def cache_all(force: bool, db_path: str):
                     print(f"\r  {mb:.0f} MB", end="", flush=True)
     print()  # newline after progress
 
-    # Step 5: Parse and process cards
+    # Step 4: Parse and process cards
     print("Processing bulk data...")
     with open(tmp_path, "r") as f:
         cards_data = json.load(f)
@@ -120,18 +103,12 @@ def cache_all(force: bool, db_path: str):
     print(f"  {total_cards} cards in bulk data")
 
     processed = 0
-    skipped = 0
-    new_set_codes = set()
+    all_set_codes = set()
 
     for card_data in cards_data:
         set_code = card_data.get("set")
 
-        # Skip cards from already-cached sets
-        if set_code in cached_sets:
-            skipped += 1
-            continue
-
-        # Skip cards without oracle_id (art series, reversible backs, etc.)
+        # Skip cards without oracle_id (tokens, etc.)
         if "oracle_id" not in card_data:
             continue
 
@@ -145,7 +122,7 @@ def cache_all(force: bool, db_path: str):
         printing = api.to_printing_model(card_data)
         printing_repo.upsert(printing)
 
-        new_set_codes.add(set_code)
+        all_set_codes.add(set_code)
         processed += 1
 
         # Commit every 5000 cards and print progress
@@ -156,17 +133,15 @@ def cache_all(force: bool, db_path: str):
     # Final commit for remaining cards
     conn.commit()
 
-    # Step 6: Mark newly processed sets as cached
-    for sc in new_set_codes:
+    # Step 5: Mark all processed sets as cached
+    for sc in all_set_codes:
         set_repo.mark_cards_cached(sc)
     conn.commit()
 
-    # Step 7: Backfill under-populated token sets.
+    # Step 6: Backfill under-populated token sets.
     # The bulk data snapshot can lag behind the live API for newly released
-    # token sets, and the cached-set skip (step 5) means a token set that was
-    # marked cached with incomplete data won't get re-processed on subsequent
-    # runs.  Find token-type sets with 0 printings and fetch them via the
-    # per-set search API.
+    # token sets — find token-type sets with 0 printings and fetch them via
+    # the per-set search API.
     token_backfill = 0
     cursor = conn.execute(
         "SELECT s.set_code FROM sets s"
@@ -195,12 +170,10 @@ def cache_all(force: bool, db_path: str):
     if token_backfill:
         print(f"  Backfilled {token_backfill} token cards via per-set API")
 
-    # Step 8: Clean up temp file
+    # Step 7: Clean up temp file
     tmp_path.unlink(missing_ok=True)
 
     # Summary
     print("\nDone!")
     print(f"  Cards processed: {processed}")
-    print(f"  Cards skipped (already cached): {skipped}")
-    print(f"  New sets cached: {len(new_set_codes)}")
-    print(f"  Previously cached sets: {len(cached_sets)}")
+    print(f"  Sets updated: {len(all_set_codes)}")
