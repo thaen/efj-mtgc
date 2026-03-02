@@ -28,7 +28,8 @@ def lookup_card(set_code, cn_raw, cn_stripped, rarity_expected, printing_repo):
         if printing and printing.raw_json:
             card_data = printing.get_card_data()
 
-    # Token cards: try t{set_code} set
+    # Token cards: try t{set_code} set (no fallback — tokens have their own
+    # collector number sequence and must not match regular cards)
     if rarity_expected == "token":
         token_set = f"t{set_code}"
         printing = printing_repo.get_by_set_cn(token_set, cn_stripped)
@@ -36,8 +37,9 @@ def lookup_card(set_code, cn_raw, cn_stripped, rarity_expected, printing_repo):
             printing = printing_repo.get_by_set_cn(token_set, cn_raw)
         if printing and printing.raw_json:
             card_data = printing.get_card_data()
+        return card_data
 
-    # Regular lookup (also fallback for promo/token)
+    # Regular lookup (also fallback for promo)
     if not card_data:
         printing = printing_repo.get_by_set_cn(set_code, cn_stripped)
         if not printing:
@@ -90,7 +92,11 @@ def resolve_and_add_ids(
         )
 
         if not card_data:
-            print(f"  FAILED: {label} — card not found (run `mtg cache all` to populate)")
+            if rarity_expected == "token":
+                token_set = f"t{set_code}"
+                print(f"  FAILED: {label} — token not found in {token_set} (run `mtg cache all` to refresh token data)")
+            else:
+                print(f"  FAILED: {label} — card not found (run `mtg cache all` to populate)")
             failed.append(label)
             continue
 

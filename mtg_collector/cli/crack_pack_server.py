@@ -3630,7 +3630,10 @@ class CrackPackHandler(BaseHTTPRequestHandler):
 
             card_data = lookup_card(set_code, cn_raw, cn_stripped, rarity_expected, printing_repo)
             if not card_data:
-                errors.append(f"Card not found: {rarity_code} {cn_raw} {set_code.upper()} (run `mtg cache all` to populate)")
+                if rarity_expected == "token":
+                    errors.append(f"Token not found: {rarity_code} {cn_raw} in t{set_code} (run `mtg cache all` to refresh token data)")
+                else:
+                    errors.append(f"Card not found: {rarity_code} {cn_raw} {set_code.upper()} (run `mtg cache all` to populate)")
                 continue
 
             # Extract image URI
