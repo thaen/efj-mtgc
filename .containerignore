@@ -1,0 +1,43 @@
+# Virtual environment (built inside container, not copied from host)
+.venv/
+
+# Git
+.git/
+
+# Screenshots (taken from host against container URL)
+screenshots/
+
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+build/
+dist/
+
+# Dev/IDE
+.idea/
+.vscode/
+*.swp
+.ruff_cache/
+.pytest_cache/
+
+# CI, docs, plans
+.github/
+.claude/
+docs/
+plans/
+architecture/
+
+# Environment files (injected via --env-file at runtime)
+.env
+.env.*
+
+# Deployment scripts (not needed inside container)
+deploy/
+
+# Makefile
+Makefile
+
+# Output files
+moxfield_collection.csv
