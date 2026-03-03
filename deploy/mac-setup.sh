@@ -5,7 +5,7 @@
 #
 # Prerequisites:
 #   brew install podman
-#   podman machine init && podman machine start
+#   podman machine init --memory 4096 --cpus 4 && podman machine start
 #
 # Usage:
 #   bash deploy/mac-setup.sh <instance> [--init] [--test]
@@ -65,6 +65,21 @@ if ! command -v podman &>/dev/null; then
 fi
 
 echo "    podman: $(podman --version)"
+
+# Verify Podman machine is running (required on macOS)
+if ! podman machine inspect --format '{{.State}}' 2>/dev/null | grep -q "running"; then
+    echo "ERROR: Podman machine is not running."
+    echo "  Start it with:  podman machine start"
+    echo "  First time?:    podman machine init --memory 4096 --cpus 4 && podman machine start"
+    exit 1
+fi
+
+# Warn if Podman machine has low memory (< 4GB)
+MACHINE_MEM=$(podman machine inspect --format '{{.Resources.Memory}}' 2>/dev/null || echo 0)
+if [ "$MACHINE_MEM" -gt 0 ] && [ "$MACHINE_MEM" -lt 4096 ]; then
+    echo "WARNING: Podman machine has ${MACHINE_MEM}MB RAM — builds may fail."
+    echo "  Recreate with more:  podman machine stop && podman machine rm && podman machine init --memory 4096 --cpus 4 && podman machine start"
+fi
 
 # --- Env file ---
 

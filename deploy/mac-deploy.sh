@@ -34,6 +34,20 @@ if [ ! -f "$ENV_FILE" ]; then
     exit 1
 fi
 
+# --- Prerequisites ---
+
+if ! podman machine inspect --format '{{.State}}' 2>/dev/null | grep -q "running"; then
+    echo "ERROR: Podman machine is not running."
+    echo "  Start it with:  podman machine start"
+    exit 1
+fi
+
+MACHINE_MEM=$(podman machine inspect --format '{{.Resources.Memory}}' 2>/dev/null || echo 0)
+if [ "$MACHINE_MEM" -gt 0 ] && [ "$MACHINE_MEM" -lt 4096 ]; then
+    echo "WARNING: Podman machine has ${MACHINE_MEM}MB RAM — builds may fail."
+    echo "  Recreate with more:  podman machine stop && podman machine rm && podman machine init --memory 4096 --cpus 4 && podman machine start"
+fi
+
 echo "==> Building container image (mtgc:$INSTANCE)..."
 podman build -t "mtgc:${INSTANCE}" -f "$REPO_DIR/Containerfile" "$REPO_DIR"
 
