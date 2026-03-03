@@ -43,90 +43,6 @@ systemctl --user start mtgc-my-feature   # Start instance
 systemctl --user status mtgc-my-feature  # Check status
 ```
 
-## File Index
-
-Files not listed here are smaller.
-
-### `mtg_collector/cli/` — CLI subcommands
-
-Each module has `register(subparsers)` and `run(args)`.
-
-| File | Lines | Purpose |
-|------|------:|---------|
-| `crack_pack_server.py` | 5393 | **Web server**: all HTTP routes, API handlers, SSE endpoints |
-| `data_cmd.py` | 922 | MTGJSON + price data import/export commands |
-| `demo_data.py` | 427 | Load demo collection for testing (cards, decks, binders, views) |
-| `ingest_ocr.py` | 393 | CLI image-based card ingestion via EasyOCR + Claude |
-| `ingest_corners.py` | 320 | CLI corner-photo card ingestion via Claude Vision |
-| `sample_ingest.py` | 289 |  |
-| `ingest_ids.py` | 246 | Manual card entry by rarity/collector-number/set |
-
-### `mtg_collector/db/` — SQLite layer
-
-| File | Lines | Purpose |
-|------|------:|---------|
-| `models.py` | 1982 | Dataclasses + repository classes (CRUD for every table) |
-| `schema.py` | 1615 | Schema DDL, all migrations, `init_db()` |
-
-Repository classes in `models.py`: `CardRepository`, `SetRepository`, `PrintingRepository`, `CollectionRepository`, `OrderRepository`, `WishlistRepository`, `DeckRepository`, `BinderRepository`, `CollectionViewRepository`.
-
-### `mtg_collector/services/` — External integrations
-
-| File | Lines | Purpose |
-|------|------:|---------|
-| `order_parser.py` | 724 | Parse TCGPlayer HTML/text and Card Kingdom text into `ParsedOrder` |
-| `agent.py` | 555 | Agentic OCR: Claude tool-use loop with `query_local_db` and `analyze_image` tools |
-| `claude.py` | 507 | Claude Vision API: corner reading, card identification |
-| `pack_generator.py` | 329 | MTGJSON-based booster pack simulation from SQLite |
-| `order_resolver.py` | 318 | Resolve parsed orders to local DB cards, treatment-aware matching |
-| `bulk_import.py` | 264 | `ScryfallBulkClient` class (bulk cache only), `cache_card_data()`, `ensure_set_populated()` |
-
-### `mtg_collector/static/` — Web UI (single-file HTML pages)
-
-| File | Lines | Purpose |
-|------|------:|---------|
-| `collection.html` | 3898 | **Collection browser**: filters, sorting, card grid, inline editing. Canonical card display. |
-| `sealed.html` | 2116 |  |
-| `recent.html` | 1549 | Recently ingested images gallery |
-| `correct.html` | 1048 | Fix misidentified cards in ingest pipeline |
-| `crack_pack.html` | 1040 | Booster pack simulator with rarity borders and badge system |
-| `explore_sheets.html` | 881 | Browse MTGJSON booster sheet layouts |
-| `decks.html` | 748 | Deck list/detail/edit with card management |
-| `ingest_ids.html` | 708 | Manual card entry web UI |
-| `disambiguate.html` | 634 | Resolve ambiguous card matches |
-| `edit_order.html` | 631 |  |
-| `ingest_corners.html` | 561 | Corner photo ingest web UI |
-| `ingest_order.html` | 542 | Order ingestion web UI |
-| `import_csv.html` | 517 | CSV import web UI (with deck/binder assignment) |
-| `binders.html` | 471 | Binder list/detail/edit with card management |
-| `process.html` | 406 | OCR processing + Claude identification |
-| `upload.html` | 395 | Photo upload for image ingest |
-| `index.html` | 311 | Homepage / navigation |
-
-### `mtg_collector/importers/` and `exporters/`
-
-| File | Lines | Purpose |
-|------|------:|---------|
-
-### Other key files
-
-| File | Lines | Purpose |
-|------|------:|---------|
-| `mtg_collector.py` | 470 | Legacy entrypoint (predates package structure) |
-
-### Tests
-
-| File | Lines | What it covers |
-|------|------:|---------|
-| `test_sealed_products.py` | 1346 |  |
-| `test_order_parser.py` | 785 | Order parsing (TCGPlayer HTML/text, Card Kingdom) |
-| `test_price_import.py` | 530 | MTGJSON price import pipeline |
-| `test_mtgjson_import.py` | 515 | MTGJSON AllPrintings import |
-| `test_import.py` | 484 | CSV import (Moxfield, Archidekt, Deckbox, decklist) |
-| `test_decks_binders.py` | 401 |  |
-| `test_ingest_ids.py` | 392 | Manual card entry + `resolve_and_add_ids()` |
-| `test_order_resolver.py` | 302 | Order resolution to local DB cards |
-
 ## Data Model
 
 ### Core join chain
@@ -170,7 +86,8 @@ MTGJSON UUIDs → `mtgjson_uuid_map(uuid → set_code, collector_number)` → `p
 - `collection_views` — Saved filter/search configurations for the collection page.
 - `status_log` — Append-only audit of collection status changes.
 - `settings` — Key-value config (e.g. `price_sources`, `image_display`).
-- Schema v22 with auto-migrations in `schema.py`.
+- Schema v26 with auto-migrations in `schema.py`.
+- Repository classes in `models.py`: `CardRepository`, `SetRepository`, `PrintingRepository`, `CollectionRepository`, `OrderRepository`, `WishlistRepository`, `DeckRepository`, `BinderRepository`, `CollectionViewRepository`.
 - **Deck/binder exclusivity**: A collection entry can be in one deck OR one binder, not both. `deck_id` and `binder_id` are mutually exclusive (enforced by repository logic, returns HTTP 409 on conflict). Use `move_cards()` to atomically reassign.
 
 Default DB location: `~/.mtgc/collection.sqlite` (override: `--db` or `MTGC_DB` env).
@@ -189,7 +106,7 @@ Default DB location: `~/.mtgc/collection.sqlite` (override: `--db` or `MTGC_DB` 
 
 ### Rarity/set border gradients
 
-Cards use CSS custom properties `--rarity-color` and `--set-color` with `linear-gradient(to bottom, ...)`. Shared JS helpers in `crack_pack.html`: `getRarityColor(rarity)`, `getSetColor(cardSetCode, packSetCode)`. `buildCardBadges(card, packSetCode)` generates SF/CK price links, foil/treatment badges. Use these for any new card display.
+Cards use CSS custom properties `--rarity-color` and `--set-color` with `linear-gradient(to bottom, ...)`. Shared JS helpers in `crack_pack.html`: `getRarityColor(rarity)`, `getSetColor(cardSetCode, packSetCode)`. `buildCardBadges(card, packSetCode)` generates SF/CK price links, foil/treatment badges. `buildBadges(card, packSetCode)` wraps it with a zoom badge for the pack grid. Use these for any new card display.
 
 ### Collection page filtering
 
@@ -225,6 +142,15 @@ Both `ingest-ids` and `ingest-corners` funnel through `resolve_and_add_ids()` in
 1. Look up printing in local DB by set + collector number
 2. Create collection entry with finish, condition, source metadata
 3. If card not found, fail with error telling user to run `mtg cache all`
+
+## Known Pitfalls
+
+- **Prices join on `(set_code, collector_number)`, NOT `printing_id`.** The `prices` table has no FK to `printings`. Always join through set_code + collector_number.
+- **`deck_id` and `binder_id` are mutually exclusive.** A collection entry cannot be in both. The repository returns HTTP 409 on conflict. Use `move_cards()` to reassign atomically.
+- **JSON arrays stored as TEXT.** `colors`, `finishes`, `promo_types` are JSON-encoded strings. Use `json.loads()`, never SQL array operations.
+- **Card not in local DB → tell user to run `mtg cache all`.** Do not fall back to Scryfall API. The card simply isn't cached yet.
+- **Test fixture goes stale after schema migrations.** Regenerate with `uv run python scripts/build_test_fixture.py`, then recreate seed volume with `bash deploy/seed.sh --force`.
+- **HTML pages share no JS imports.** Helpers like `getRarityColor()` are copy-pasted between pages. Changes to shared patterns must be updated in each page that uses them.
 
 ## Deployment
 
@@ -371,7 +297,3 @@ uv run pytest tests/ui/ -v --instance <instance>
 
 Do NOT create or modify UI scenario tests in automated workflows. They are managed by humans.
 
-## Web UI Shared Conventions (crack_pack.html)
-
-- **Rarity/set border gradients**: Cards use CSS custom properties `--rarity-color` and `--set-color` with `linear-gradient(to bottom, ...)` to show rarity (top) and guest-set status (bottom). Shared JS helpers `getRarityColor(rarity)` and `getSetColor(cardSetCode, packSetCode)` return the colors. Use these for any new card display (lists, grids, etc.).
-- **Badge builder**: `buildCardBadges(card, packSetCode)` returns HTML for SF/CK links with prices, foil, and treatment badges. `buildBadges(card, packSetCode)` wraps it with a zoom badge for the pack grid.
