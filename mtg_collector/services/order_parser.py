@@ -558,7 +558,7 @@ def _is_ck_table_format(text: str) -> bool:
     if "\t" in lines[0] and "description" in first and "qty" in first:
         return True
     # Fallback: multiple lines with 4+ tab-separated columns
-    tab_lines = [l for l in lines if l.count("\t") >= 3]
+    tab_lines = [line for line in lines if line.count("\t") >= 3]
     return len(tab_lines) >= 2
 
 
