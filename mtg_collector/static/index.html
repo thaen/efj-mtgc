@@ -12,30 +12,35 @@ body {
   color: #e0e0e0;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   min-height: 100vh;
+  padding: 32px;
+}
+.page-header {
+  font-size: 1.6rem;
+  color: #e94560;
+  margin-bottom: 16px;
+}
+.nav-row {
   display: flex;
-  padding: 48px;
-  gap: 48px;
+  gap: 16px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  margin-bottom: 32px;
 }
 .nav-col {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 10px;
   flex: 0 0 auto;
-}
-.nav-col h1 {
-  font-size: 2rem;
-  color: #e94560;
-  margin-bottom: 16px;
 }
 .nav-col a {
   display: block;
-  padding: 16px 32px;
+  padding: 10px 20px;
   background: #16213e;
-  border: 2px solid #0f3460;
-  border-radius: 10px;
+  border: 1px solid #0f3460;
+  border-radius: 6px;
   color: #e0e0e0;
   text-decoration: none;
-  font-size: 1.1rem;
+  font-size: 0.95rem;
   font-weight: 600;
   transition: border-color 0.15s, background 0.15s;
 }
@@ -45,51 +50,75 @@ body {
 }
 .nav-col a span {
   display: block;
-  font-size: 0.85rem;
+  font-size: 0.75rem;
   font-weight: 400;
   color: #888;
-  margin-top: 4px;
+  margin-top: 2px;
 }
 .nav-col a .badge {
   display: inline-block;
   background: #e94560;
   color: #fff;
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   font-weight: 700;
-  padding: 2px 8px;
-  border-radius: 10px;
-  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  margin-left: 6px;
   vertical-align: middle;
 }
-.nav-col .ingest-group {
+.nav-col .nav-group {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 8px;
+  gap: 2px;
+  padding: 6px;
   background: #16213e;
-  border: 2px solid #0f3460;
-  border-radius: 10px;
+  border: 1px solid #0f3460;
+  border-radius: 6px;
 }
-.nav-col .ingest-group .group-label {
-  font-size: 0.8rem;
+.nav-col .nav-group .group-label {
+  font-size: 0.7rem;
   color: #888;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  padding: 4px 8px;
+  padding: 2px 8px;
 }
-.nav-col .ingest-group a {
-  padding: 10px 24px;
+.nav-col .nav-group a {
+  padding: 7px 16px;
   border: 1px solid transparent;
-  font-size: 1rem;
+  font-size: 0.9rem;
+  background: transparent;
 }
-.nav-col .ingest-group a:hover {
+.nav-col .nav-group a:hover {
   border-color: #e94560;
+}
+.nav-col .nav-group a span {
+  font-size: 0.7rem;
+}
+.nav-subgroup {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  margin: 2px 4px;
+  background: #1a1a2e;
+  border: 1px solid #0f3460;
+  border-radius: 4px;
+}
+.nav-subgroup .sub-label {
+  font-size: 0.65rem;
+  color: #666;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 6px;
+}
+.nav-subgroup a {
+  padding: 5px 12px;
 }
 
 .settings-col {
-  flex: 0 0 320px;
-  margin-left: auto;
+  max-width: 320px;
 }
 .settings-col h2 {
   font-size: 1.2rem;
@@ -174,31 +203,49 @@ body {
 .save-status.visible { opacity: 1; }
 
 @media (max-width: 768px) {
-  body { flex-direction: column; padding: 24px; }
-  .settings-col { margin-left: 0; flex: none; }
+  body { padding: 20px; }
+  .nav-row { flex-direction: column; gap: 10px; }
+  .nav-col { width: 100%; }
 }
 </style>
 </head>
 <body>
-<div class="nav-col">
-  <h1>MTG Collection Tools</h1>
-  <a href="/crack">Crack-a-Pack<span>Open virtual booster packs with prices and pick tracking</span></a>
-  <a href="/sheets">Explore Sheets<span>View booster pack structure, sheets, and pull rates</span></a>
-  <a href="/collection">Collection<span>Browse your card collection with search, filters, and prices</span></a>
-  <a href="/sealed">Sealed Collection<span>Track sealed product inventory — boxes, bundles, and decks</span></a>
-  <a href="/decks">Decks<span>Organize cards into decks with zones and metadata</span></a>
-  <a href="/binders">Binders<span>Organize cards into binders for physical storage</span></a>
-  <a href="/set-value">Set Value Analysis<span>Visualize card value distribution across sets</span></a>
-  <div class="ingest-group">
-    <div class="group-label">Ingestor (OCR)</div>
-    <a href="/upload">Upload<span id="upload-badge-wrap"></span></a>
-    <a href="/recent">Recent<span id="recent-badge-wrap"></span></a>
-    <a href="/disambiguate">Disambiguate<span id="disambig-badge-wrap"></span></a>
+<h1 class="page-header">MTG Collection Tools</h1>
+
+<div class="nav-row">
+  <div class="nav-col">
+    <div class="nav-group">
+      <div class="group-label">Collection</div>
+      <a href="/collection">Cards<span>Browse with search, filters, and prices</span></a>
+      <a href="/decks">Decks<span>Organize into decks with zones</span></a>
+      <a href="/binders">Binders<span>Organize into binders</span></a>
+      <a href="/sealed">Sealed<span>Track boxes, bundles, and sealed decks</span></a>
+    </div>
   </div>
-  <a href="/ingest-corners">Ingestor (Corners)<span>Add cards by photographing bottom-left corner text</span></a>
-  <a href="/ingestor-ids">Ingestor (Manual ID)<span>Add cards by rarity, collector number, and set code</span></a>
-  <a href="/ingestor-order">Ingestor (Orders)<span>Import cards from TCGPlayer or Card Kingdom order history</span></a>
-  <a href="/import-csv">Ingestor (CSV Import)<span>Import cards from Moxfield, Archidekt, or Deckbox CSV exports</span></a>
+
+  <div class="nav-col">
+    <div class="nav-group">
+      <div class="group-label">Analysis</div>
+      <a href="/crack">Crack-a-Pack<span>Open virtual boosters with prices</span></a>
+      <a href="/sheets">Explore Sheets<span>Booster structure and pull rates</span></a>
+      <a href="/set-value">Set Value<span>Value distribution across sets</span></a>
+    </div>
+  </div>
+
+  <div class="nav-col">
+    <div class="nav-group">
+      <div class="group-label">Add Cards</div>
+      <div class="nav-subgroup">
+        <div class="sub-label">OCR</div>
+        <a href="/upload">Upload<span id="upload-badge-wrap"></span></a>
+        <a href="/recent">Recent<span id="recent-badge-wrap"></span></a>
+      </div>
+      <a href="/ingest-corners">Corners<span>Photograph bottom-left corner text</span></a>
+      <a href="/ingestor-ids">Manual ID<span>Enter rarity, collector number, set code</span></a>
+      <a href="/ingestor-order">Orders<span>Import from TCGPlayer or Card Kingdom</span></a>
+      <a href="/import-csv">CSV Import<span>Import from Moxfield, Archidekt, Deckbox</span></a>
+    </div>
+  </div>
 </div>
 
 <div class="settings-col">
@@ -293,16 +340,11 @@ async function loadIngestCounts() {
     const counts = await resp.json();
     const readyForOcr = counts['READY_FOR_OCR'] || 0;
     const processing = counts['PROCESSING'] || 0;
-    const disambig = counts['READY_FOR_DISAMBIGUATION'] || 0;
     const inProgress = readyForOcr + processing;
 
     if (inProgress > 0) {
       document.getElementById('recent-badge-wrap').innerHTML =
         `<span class="badge">${inProgress}</span> processing`;
-    }
-    if (disambig > 0) {
-      document.getElementById('disambig-badge-wrap').innerHTML =
-        `<span class="badge">${disambig}</span> ready to disambiguate`;
     }
   } catch (e) {}
 }
