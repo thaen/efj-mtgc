@@ -25,7 +25,7 @@ DEMO_SETS = ["fdn", "dsk", "blb", "otj", "mh3", "spg", "woe", "lci", "mkm"]
 UI_TEST_SETS = ["ecl", "fin"]
 
 # Sets required by demo ingest samples (recents page test data)
-DEMO_INGEST_SETS = ["tsp", "ddh", "tmp", "8ed"]
+DEMO_INGEST_SETS = ["tsp", "ddh", "tmp", "8ed", "roe"]
 
 ALL_SETS = DEMO_SETS + UI_TEST_SETS + DEMO_INGEST_SETS
 

@@ -461,13 +461,26 @@ def _has_api_key():
     return bool(os.environ.get("ANTHROPIC_API_KEY"))
 
 
+def _has_fake_agent():
+    """Check if fake agent mode is enabled."""
+    return bool(os.environ.get("MTGC_FAKE_AGENT"))
+
+
+def _can_process():
+    """Check if image processing is possible (real or fake agent)."""
+    return _has_api_key() or _has_fake_agent()
+
+
 def _process_image_core(conn, image_id, img, log_fn):
     """Process a single image: OCR -> Claude -> DB lookup. Returns final status string.
 
     Used by both the SSE endpoint and background workers.
     log_fn(event_type, data_dict) is called for progress events.
     """
-    from mtg_collector.services.agent import run_agent
+    if _has_fake_agent():
+        from mtg_collector.services.fake_agent import run_agent
+    else:
+        from mtg_collector.services.agent import run_agent
     from mtg_collector.services.ocr import run_ocr_with_boxes
     from mtg_collector.utils import now_iso
 
@@ -732,11 +745,11 @@ def _recover_pending_images(db_path):
     )
     conn.commit()
 
-    # Re-queue all READY_FOR_OCR (only if API key available for Claude agent)
+    # Re-queue all READY_FOR_OCR (only if processing is possible)
     rows = conn.execute("SELECT id FROM ingest_images WHERE status='READY_FOR_OCR'").fetchall()
     conn.close()
 
-    if rows and _has_api_key():
+    if rows and _can_process():
         print(f"[startup] Re-queuing {len(rows)} pending image(s) for OCR", flush=True)
         for row in rows:
             _log_ingest(f"Recovering image {row['id']} for background processing")
@@ -2296,8 +2309,8 @@ class CrackPackHandler(BaseHTTPRequestHandler):
                 "md5": md5,
             })
 
-            # Submit for background processing (requires API key for Claude agent)
-            if _ingest_executor is not None and _has_api_key():
+            # Submit for background processing (requires API key or fake agent)
+            if _ingest_executor is not None and _can_process():
                 _ingest_executor.submit(_process_image_background, self.db_path, image_id)
 
         conn.close()
@@ -2320,7 +2333,7 @@ class CrackPackHandler(BaseHTTPRequestHandler):
 
     def _api_ingest2_process_sse(self, image_id):
         """SSE endpoint: process one image through OCR -> Claude -> DB lookup, DB-backed."""
-        if not _has_api_key():
+        if not _can_process():
             self._send_json({"error": "ANTHROPIC_API_KEY not set — card identification requires an API key"}, 503)
             return
         conn = self._ingest2_db()
@@ -2992,11 +3005,11 @@ class CrackPackHandler(BaseHTTPRequestHandler):
 
         _log_ingest(f"Reset image {image_id}: {img['filename']} — requeued for processing")
 
-        # Submit for background processing (requires API key for Claude agent)
-        if _ingest_executor is not None and _has_api_key():
+        # Submit for background processing (requires API key or fake agent)
+        if _ingest_executor is not None and _can_process():
             _ingest_executor.submit(_process_image_background, self.db_path, image_id)
 
-        self._send_json({"ok": True, "processing": _has_api_key()})
+        self._send_json({"ok": True, "processing": _can_process()})
 
     def _api_ingest2_batch_ingest(self):
         """Ensure all DONE images have collection entries, then mark INGESTED."""

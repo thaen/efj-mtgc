@@ -1,0 +1,7 @@
+description: >
+  Brimstone Mage is pre-loaded by --demo as READY_FOR_OCR and processed
+  on server startup by the fake agent. Due to the unicode artist name bug
+  in _resolve_candidates, the card appears on the Recents page as
+  needs_disambiguation (empty scryfall_matches). Open the accordion,
+  search for "Brimstone Mage", select a candidate from the search
+  results, and verify the card turns green.

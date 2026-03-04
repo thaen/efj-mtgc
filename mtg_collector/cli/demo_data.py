@@ -237,6 +237,13 @@ DEMO_INGEST_SAMPLES = [
         "crops": [{"x": 119, "y": 417, "w": 693, "h": 968}],
     },
     {
+        # Just-uploaded image — server processes on startup via fake agent.
+        # Unicode artist bug in _resolve_candidates causes empty scryfall_matches.
+        "fixture": "sample-brimstone-mage.jpg",
+        "stored_name": "sample_brimstone_mage.jpg",
+        "status": "READY_FOR_OCR",
+    },
+    {
         "name": "Canyon Wildcat",
         "target_set": "ddh",
         "target_cn": "6",
@@ -314,6 +321,36 @@ def _load_demo_ingest(conn, ts):
         if not fixture_path.is_file():
             continue
 
+        # Copy fixture image
+        image_path = images_dir / sample["stored_name"]
+        shutil.copy2(str(fixture_path), str(image_path))
+        md5 = hashlib.md5(image_path.read_bytes()).hexdigest()
+
+        # Unprocessed: insert as just-uploaded, then run the processing
+        # pipeline immediately (fake agent for card ID, real OCR for crops).
+        if sample["status"] == "READY_FOR_OCR":
+            import os
+
+            from mtg_collector.cli.crack_pack_server import _process_image_background
+
+            cursor = conn.execute(
+                """INSERT INTO ingest_images
+                   (filename, stored_name, md5, status, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (sample["stored_name"], sample["stored_name"], md5,
+                 "READY_FOR_OCR", ts, ts),
+            )
+            image_id = cursor.lastrowid
+            conn.commit()
+
+            # Force fake agent mode so no API key is needed
+            os.environ["MTGC_FAKE_AGENT"] = "1"
+            db_path = conn.execute("PRAGMA database_list").fetchone()[2]
+            _process_image_background(db_path, image_id)
+
+            added += 1
+            continue
+
         # Look up card
         card_row = conn.execute(
             "SELECT oracle_id FROM cards WHERE name = ?",
@@ -350,11 +387,6 @@ def _load_demo_ingest(conn, ts):
         if not target:
             continue
 
-        # Copy fixture image
-        image_path = images_dir / sample["stored_name"]
-        shutil.copy2(str(fixture_path), str(image_path))
-        md5 = hashlib.md5(image_path.read_bytes()).hexdigest()
-
         conn.execute(
             """INSERT INTO ingest_images
                (filename, stored_name, md5, status, ocr_result, claude_result,
@@ -379,6 +411,24 @@ def _load_demo_ingest(conn, ts):
         added += 1
 
     return added
+
+
+def wipe_user_data(conn: sqlite3.Connection):
+    """Delete all user data tables, preserving card/set/printing cache."""
+    # Order matters: FK constraints require children first
+    conn.execute("DELETE FROM ingest_lineage")
+    conn.execute("DELETE FROM status_log")
+    conn.execute("DELETE FROM collection")
+    conn.execute("DELETE FROM orders")
+    conn.execute("DELETE FROM wishlist")
+    conn.execute("DELETE FROM decks")
+    conn.execute("DELETE FROM binders")
+    conn.execute("DELETE FROM collection_views")
+    conn.execute("DELETE FROM sealed_collection")
+    conn.execute("DELETE FROM ingest_images")
+    conn.execute("DELETE FROM ingest_cache")
+    conn.execute("DELETE FROM settings WHERE key = 'demo_loaded'")
+    conn.commit()
 
 
 def load_demo_data(conn: sqlite3.Connection) -> bool:
