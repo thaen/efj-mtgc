@@ -1,6 +1,4 @@
 start_page: /recent
 involves:
   - recents page card grid
-  - accordion with search functionality
-  - candidate selection
-  - collection page (verify no auto-insert)
+  - auto-disambiguation status

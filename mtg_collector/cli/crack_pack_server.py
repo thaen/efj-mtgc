@@ -400,7 +400,6 @@ def _resolve_candidates(conn, card_infos):
         name = (ci.get("name") or "").strip()
         sc = (ci.get("set_code") or "").strip().lower()
         cn = (ci.get("collector_number") or "").strip()
-        artist = (ci.get("artist") or "").strip()
 
         if name:
             conditions.append("c.name COLLATE NOCASE = ?")
@@ -416,10 +415,6 @@ def _resolve_candidates(conn, card_infos):
             else:
                 conditions.append("p.collector_number = ?")
                 params.append(cn)
-        if artist:
-            conditions.append("p.artist LIKE ? COLLATE NOCASE")
-            params.append(f"%{artist}%")
-
         if len(conditions) == 1:  # only s.digital = 0, no usable data
             continue
 

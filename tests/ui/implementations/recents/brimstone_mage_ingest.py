@@ -1,14 +1,12 @@
 """
 Brimstone Mage is inserted by --demo as READY_FOR_OCR. The server (with
 MTGC_FAKE_AGENT=1) processes it on startup: OCR runs locally, fake agent
-returns two candidates, but _resolve_candidates fails on unicode artist
-mismatch ("Volkan Baga" vs "Volkan Bağa") — card lands as
-needs_disambiguation with empty scryfall_matches.
+returns two candidates. _resolve_candidates should match the ROE printing
+despite the unicode artist name ("Volkan Bağa" in DB vs "Volkan Baga"
+from agent). With only 1 candidate in the fixture DB, auto-disambiguation
+selects it and the card goes directly to DONE.
 
-Open the accordion, search for the card, select a candidate from search
-results, and verify:
-  1. The candidate gets a selected border.
-  2. No collection entry was created — insertion belongs to batch ingest.
+All 3 demo ingest images should be done — none stuck at needs_disambiguation.
 
 Requires MTGC_FAKE_AGENT=1 and ROE cached in the fixture DB.
 """
@@ -16,29 +14,14 @@ Requires MTGC_FAKE_AGENT=1 and ROE cached in the fixture DB.
 
 def steps(harness):
     # Brimstone Mage was inserted as READY_FOR_OCR by --demo.
-    # Server processes it on startup. Wait for the card grid to load.
+    # Server processes it on startup. Wait for cards to appear.
     harness.navigate("/recent")
-    harness.wait_for_visible(".img-card.needs_disambiguation", timeout=15_000)
+    harness.wait_for_visible(".img-card", timeout=15_000)
 
-    # Click the needs_disambiguation card to open accordion.
-    harness.click_by_selector(".img-card.needs_disambiguation")
-    harness.assert_visible("#accordion-panel.open")
-
-    # Search for "Brimstone Mage" in the accordion search box.
-    harness.fill_by_selector('[id^="acc-search-input-"]', "Brimstone Mage")
-    harness.press_key("Enter", selector='[id^="acc-search-input-"]')
-
-    # Wait for search results, select first candidate.
-    harness.wait_for_visible(".acc-candidates .acc-candidate", timeout=10_000)
-    harness.click_by_selector(".acc-candidates .acc-candidate:first-child")
-
-    # Candidate gets .selected synchronously on click.
-    harness.wait_for_visible(".acc-candidates .acc-candidate.selected", timeout=5_000)
-
-    # Confirm should NOT have created a collection entry.
-    # Actual insertion belongs to batch ingest.
-    # Navigate to collection — the page load ensures confirm has completed.
-    harness.navigate("/collection")
-    harness.assert_text_absent("Brimstone Mage")
+    # After the unicode artist fix, _resolve_candidates finds the ROE
+    # printing. With 1 candidate, auto-disambiguation selects it.
+    # All 3 demo cards should be done — none should need disambiguation.
+    # Before the fix, Brimstone Mage would be needs_disambiguation.
+    harness.assert_element_count(".img-card.needs_disambiguation", 0)
 
     harness.screenshot("final_state")
