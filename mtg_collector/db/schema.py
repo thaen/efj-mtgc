@@ -656,6 +656,7 @@ def _seed_default_settings(conn: sqlite3.Connection):
     for key, value in [
         ("image_display", "crop"),
         ("price_sources", "tcg,ck"),
+        ("price_floor", "0"),
     ]:
         conn.execute(
             "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",

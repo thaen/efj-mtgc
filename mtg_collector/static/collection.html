@@ -1330,6 +1330,14 @@ tr.ordered td:first-child { border-left: 3px solid #f0a030; }
             <div class="pill" data-value="contain">Contain</div>
           </div>
         </div>
+        <div class="more-menu-section">
+          <span class="more-menu-label">Price Floor</span>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="color:#888;font-size:0.85rem">$</span>
+            <input type="number" id="price-floor-input" step="0.01" min="0" placeholder="0"
+              style="width:70px;padding:4px 6px;background:#16213e;border:1px solid #0f3460;color:#e0e0e0;border-radius:4px;font-size:0.85rem">
+          </div>
+        </div>
       </div>
     </div>
     <div class="col-controls" id="grid-size-wrap" style="display:none"><button class="col-btn" id="col-minus">&minus;</button><div class="col-count" id="col-count"></div><button class="col-btn" id="col-plus">+</button></div>
@@ -1749,6 +1757,16 @@ document.querySelectorAll('#image-display-pills .pill').forEach(pill => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ image_display: pill.dataset.value }),
     });
+  });
+});
+
+document.getElementById('price-floor-input').addEventListener('change', async (e) => {
+  _settings.price_floor = e.target.value || '0';
+  updateStatusText();
+  await fetch('/api/settings', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ price_floor: _settings.price_floor }),
   });
 });
 
@@ -3218,15 +3236,22 @@ function updateStatusText() {
   const sources = (_settings.price_sources || 'tcg,ck').split(',');
   const priceField = sources[0] === 'ck' ? 'ck_price' : 'tcg_price';
   const priceLabel = sources[0] === 'ck' ? 'CK' : 'TCG';
+  const floor = parseFloat(_settings.price_floor) || 0;
   if (includeUnowned) {
     const ownedCards = allCards.filter(c => c.owned);
     const missingCards = allCards.filter(c => !c.owned);
-    const ownedValue = ownedCards.reduce((s, c) => s + (parseFloat(c[priceField]) || 0) * c.qty, 0);
+    const ownedValue = ownedCards.reduce((s, c) => {
+      const p = parseFloat(c[priceField]) || 0;
+      return s + (floor > 0 && p < floor ? 0 : p * c.qty);
+    }, 0);
     const modeLabel = includeUnowned === 'full' ? 'full' : 'base';
     statusEl.textContent = `${ownedCards.length} owned, ${missingCards.length} missing (${modeLabel}) \u2014 ${priceLabel} $${ownedValue.toFixed(2)}`;
   } else {
     const totalQty = allCards.reduce((s, c) => s + c.qty, 0);
-    const totalValue = allCards.reduce((s, c) => s + (parseFloat(c[priceField]) || 0) * c.qty, 0);
+    const totalValue = allCards.reduce((s, c) => {
+      const p = parseFloat(c[priceField]) || 0;
+      return s + (floor > 0 && p < floor ? 0 : p * c.qty);
+    }, 0);
     statusEl.textContent = `${allCards.length} entries, ${totalQty} cards \u2014 ${priceLabel} $${totalValue.toFixed(2)}`;
   }
 }
@@ -3752,6 +3777,9 @@ function applySettings() {
   document.querySelectorAll('#image-display-pills .pill').forEach(p => {
     p.classList.toggle('active', p.dataset.value === _settings.image_display);
   });
+  // Sync price floor input
+  const floorInput = document.getElementById('price-floor-input');
+  if (floorInput) floorInput.value = _settings.price_floor || '';
 }
 
 // --- Wishlist state ---
