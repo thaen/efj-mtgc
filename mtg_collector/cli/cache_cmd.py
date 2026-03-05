@@ -164,7 +164,7 @@ def cache_all(db_path: str):
         sc = row["set_code"]
         local = row["local_count"]
         expected = expected_counts.get(sc, 0)
-        if expected > 0 and local < expected and sc not in all_set_codes:
+        if expected > 0 and local < expected:
             sets_needing_backfill.append((sc, local, expected))
 
     if sets_needing_backfill:
@@ -190,7 +190,55 @@ def cache_all(db_path: str):
     if backfill_count:
         print(f"  Backfilled {backfill_count} cards via per-set API")
 
-    # Step 7: Clean up temp file
+    # Step 7: Non-English backfill.
+    # Some physical printings only exist in non-English on Scryfall (e.g.
+    # NEO Ukiyo-e Japanese basics, WAR Japanese alt-art planeswalkers).
+    # After the English backfill, re-check gaps and fetch all languages
+    # for sets that are still under-populated. Only insert cards for
+    # collector numbers not already present locally.
+    cursor = conn.execute(
+        "SELECT s.set_code, COUNT(p.printing_id) as local_count"
+        " FROM sets s"
+        " LEFT JOIN printings p ON s.set_code = p.set_code"
+        " WHERE s.digital = 0"
+        " GROUP BY s.set_code"
+    )
+    still_gapped = []
+    for row in cursor.fetchall():
+        sc = row["set_code"]
+        local = row["local_count"]
+        expected = expected_counts.get(sc, 0)
+        if expected > 0 and local < expected:
+            still_gapped.append((sc, local, expected))
+
+    non_en_count = 0
+    if still_gapped:
+        print(f"  Non-English backfill: {len(still_gapped)} sets still have gaps...")
+        for sc, local, expected in still_gapped:
+            cards = api.get_set_cards_all_langs(sc)
+            if not cards:
+                continue
+            set_added = 0
+            for card_data in cards:
+                if "oracle_id" not in card_data:
+                    continue
+                cn = card_data["collector_number"]
+                if printing_repo.get_by_set_cn(sc, cn):
+                    continue  # Already have this collector number
+                card = api.to_card_model(card_data)
+                card_repo.upsert(card)
+                printing = api.to_printing_model(card_data)
+                printing_repo.upsert(printing)
+                set_added += 1
+            conn.commit()
+            non_en_count += set_added
+            if set_added:
+                print(f"    {sc.upper()}: +{set_added} non-English cards ({local} → {local + set_added})")
+
+    if non_en_count:
+        print(f"  Added {non_en_count} non-English-only cards")
+
+    # Step 8: Clean up temp file
     tmp_path.unlink(missing_ok=True)
 
     # Summary

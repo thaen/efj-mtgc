@@ -93,6 +93,41 @@ class ScryfallBulkClient:
         self._set_cache[set_code] = cards
         return cards
 
+    def get_set_cards_all_langs(self, set_code: str) -> List[Dict]:
+        """Fetch all cards in a set from Scryfall across all languages."""
+        set_code = set_code.lower()
+        cache_key = f"{set_code}:all"
+        if not hasattr(self, "_set_cache"):
+            self._set_cache = {}
+        if cache_key in self._set_cache:
+            return self._set_cache[cache_key]
+
+        cards = []
+        url = f"{self.BASE_URL}/cards/search"
+        params = {"q": f"set:{set_code}", "unique": "prints", "order": "collector_number"}
+
+        while url:
+            try:
+                response = self._request_with_retry("GET", url, params=params)
+                response.raise_for_status()
+                data = response.json()
+
+                if data.get("object") == "list":
+                    cards.extend(data.get("data", []))
+
+                if data.get("has_more"):
+                    url = data.get("next_page")
+                    params = {}
+                else:
+                    url = None
+
+            except requests.exceptions.RequestException as e:
+                print(f"    Error fetching set {set_code} (all langs): {e}")
+                break
+
+        self._set_cache[cache_key] = cards
+        return cards
+
     def get_card_by_id(self, scryfall_id: str) -> Optional[Dict]:
         """Get a specific card by Scryfall ID (for cache refresh)."""
         url = f"{self.BASE_URL}/cards/{scryfall_id}"
