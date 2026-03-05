@@ -3020,7 +3020,7 @@ class CrackPackHandler(BaseHTTPRequestHandler):
         assign_target = data.get("assign_target", "")
         conn = self._ingest2_db()
         rows = conn.execute(
-            """SELECT id, md5, stored_name, disambiguated, claude_result
+            """SELECT id, md5, stored_name, disambiguated, claude_result, confirmed_finishes
                FROM ingest_images
                WHERE status = 'DONE'
                AND md5 NOT IN (SELECT DISTINCT image_md5 FROM ingest_lineage)""",
@@ -3049,8 +3049,13 @@ class CrackPackHandler(BaseHTTPRequestHandler):
                 printing = printing_repo.get(sid)
                 if not printing:
                     continue
-                finishes = json.loads(printing.raw_json).get("finishes", ["nonfoil"]) if printing.raw_json else ["nonfoil"]
-                finish = finishes[0] if finishes else "nonfoil"
+                confirmed = json.loads(img["confirmed_finishes"]) if img.get("confirmed_finishes") else []
+                finish = None
+                if card_idx < len(confirmed) and confirmed[card_idx]:
+                    finish = confirmed[card_idx]
+                if not finish:
+                    finishes = json.loads(printing.raw_json).get("finishes", ["nonfoil"]) if printing.raw_json else ["nonfoil"]
+                    finish = finishes[0] if finishes else "nonfoil"
                 entry = CollectionEntry(
                     id=None,
                     printing_id=sid,
