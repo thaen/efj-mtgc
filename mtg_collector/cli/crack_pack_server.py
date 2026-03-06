@@ -665,12 +665,48 @@ def _reset_ingest_image(conn, image_id, md5, now):
             names_data=NULL,
             names_disambiguated=NULL,
             user_card_edits=NULL,
+            confirmed_finishes=NULL,
             error_message=NULL,
             updated_at=?
            WHERE id=?""",
         (now, image_id),
     )
     return removed
+
+
+def _refinish_ingest_image(conn, image_id, md5):
+    """Remove all collection entries and lineage for an image so it can be re-finished.
+
+    Preserves all Agent identification (disambiguated, claude_result, etc.).
+    Clears all confirmed_finishes entries. Sets image status to DONE.
+
+    Does NOT commit — caller is responsible.
+    """
+    from mtg_collector.utils import now_iso
+
+    # Delete all lineage + collection entries for this image
+    lineage_rows = conn.execute(
+        "SELECT collection_id FROM ingest_lineage WHERE image_md5=?", (md5,)
+    ).fetchall()
+    if lineage_rows:
+        collection_ids = [r["collection_id"] for r in lineage_rows]
+        placeholders = ",".join("?" * len(collection_ids))
+        conn.execute("DELETE FROM ingest_lineage WHERE image_md5=?", (md5,))
+        conn.execute(f"DELETE FROM collection WHERE id IN ({placeholders})", collection_ids)
+
+    # Clear all confirmed_finishes
+    img = conn.execute(
+        "SELECT confirmed_finishes FROM ingest_images WHERE id=?", (image_id,)
+    ).fetchone()
+    cleared_finishes = None
+    if img and img["confirmed_finishes"]:
+        finishes = json.loads(img["confirmed_finishes"])
+        cleared_finishes = json.dumps([None] * len(finishes))
+
+    conn.execute(
+        "UPDATE ingest_images SET status='DONE', confirmed_finishes=?, updated_at=? WHERE id=?",
+        (cleared_finishes, now_iso(), image_id),
+    )
 
 
 def _process_image_background(db_path, image_id):
@@ -842,8 +878,6 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             self._serve_static("recent.html")
         elif path == "/disambiguate":
             self._serve_static("disambiguate.html")
-        elif path == "/correct":
-            self._serve_static("correct.html")
         elif path == "/api/sets":
             self._api_sets()
         elif path == "/api/cached-sets":
@@ -1019,6 +1053,8 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             self._api_ingest2_delete()
         elif path == "/api/ingest2/reset":
             self._api_ingest2_reset()
+        elif path == "/api/ingest2/refinish":
+            self._api_ingest2_refinish()
         elif path == "/api/ingest2/batch-ingest":
             self._api_ingest2_batch_ingest()
         elif path == "/api/wishlist":
@@ -3042,6 +3078,28 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             _ingest_executor.submit(_process_image_background, self.db_path, image_id)
 
         self._send_json({"ok": True, "processing": _can_process()})
+
+    def _api_ingest2_refinish(self):
+        """Remove all collection entries for an image so it reappears on Recents for finish re-selection."""
+        data = self._read_json_body()
+        if data is None:
+            return
+
+        image_id = data["image_id"]
+
+        conn = self._ingest2_db()
+        img = self._ingest2_load_image(conn, image_id)
+        if not img:
+            conn.close()
+            self._send_json({"error": "Image not found"}, 404)
+            return
+
+        _refinish_ingest_image(conn, image_id, img["md5"])
+        conn.commit()
+        conn.close()
+
+        _log_ingest(f"Refinish image {image_id}: {img['filename']}")
+        self._send_json({"ok": True})
 
     def _api_ingest2_batch_ingest(self):
         """Ensure all DONE images have collection entries, then mark INGESTED."""
