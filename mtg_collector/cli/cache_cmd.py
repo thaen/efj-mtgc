@@ -5,6 +5,7 @@ import sys
 
 from mtg_collector.db import get_connection, init_db
 from mtg_collector.db.models import CardRepository, PrintingRepository, SetRepository
+from mtg_collector.services.bulk_import import resolve_reversible_oracle_id
 from mtg_collector.services.scryfall import ScryfallAPI
 from mtg_collector.utils import get_mtgc_home
 
@@ -115,6 +116,9 @@ def cache_all(db_path: str):
     for card_data in cards_data:
         set_code = card_data.get("set")
 
+        # Reversible cards store oracle_id on faces, not top-level
+        resolve_reversible_oracle_id(card_data)
+
         # Skip cards without oracle_id (tokens, etc.)
         if "oracle_id" not in card_data:
             continue
@@ -175,6 +179,7 @@ def cache_all(db_path: str):
                 continue
             set_backfill = 0
             for card_data in cards:
+                resolve_reversible_oracle_id(card_data)
                 if "oracle_id" not in card_data:
                     continue
                 card = api.to_card_model(card_data)
@@ -220,6 +225,7 @@ def cache_all(db_path: str):
                 continue
             set_added = 0
             for card_data in cards:
+                resolve_reversible_oracle_id(card_data)
                 if "oracle_id" not in card_data:
                     continue
                 cn = card_data["collector_number"]
@@ -280,6 +286,7 @@ def cache_set(db_path: str, set_code: str):
 
     processed = 0
     for card_data in cards:
+        resolve_reversible_oracle_id(card_data)
         if "oracle_id" not in card_data:
             continue
         card = api.to_card_model(card_data)

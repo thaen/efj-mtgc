@@ -9,6 +9,22 @@ import requests
 from mtg_collector.db.models import Card, Printing, Set
 
 
+def resolve_reversible_oracle_id(card_data: Dict) -> bool:
+    """Promote oracle_id from card_faces[0] if missing at the top level.
+
+    Reversible cards (e.g. ECL shocklands) store oracle_id on each face
+    instead of at the top level. Returns True if oracle_id was resolved
+    from faces, False otherwise.
+    """
+    if "oracle_id" in card_data:
+        return False
+    faces = card_data.get("card_faces")
+    if faces and "oracle_id" in faces[0]:
+        card_data["oracle_id"] = faces[0]["oracle_id"]
+        return True
+    return False
+
+
 class ScryfallBulkClient:
     """Scryfall API client for bulk data import only.
 
@@ -283,6 +299,7 @@ def ensure_set_populated(
     print(f"    Fetched {len(cards)} cards")
 
     for card_data in cards:
+        resolve_reversible_oracle_id(card_data)
         if "oracle_id" not in card_data:
             continue
         card = api.to_card_model(card_data)
