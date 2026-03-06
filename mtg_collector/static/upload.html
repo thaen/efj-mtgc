@@ -107,6 +107,21 @@ button.danger:hover { background: #b71c1c; }
 }
 #drop-zone span { color: #666; }
 
+#set-hint {
+  display: block;
+  width: calc(100% - 16px);
+  margin: 8px;
+  padding: 8px 12px;
+  background: #16213e;
+  border: 1px solid #0f3460;
+  border-radius: 6px;
+  color: #e0e0e0;
+  font-size: 0.85rem;
+  outline: none;
+}
+#set-hint:focus { border-color: #e94560; }
+#set-hint::placeholder { color: #555; }
+
 #image-list {
   margin: 8px;
   display: grid;
@@ -192,6 +207,8 @@ button.danger:hover { background: #b71c1c; }
   </div>
 </div>
 
+<input type="text" id="set-hint" placeholder="Set hint (e.g. FDN, Foundations)">
+
 <div id="drop-zone">
   <span>Or drop / select files</span>
   <input type="file" id="file-input" multiple accept="image/jpeg,image/png,image/webp" style="display:none">
@@ -231,6 +248,8 @@ async function handleFiles(fileList) {
   for (const f of fileList) {
     formData.append('files', f);
   }
+  const setHint = document.getElementById('set-hint').value.trim();
+  if (setHint) formData.append('set_hint', setHint);
 
   dropZone.innerHTML = '<div class="spinner"></div> Uploading...';
 
@@ -258,6 +277,8 @@ async function handleFiles(fileList) {
 async function uploadBlob(blob, filename) {
   const formData = new FormData();
   formData.append('files', blob, filename);
+  const setHint = document.getElementById('set-hint').value.trim();
+  if (setHint) formData.append('set_hint', setHint);
 
   const resp = await fetch('/api/ingest2/upload', { method: 'POST', body: formData });
   const data = await resp.json();
