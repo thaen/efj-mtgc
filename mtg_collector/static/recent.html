@@ -944,6 +944,7 @@ function renderAccordionContent(imgId, detail) {
     html += `<button class="danger" onclick="accDeleteImage(${imgId})">Delete</button>`;
     html += `</div>`;
     html += `<input type="text" id="acc-search-input-${imgId}" placeholder="Replace with...">`;
+    html += `<input type="text" id="acc-set-input-${imgId}" placeholder="Set code or name..." style="margin-top:4px;">`;
     html += `</div>`;
     html += `<div class="acc-main">`;
     html += `<div id="acc-candidates-${imgId}" class="acc-candidates"></div>`;
@@ -953,6 +954,12 @@ function renderAccordionContent(imgId, detail) {
     const searchInput = document.getElementById(`acc-search-input-${imgId}`);
     if (searchInput) {
       searchInput.addEventListener('keydown', e => {
+        if (e.key === 'Enter') accSearchCard(imgId);
+      });
+    }
+    const setInput0 = document.getElementById(`acc-set-input-${imgId}`);
+    if (setInput0) {
+      setInput0.addEventListener('keydown', e => {
         if (e.key === 'Enter') accSearchCard(imgId);
       });
     }
@@ -981,6 +988,8 @@ function renderAccordionContent(imgId, detail) {
 
   if (sid !== 'already_ingested') {
     html += `<input type="text" id="acc-search-input-${imgId}" placeholder="Replace with..." value="${escapeHtml(cardInfo.name || '')}">`;
+    const detectedSet = cardInfo.set_code || ((candidates[0] || {}).set_code) || '';
+    html += `<input type="text" id="acc-set-input-${imgId}" placeholder="Set code or name..." value="${escapeHtml(detectedSet)}" style="margin-top:4px;">`;
   }
 
   html += `</div>`;
@@ -1006,6 +1015,12 @@ function renderAccordionContent(imgId, detail) {
   const searchInput = document.getElementById(`acc-search-input-${imgId}`);
   if (searchInput) {
     searchInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') accSearchCard(imgId);
+    });
+  }
+  const setInput = document.getElementById(`acc-set-input-${imgId}`);
+  if (setInput) {
+    setInput.addEventListener('keydown', e => {
       if (e.key === 'Enter') accSearchCard(imgId);
     });
   }
@@ -1106,10 +1121,14 @@ async function accSearchCard(imgId) {
   const input = document.getElementById(`acc-search-input-${imgId}`);
   const query = (input ? input.value : '').trim();
   if (!query) return;
+  const setInput = document.getElementById(`acc-set-input-${imgId}`);
+  const setVal = (setInput ? setInput.value : '').trim();
+  const payload = { image_id: imgId, card_idx: 0, query };
+  if (setVal) payload.set_code = setVal;
   const resp = await fetch('/api/ingest2/search-card', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ image_id: imgId, card_idx: 0, query }),
+    body: JSON.stringify(payload),
   });
   const data = await resp.json();
   const containerEl = document.getElementById(`acc-candidates-${imgId}`);
