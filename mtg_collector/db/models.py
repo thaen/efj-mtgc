@@ -1090,6 +1090,23 @@ class CollectionRepository:
             deck_zone=deck_zone,
         )
 
+    def get_movement_history(self, collection_id: int) -> List[Dict[str, Any]]:
+        """Get chronological movement history for a collection entry."""
+        cursor = self.conn.execute(
+            """SELECT ml.*,
+                      fd.name AS from_deck_name, td.name AS to_deck_name,
+                      fb.name AS from_binder_name, tb.name AS to_binder_name
+               FROM movement_log ml
+               LEFT JOIN decks fd ON ml.from_deck_id = fd.id
+               LEFT JOIN decks td ON ml.to_deck_id = td.id
+               LEFT JOIN binders fb ON ml.from_binder_id = fb.id
+               LEFT JOIN binders tb ON ml.to_binder_id = tb.id
+               WHERE ml.collection_id = ?
+               ORDER BY ml.changed_at, ml.id""",
+            (collection_id,),
+        )
+        return [dict(row) for row in cursor]
+
 
 class OrderRepository:
     """CRUD operations for orders table."""
@@ -1693,6 +1710,18 @@ class SealedCollectionRepository:
         )
 
 
+def _log_movement(conn, collection_id, from_deck_id, to_deck_id,
+                  from_binder_id, to_binder_id, from_zone, to_zone, note=None):
+    """Insert an append-only movement_log entry."""
+    conn.execute(
+        "INSERT INTO movement_log (collection_id, from_deck_id, to_deck_id, "
+        "from_binder_id, to_binder_id, from_zone, to_zone, changed_at, note) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (collection_id, from_deck_id, to_deck_id,
+         from_binder_id, to_binder_id, from_zone, to_zone, now_iso(), note),
+    )
+
+
 class DeckRepository:
     """CRUD operations for decks table."""
 
@@ -1747,6 +1776,13 @@ class DeckRepository:
         return cursor.rowcount > 0
 
     def delete(self, deck_id: int) -> bool:
+        # Log movements before clearing assignments
+        rows = self.conn.execute(
+            "SELECT id, deck_zone FROM collection WHERE deck_id = ?", (deck_id,)
+        ).fetchall()
+        for row in rows:
+            _log_movement(self.conn, row["id"], deck_id, None,
+                          None, None, row["deck_zone"], None, note="deck deleted")
         self.conn.execute(
             "UPDATE collection SET deck_id = NULL, deck_zone = NULL WHERE deck_id = ?",
             (deck_id,),
@@ -1806,17 +1842,27 @@ class DeckRepository:
             f"UPDATE collection SET deck_id = ?, deck_zone = ? WHERE id IN ({placeholders})",
             [deck_id, zone] + collection_ids,
         )
+        for cid in collection_ids:
+            _log_movement(self.conn, cid, None, deck_id, None, None, None, zone)
         return cursor.rowcount
 
     def remove_cards(self, deck_id: int, collection_ids: List[int]) -> int:
         if not collection_ids:
             return 0
         placeholders = ",".join("?" * len(collection_ids))
+        # Read current zones before clearing
+        rows = self.conn.execute(
+            f"SELECT id, deck_zone FROM collection WHERE deck_id = ? AND id IN ({placeholders})",
+            [deck_id] + collection_ids,
+        ).fetchall()
         cursor = self.conn.execute(
             f"UPDATE collection SET deck_id = NULL, deck_zone = NULL "
             f"WHERE deck_id = ? AND id IN ({placeholders})",
             [deck_id] + collection_ids,
         )
+        for row in rows:
+            _log_movement(self.conn, row["id"], deck_id, None,
+                          None, None, row["deck_zone"], None)
         return cursor.rowcount
 
     def move_cards(self, collection_ids: List[int], target_deck_id: int,
@@ -1824,11 +1870,19 @@ class DeckRepository:
         if not collection_ids:
             return 0
         placeholders = ",".join("?" * len(collection_ids))
+        # Read current state before moving
+        rows = self.conn.execute(
+            f"SELECT id, deck_id, binder_id, deck_zone FROM collection WHERE id IN ({placeholders})",
+            collection_ids,
+        ).fetchall()
         cursor = self.conn.execute(
             f"UPDATE collection SET deck_id = ?, deck_zone = ?, binder_id = NULL "
             f"WHERE id IN ({placeholders})",
             [target_deck_id, zone] + collection_ids,
         )
+        for row in rows:
+            _log_movement(self.conn, row["id"], row["deck_id"], target_deck_id,
+                          row["binder_id"], None, row["deck_zone"], zone)
         return cursor.rowcount
 
 
@@ -1881,6 +1935,13 @@ class BinderRepository:
         return cursor.rowcount > 0
 
     def delete(self, binder_id: int) -> bool:
+        # Log movements before clearing assignments
+        rows = self.conn.execute(
+            "SELECT id FROM collection WHERE binder_id = ?", (binder_id,)
+        ).fetchall()
+        for row in rows:
+            _log_movement(self.conn, row["id"], None, None,
+                          binder_id, None, None, None, note="binder deleted")
         self.conn.execute(
             "UPDATE collection SET binder_id = NULL WHERE binder_id = ?",
             (binder_id,),
@@ -1936,6 +1997,8 @@ class BinderRepository:
             f"UPDATE collection SET binder_id = ? WHERE id IN ({placeholders})",
             [binder_id] + collection_ids,
         )
+        for cid in collection_ids:
+            _log_movement(self.conn, cid, None, None, None, binder_id, None, None)
         return cursor.rowcount
 
     def remove_cards(self, binder_id: int, collection_ids: List[int]) -> int:
@@ -1947,17 +2010,27 @@ class BinderRepository:
             f"WHERE binder_id = ? AND id IN ({placeholders})",
             [binder_id] + collection_ids,
         )
+        for cid in collection_ids:
+            _log_movement(self.conn, cid, None, None, binder_id, None, None, None)
         return cursor.rowcount
 
     def move_cards(self, collection_ids: List[int], target_binder_id: int) -> int:
         if not collection_ids:
             return 0
         placeholders = ",".join("?" * len(collection_ids))
+        # Read current state before moving
+        rows = self.conn.execute(
+            f"SELECT id, deck_id, binder_id, deck_zone FROM collection WHERE id IN ({placeholders})",
+            collection_ids,
+        ).fetchall()
         cursor = self.conn.execute(
             f"UPDATE collection SET binder_id = ?, deck_id = NULL, deck_zone = NULL "
             f"WHERE id IN ({placeholders})",
             [target_binder_id] + collection_ids,
         )
+        for row in rows:
+            _log_movement(self.conn, row["id"], row["deck_id"], None,
+                          row["binder_id"], target_binder_id, row["deck_zone"], None)
         return cursor.rowcount
 
 
