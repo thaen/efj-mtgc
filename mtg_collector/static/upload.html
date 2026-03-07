@@ -57,6 +57,23 @@ button.danger:hover { background: #b71c1c; }
   object-fit: cover;
   display: block;
 }
+#camera-view .lens-switcher {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  padding: 6px 8px 0;
+  background: rgba(0,0,0,0.5);
+}
+#camera-view .lens-switcher button {
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  background: #333;
+  border-color: #555;
+}
+#camera-view .lens-switcher button.active {
+  background: #e94560;
+  border-color: #e94560;
+}
 #camera-view .camera-controls {
   display: flex;
   gap: 12px;
@@ -201,6 +218,7 @@ button.danger:hover { background: #b71c1c; }
   <video id="camera-video" autoplay playsinline></video>
   <canvas id="camera-canvas"></canvas>
   <span class="photo-count" id="photo-count"></span>
+  <div class="lens-switcher" id="lens-switcher" style="display:none"></div>
   <div class="camera-controls">
     <button onclick="takePhoto()">Take Photo</button>
     <button class="secondary" onclick="stopCamera()">Done</button>
@@ -301,6 +319,24 @@ async function uploadBlob(blob, filename) {
 
 // ── Camera ──
 
+async function switchToDevice(deviceId) {
+  if (cameraStream) cameraStream.getTracks().forEach(t => t.stop());
+  const constraints = { video: { width: { ideal: 1920 }, height: { ideal: 1080 } } };
+  if (deviceId) constraints.video.deviceId = { exact: deviceId };
+  else constraints.video.facingMode = 'environment';
+  const stream = await navigator.mediaDevices.getUserMedia(constraints);
+  cameraStream = stream;
+  document.getElementById('camera-video').srcObject = stream;
+  document.querySelectorAll('#lens-switcher button').forEach(b => {
+    b.classList.toggle('active', b.dataset.deviceId === deviceId);
+  });
+}
+
+function shortLabel(label) {
+  const l = label.replace(/^(back|rear)\s*/i, '').replace(/\s*camera$/i, '').trim();
+  return l || 'Main';
+}
+
 async function startCamera() {
   const stream = await navigator.mediaDevices.getUserMedia({
     video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } }
@@ -311,6 +347,24 @@ async function startCamera() {
   document.getElementById('camera-view').style.display = 'block';
   document.getElementById('camera-placeholder').style.display = 'none';
   sessionPhotos = 0;
+
+  // Enumerate cameras and build lens switcher
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  const cameras = devices.filter(d => d.kind === 'videoinput');
+  if (cameras.length > 1) {
+    const switcher = document.getElementById('lens-switcher');
+    switcher.innerHTML = '';
+    const currentDeviceId = cameraStream.getVideoTracks()[0].getSettings().deviceId;
+    for (const cam of cameras) {
+      const btn = document.createElement('button');
+      btn.textContent = shortLabel(cam.label) || `Camera ${cameras.indexOf(cam) + 1}`;
+      btn.dataset.deviceId = cam.deviceId;
+      if (cam.deviceId === currentDeviceId) btn.classList.add('active');
+      btn.addEventListener('click', () => switchToDevice(cam.deviceId));
+      switcher.appendChild(btn);
+    }
+    switcher.style.display = 'flex';
+  }
 }
 
 // Fall back to native capture input when getUserMedia is unavailable (e.g. HTTP on iOS)
