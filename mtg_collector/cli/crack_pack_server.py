@@ -967,6 +967,12 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             set_code = params.get("set", [""])[0]
             product = params.get("product", [""])[0]
             self._api_sheets(set_code, product)
+        elif path.startswith("/api/collection/") and path.endswith("/history"):
+            cid = path[len("/api/collection/"):-len("/history")]
+            if cid.isdigit():
+                self._api_collection_history(int(cid))
+            else:
+                self._send_json({"error": "Not found"}, 404)
         elif path == "/api/collection/copies":
             self._api_collection_copies(params)
         elif path == "/api/collection":
@@ -3706,6 +3712,46 @@ class CrackPackHandler(BaseHTTPRequestHandler):
 
         conn.close()
         self._send_json(summary)
+
+    def _api_collection_history(self, collection_id: int):
+        """Return combined status + movement history for a collection entry."""
+        from mtg_collector.db.models import CollectionRepository
+        from mtg_collector.db.schema import init_db
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        init_db(conn)
+        repo = CollectionRepository(conn)
+
+        # Status history
+        status_rows = conn.execute(
+            "SELECT * FROM status_log WHERE collection_id = ? ORDER BY changed_at, id",
+            (collection_id,),
+        ).fetchall()
+        status_history = [
+            {"type": "status", "id": r["id"], "collection_id": r["collection_id"],
+             "from_status": r["from_status"], "to_status": r["to_status"],
+             "changed_at": r["changed_at"], "note": r["note"]}
+            for r in status_rows
+        ]
+
+        # Movement history
+        movement_history = [
+            dict(row, type="movement")
+            for row in repo.get_movement_history(collection_id)
+        ]
+
+        # Combined chronological
+        combined = sorted(
+            status_history + movement_history,
+            key=lambda x: (x["changed_at"], x["id"]),
+        )
+
+        conn.close()
+        self._send_json({
+            "status_history": status_history,
+            "movement_history": movement_history,
+            "combined": combined,
+        })
 
     def _api_collection_copies(self, params: dict):
         """Return individual collection rows for a printing, with order data."""
