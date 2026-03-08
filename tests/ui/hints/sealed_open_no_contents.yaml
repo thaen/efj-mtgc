@@ -1,0 +1,17 @@
+start_page: /sealed
+involves:
+  - "Open Product button (#open-btn) in the header"
+  - "Open modal overlay (#open-modal-overlay) with search input (#open-search-input)"
+  - "Product results showing has_contents=true items normally"
+  - "Product results showing has_contents=false items grayed out with 'No contents data' badge"
+fixture_data:
+  search_term: "Lorwyn Eclipsed"
+notes: >
+  1. Click "Open Product" button in header.
+  2. Type "Lorwyn Eclipsed" in the search input.
+  3. Wait for results to appear. Some products (e.g. "60-Card Theme Deck Angels") have
+     contents data and appear at full opacity. Others (e.g. "60-Card Theme Deck Display",
+     "Display Case") lack contents data and appear grayed out (opacity:0.5) with a
+     "No contents data" badge span.
+  4. Verify the "No contents data" badge text is visible.
+  5. Screenshot showing both types of results.

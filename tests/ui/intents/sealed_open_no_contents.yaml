@@ -1,0 +1,11 @@
+# Scenario: Products without contents data cannot be opened
+#
+# Related:
+#   issues: []
+#   pull_requests: []
+
+description: >
+  When I search for sealed products in the Open Product modal, products without
+  contents data appear grayed out with a "No contents data" badge and I cannot
+  click them to open. Products with contents data appear normally and can be
+  selected.

@@ -1,0 +1,11 @@
+# Scenario: Open a sealed product and add its cards to collection
+#
+# Related:
+#   issues: []
+#   pull_requests: []
+
+description: >
+  I can open a sealed product by clicking "Open Product", searching for a product
+  that has contents data, previewing its card list, and confirming the open. After
+  confirming, the cards are added to my collection as a batch. The status bar shows
+  a summary of how many cards were added.

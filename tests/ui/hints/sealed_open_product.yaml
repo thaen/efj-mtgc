@@ -1,0 +1,23 @@
+start_page: /sealed
+involves:
+  - "Open Product button (#open-btn) in the header"
+  - "Open modal overlay (#open-modal-overlay) with search input (#open-search-input)"
+  - "Product search results list (#open-product-results) with product cards"
+  - "Preview pane with card summary badges, card list table, condition dropdown (#open-condition)"
+  - "Confirm button (#open-confirm-btn) with card count"
+  - "Status bar (#status) showing added card count"
+fixture_data:
+  search_term: "Foundations Starter"
+  product_name: "Foundations Starter Collection"
+  product_uuid: "01d16175-eefa-5cd2-b068-ba53c68ddfb8"
+notes: >
+  1. Click "Open Product" button in header.
+  2. Type "Foundations Starter" in the search input (debounced 300ms).
+  3. Wait for search results to appear with product names.
+  4. Click the "Foundations Starter Collection" result (it has has_contents=true).
+  5. Wait for the preview to load showing card summary badges (e.g. "384 cards to add").
+  6. The card list table shows cards grouped by source_name (e.g. "Starter Collection").
+  7. Leave condition as "Near Mint" (default).
+  8. Click the "Open & Add 384 Cards" confirm button.
+  9. Modal closes, status bar briefly shows "Added 384 cards from Foundations Starter Collection".
+  10. Screenshot final state showing the sealed collection page with status update.
