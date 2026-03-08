@@ -142,7 +142,24 @@ def steps(harness):
 - If a modal/overlay appears asynchronously, add `wait_for_visible` before interacting
 - Keep implementations minimal -- test one thing per scenario
 
-## Phase 6: Teardown
+## Phase 6: Run the Tests
+
+After writing all implementation files, **always run the tests** against the still-running container to verify they pass:
+
+```bash
+uv run pytest tests/ui/ -v --instance ${1:-qa-finish} -k "<test_name_pattern>"
+```
+
+Use `-k` to select only the newly written scenarios (e.g. `-k "sealed_open"`).
+
+If any test fails:
+1. Read the error output to understand the failure
+2. Fix the implementation file (wrong selector, missing wait, incorrect text match, etc.)
+3. Re-run until all new tests pass
+
+**Do NOT proceed to teardown until all new tests pass.** This is a hard requirement — untested test code is worse than no tests at all.
+
+## Phase 7: Teardown
 
 ```bash
 bash deploy/teardown.sh ${1:-qa-finish} --purge
