@@ -216,13 +216,16 @@ def commit_orders(
     conn,
     status: str = "ordered",
     source: str = "order_import",
+    batch_repo=None,
 ) -> Dict:
     """Commit resolved orders to the database.
 
-    Creates order records and collection entries (or links existing ones).
+    Creates order records, batch records, and collection entries (or links existing ones).
 
     Returns summary dict with counts.
     """
+    import uuid as _uuid
+
     summary = {
         "orders_created": 0,
         "orders_skipped": 0,
@@ -265,6 +268,21 @@ def commit_orders(
         order_id = order_repo.add(order)
         summary["orders_created"] += 1
 
+        # Create batch for this order
+        batch_id = None
+        if batch_repo:
+            from mtg_collector.db.models import Batch
+            number = parsed.order_number or "?"
+            seller = parsed.seller_name or "Unknown"
+            batch_id = batch_repo.create(Batch(
+                id=None,
+                batch_uuid=str(_uuid.uuid4()),
+                name=f"Order {number} ({seller})",
+                batch_type="order",
+                order_id=order_id,
+            ))
+
+        batch_card_count = 0
         for item in resolved.items:
             if not item.printing_id:
                 summary["errors"].append(item.error or f"Unresolved: {item.parsed.card_name}")
@@ -279,10 +297,11 @@ def commit_orders(
                 if existing:
                     # Link existing entry to this order
                     conn.execute(
-                        "UPDATE collection SET order_id = ? WHERE id = ?",
-                        (order_id, existing),
+                        "UPDATE collection SET order_id = ?, batch_id = ? WHERE id = ?",
+                        (order_id, batch_id, existing),
                     )
                     summary["cards_linked"] += 1
+                    batch_card_count += 1
                 else:
                     # Create new collection entry
                     finish = normalize_finish("foil" if item.parsed.foil else "nonfoil")
@@ -297,10 +316,16 @@ def commit_orders(
                         status=status,
                         order_id=order_id,
                         acquired_at=ts,
+                        batch_id=batch_id,
                     )
                     new_id = collection_repo.add(entry)
                     summary["cards_added"] += 1
                     summary["collection_ids"].append(new_id)
+                    batch_card_count += 1
+
+        # Update batch card count
+        if batch_repo and batch_id and batch_card_count:
+            batch_repo.increment_card_count(batch_id, batch_card_count)
 
     conn.commit()
     return summary

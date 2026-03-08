@@ -90,9 +90,9 @@ MTGJSON UUIDs → `mtgjson_uuid_map(uuid → set_code, collector_number)` → `p
 - `status_log` — Append-only audit of collection status changes.
 - `movement_log` — Append-only audit of deck/binder assignment changes (from/to deck, binder, zone).
 - `settings` — Key-value config (e.g. `price_sources`, `image_display`).
-- `corner_batches` — Corner-ingest session groupings with optional deck assignment.
-- Schema v30 with auto-migrations in `schema.py`.
-- Repository classes in `models.py`: `CardRepository`, `SetRepository`, `PrintingRepository`, `CollectionRepository`, `OrderRepository`, `WishlistRepository`, `DeckRepository`, `BinderRepository`, `CollectionViewRepository`, `CornerBatchRepository`.
+- `batches` — Unified batch groupings for all ingestion flows (corner, OCR, CSV import, manual ID, orders) with optional deck assignment.
+- Schema v31 with auto-migrations in `schema.py`.
+- Repository classes in `models.py`: `CardRepository`, `SetRepository`, `PrintingRepository`, `CollectionRepository`, `OrderRepository`, `WishlistRepository`, `DeckRepository`, `BinderRepository`, `CollectionViewRepository`, `BatchRepository`.
 - **Deck/binder exclusivity**: A collection entry can be in one deck OR one binder, not both. `deck_id` and `binder_id` are mutually exclusive (enforced by repository logic, returns HTTP 409 on conflict). Use `move_cards()` to atomically reassign.
 
 Default DB location: `~/.mtgc/collection.sqlite` (override: `--db` or `MTGC_DB` env).

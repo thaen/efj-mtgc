@@ -1000,14 +1000,15 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             self._api_set_browse(set_code, params)
         elif path == "/ingest-corners":
             self._serve_static("ingest_corners.html")
-        elif path == "/corner-batches":
-            self._serve_static("corner_batches.html")
-        elif path == "/api/corner-batches":
-            self._api_corner_batches_list()
-        elif path.startswith("/api/corner-batches/") and path.endswith("/cards"):
-            bid = path[len("/api/corner-batches/"):-len("/cards")]
+        elif path in ("/batches", "/corner-batches"):
+            self._serve_static("batches.html")
+        elif path in ("/api/batches", "/api/corner-batches"):
+            self._api_batches_list(params)
+        elif (path.startswith("/api/batches/") or path.startswith("/api/corner-batches/")) and path.endswith("/cards"):
+            prefix = "/api/batches/" if path.startswith("/api/batches/") else "/api/corner-batches/"
+            bid = path[len(prefix):-len("/cards")]
             if bid.isdigit():
-                self._api_corner_batch_cards(int(bid))
+                self._api_batch_cards(int(bid))
             else:
                 self._send_json({"error": "Not found"}, 404)
         elif path == "/ingestor-ids":
@@ -1198,13 +1199,23 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             self._api_corners_detect()
         elif path == "/api/corners/commit":
             self._api_corners_commit()
-        elif path.startswith("/api/corner-batches/") and path.endswith("/assign-deck"):
-            bid = path[len("/api/corner-batches/"):-len("/assign-deck")]
+        elif (path.startswith("/api/batches/") or path.startswith("/api/corner-batches/")) and path.endswith("/assign-deck"):
+            prefix = "/api/batches/" if path.startswith("/api/batches/") else "/api/corner-batches/"
+            bid = path[len(prefix):-len("/assign-deck")]
             if bid.isdigit():
                 data = self._read_json_body()
                 if data is None:
                     return
-                self._api_corner_batch_assign_deck(int(bid), data)
+                self._api_batch_assign_deck(int(bid), data)
+            else:
+                self._send_json({"error": "Not found"}, 404)
+        elif path.startswith("/api/batches/") and path.endswith("/update"):
+            bid = path[len("/api/batches/"):-len("/update")]
+            if bid.isdigit():
+                data = self._read_json_body()
+                if data is None:
+                    return
+                self._api_batch_update(int(bid), data)
             else:
                 self._send_json({"error": "Not found"}, 404)
         elif path == "/api/ingest-ids/resolve":
@@ -3813,9 +3824,12 @@ class CrackPackHandler(BaseHTTPRequestHandler):
         collection_repo = CollectionRepository(conn)
         order_repo = OrderRepository(conn)
 
+        from mtg_collector.db.models import BatchRepository
+        batch_repo = BatchRepository(conn)
+
         summary = commit_orders(
             resolved_orders, order_repo, collection_repo, conn,
-            status=status, source=source,
+            status=status, source=source, batch_repo=batch_repo,
         )
 
         # Optional deck/binder assignment for newly added cards
@@ -4072,10 +4086,10 @@ class CrackPackHandler(BaseHTTPRequestHandler):
     def _api_corners_commit(self):
         """Commit reviewed corner-detected cards to collection."""
         from mtg_collector.db.models import (
+            Batch,
+            BatchRepository,
             CollectionEntry,
             CollectionRepository,
-            CornerBatch,
-            CornerBatchRepository,
             DeckRepository,
             PrintingRepository,
         )
@@ -4107,7 +4121,7 @@ class CrackPackHandler(BaseHTTPRequestHandler):
 
         collection_repo = CollectionRepository(conn)
         printing_repo = PrintingRepository(conn)
-        batch_repo = CornerBatchRepository(conn)
+        batch_repo = BatchRepository(conn)
 
         # Look up or create batch by UUID
         batch_id = None
@@ -4116,9 +4130,10 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             if existing:
                 batch_id = existing["id"]
             else:
-                batch_id = batch_repo.create(CornerBatch(
+                batch_id = batch_repo.create(Batch(
                     id=None,
                     batch_uuid=batch_uuid,
+                    batch_type="corner",
                     deck_id=deck_id if deck_id else None,
                     deck_zone=deck_zone if deck_id else None,
                 ))
@@ -4152,6 +4167,7 @@ class CrackPackHandler(BaseHTTPRequestHandler):
                 condition=condition,
                 source="corner_ingest",
                 source_image=source_image,
+                batch_id=batch_id,
             )
             entry_id = collection_repo.add(entry)
             entry_ids.append(entry_id)
@@ -4196,29 +4212,32 @@ class CrackPackHandler(BaseHTTPRequestHandler):
 
         self._send_json({"added": added, "batch_id": batch_id})
 
-    # ── Corner Batch API endpoints ──
+    # ── Batch API endpoints ──
 
-    def _api_corner_batches_list(self):
-        """List all corner batches."""
-        from mtg_collector.db.models import CornerBatchRepository
+    def _api_batches_list(self, params=None):
+        """List all batches with optional type filter."""
+        from mtg_collector.db.models import BatchRepository
         from mtg_collector.db.schema import init_db
 
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         init_db(conn)
-        repo = CornerBatchRepository(conn)
-        self._send_json(repo.list_all())
+        repo = BatchRepository(conn)
+        batch_type = None
+        if params and "type" in params:
+            batch_type = params["type"][0]
+        self._send_json(repo.list_all(batch_type=batch_type))
         conn.close()
 
-    def _api_corner_batch_cards(self, batch_id: int):
-        """Get cards in a corner batch."""
-        from mtg_collector.db.models import CornerBatchRepository
+    def _api_batch_cards(self, batch_id: int):
+        """Get cards in a batch."""
+        from mtg_collector.db.models import BatchRepository
         from mtg_collector.db.schema import init_db
 
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         init_db(conn)
-        repo = CornerBatchRepository(conn)
+        repo = BatchRepository(conn)
         batch = repo.get(batch_id)
         if not batch:
             conn.close()
@@ -4228,10 +4247,10 @@ class CrackPackHandler(BaseHTTPRequestHandler):
         conn.close()
         self._send_json({"batch": batch, "cards": cards})
 
-    def _api_corner_batch_assign_deck(self, batch_id: int, data: dict):
+    def _api_batch_assign_deck(self, batch_id: int, data: dict):
         """Retroactively assign a batch's cards to a deck."""
         from mtg_collector.db.models import (
-            CornerBatchRepository,
+            BatchRepository,
             DeckRepository,
         )
         from mtg_collector.db.schema import init_db
@@ -4245,7 +4264,7 @@ class CrackPackHandler(BaseHTTPRequestHandler):
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         init_db(conn)
-        batch_repo = CornerBatchRepository(conn)
+        batch_repo = BatchRepository(conn)
         deck_repo = DeckRepository(conn)
 
         batch = batch_repo.get(batch_id)
@@ -4274,6 +4293,33 @@ class CrackPackHandler(BaseHTTPRequestHandler):
         conn.commit()
         conn.close()
         self._send_json({"ok": True, "assigned": len(collection_ids)})
+
+    def _api_batch_update(self, batch_id: int, data: dict):
+        """Update batch metadata (name, product_type, set_code, notes)."""
+        from mtg_collector.db.models import BatchRepository
+        from mtg_collector.db.schema import init_db
+
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        init_db(conn)
+        repo = BatchRepository(conn)
+
+        batch = repo.get(batch_id)
+        if not batch:
+            conn.close()
+            self._send_json({"error": "Batch not found"}, 404)
+            return
+
+        updated = repo.update(
+            batch_id,
+            name=data.get("name", batch["name"]),
+            product_type=data.get("product_type"),
+            set_code=data.get("set_code"),
+            notes=data.get("notes"),
+        )
+        conn.commit()
+        conn.close()
+        self._send_json({"ok": True, "updated": updated})
 
     # ── Manual ID Ingest API endpoints ──
 
@@ -4358,7 +4404,11 @@ class CrackPackHandler(BaseHTTPRequestHandler):
         self._send_json({"resolved": resolved, "failed": failed, "set_errors": set_errors})
 
     def _api_ingest_ids_commit(self):
+        import uuid as _uuid
+
         from mtg_collector.db.models import (
+            Batch,
+            BatchRepository,
             CollectionEntry,
             CollectionRepository,
             PrintingRepository,
@@ -4379,6 +4429,20 @@ class CrackPackHandler(BaseHTTPRequestHandler):
         collection_repo = CollectionRepository(conn)
         printing_repo = PrintingRepository(conn)
 
+        # Optional batch support
+        batch_id = None
+        batch_name = data.get("batch_name")
+        if batch_name:
+            batch_repo = BatchRepository(conn)
+            batch_id = batch_repo.create(Batch(
+                id=None,
+                batch_uuid=str(_uuid.uuid4()),
+                name=batch_name,
+                batch_type="manual_id",
+                product_type=data.get("product_type"),
+                set_code=data.get("batch_set_code"),
+            ))
+
         added = 0
         collection_ids = []
         for card in cards:
@@ -4390,10 +4454,15 @@ class CrackPackHandler(BaseHTTPRequestHandler):
                 continue
             finish = normalize_finish("foil" if card.get("foil") else "nonfoil")
             entry = CollectionEntry(id=None, printing_id=printing_id, finish=finish,
-                                   condition=condition, source=source)
+                                   condition=condition, source=source, batch_id=batch_id)
             new_id = collection_repo.add(entry)
             collection_ids.append(new_id)
             added += 1
+
+        # Update batch card count and complete
+        if batch_id and collection_ids:
+            batch_repo.increment_card_count(batch_id, len(collection_ids))
+            batch_repo.complete(batch_id)
 
         conn.commit()
 
@@ -4547,7 +4616,9 @@ class CrackPackHandler(BaseHTTPRequestHandler):
 
     def _api_import_commit(self):
         """Commit resolved CSV import cards to the collection."""
-        from mtg_collector.db.models import CollectionRepository
+        import uuid as _uuid
+
+        from mtg_collector.db.models import Batch, BatchRepository, CollectionRepository
         from mtg_collector.db.schema import init_db
         from mtg_collector.importers import get_importer
 
@@ -4567,6 +4638,20 @@ class CrackPackHandler(BaseHTTPRequestHandler):
         init_db(conn)
         collection_repo = CollectionRepository(conn)
 
+        # Optional batch support
+        batch_id = None
+        batch_name = data.get("batch_name")
+        if batch_name:
+            batch_repo = BatchRepository(conn)
+            batch_id = batch_repo.create(Batch(
+                id=None,
+                batch_uuid=str(_uuid.uuid4()),
+                name=batch_name,
+                batch_type="csv_import",
+                product_type=data.get("product_type"),
+                set_code=data.get("batch_set_code"),
+            ))
+
         added = 0
         errors = []
         collection_ids = []
@@ -4578,12 +4663,18 @@ class CrackPackHandler(BaseHTTPRequestHandler):
                 continue
             try:
                 entry = importer.row_to_entry(raw, printing_id)
+                entry.batch_id = batch_id
                 for _ in range(qty):
                     new_id = collection_repo.add(entry)
                     collection_ids.append(new_id)
                     added += 1
             except Exception as e:
                 errors.append(f"Error adding {card.get('name', '?')}: {e}")
+
+        # Update batch card count and complete
+        if batch_id and collection_ids:
+            batch_repo.increment_card_count(batch_id, len(collection_ids))
+            batch_repo.complete(batch_id)
 
         conn.commit()
 
