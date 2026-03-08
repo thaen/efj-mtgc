@@ -1,0 +1,24 @@
+start_page: /sealed
+involves:
+  - "Open Product button (#open-btn) in the header"
+  - "Open modal overlay (#open-modal-overlay)"
+  - "Search input (#open-search-input)"
+  - "Product results list (#open-product-results)"
+  - "Preview step with Back button (#open-back-btn)"
+  - "Close button (#open-close)"
+  - "Modal title (#open-modal-title) changing between 'Open Sealed Product' and 'Open: <name>'"
+fixture_data:
+  search_term: "Foundations Starter"
+  product_name: "Foundations Starter Collection"
+notes: >
+  1. Click "Open Product" button.
+  2. Type "Foundations Starter" in search input.
+  3. Wait for results to appear.
+  4. Click the "Foundations Starter Collection" result.
+  5. Wait for preview to load (modal title changes to "Open: Foundations Starter Collection").
+  6. Verify the search input is hidden during preview.
+  7. Click the "Back" button (#open-back-btn).
+  8. Verify the search input reappears and modal title resets to "Open Sealed Product".
+  9. Click the close button (#open-close) to dismiss the modal.
+  10. Verify the modal is closed (overlay removed).
+  11. Screenshot final state.

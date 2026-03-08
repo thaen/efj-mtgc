@@ -1,0 +1,10 @@
+# Scenario: Open Product modal search and navigation
+#
+# Related:
+#   issues: []
+#   pull_requests: []
+
+description: >
+  I can search for sealed products in the Open Product modal, see results appear,
+  select a product to see its contents preview, then click "Back" to return to the
+  search results. I can also close the modal entirely with the close button.
