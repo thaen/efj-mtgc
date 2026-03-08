@@ -100,6 +100,7 @@ class CollectionEntry:
     deck_id: Optional[int] = None
     binder_id: Optional[int] = None
     deck_zone: Optional[str] = None
+    batch_id: Optional[int] = None
 
 
 @dataclass
@@ -145,16 +146,25 @@ class CollectionView:
 
 
 @dataclass
-class CornerBatch:
-    """A corner-ingest session batch."""
+class Batch:
+    """A batch grouping cards from any ingestion flow."""
     id: Optional[int]
     batch_uuid: str
     name: Optional[str] = None
     deck_id: Optional[int] = None
     deck_zone: Optional[str] = None
     card_count: int = 0
+    batch_type: str = "corner"
+    product_type: Optional[str] = None
+    set_code: Optional[str] = None
+    notes: Optional[str] = None
+    order_id: Optional[int] = None
     created_at: Optional[str] = None
     completed_at: Optional[str] = None
+
+
+# Backward-compatible alias
+CornerBatch = Batch
 
 
 @dataclass
@@ -633,8 +643,9 @@ class CollectionRepository:
             INSERT INTO collection
             (printing_id, finish, condition, language, purchase_price,
              acquired_at, source, source_image, notes, tags, tradelist,
-             is_alter, proxy, signed, misprint, status, sale_price, order_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             is_alter, proxy, signed, misprint, status, sale_price, order_id,
+             batch_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 entry.printing_id,
@@ -655,6 +666,7 @@ class CollectionRepository:
                 entry.status,
                 entry.sale_price,
                 entry.order_id,
+                entry.batch_id,
             ),
         )
         new_id = cursor.lastrowid
@@ -705,7 +717,8 @@ class CollectionRepository:
                 misprint = ?,
                 status = ?,
                 sale_price = ?,
-                order_id = ?
+                order_id = ?,
+                batch_id = ?
             WHERE id = ?
             """,
             (
@@ -727,6 +740,7 @@ class CollectionRepository:
                 entry.status,
                 entry.sale_price,
                 entry.order_id,
+                entry.batch_id,
                 entry.id,
             ),
         )
@@ -1068,6 +1082,12 @@ class CollectionRepository:
         except (IndexError, KeyError):
             pass
 
+        batch_id = None
+        try:
+            batch_id = row["batch_id"]
+        except (IndexError, KeyError):
+            pass
+
         return CollectionEntry(
             id=row["id"],
             printing_id=row["printing_id"],
@@ -1091,6 +1111,7 @@ class CollectionRepository:
             deck_id=deck_id,
             binder_id=binder_id,
             deck_zone=deck_zone,
+            batch_id=batch_id,
         )
 
     def get_movement_history(self, collection_id: int) -> List[Dict[str, Any]]:
@@ -2203,41 +2224,57 @@ class CollectionViewRepository:
         return [dict(row) for row in cursor]
 
 
-class CornerBatchRepository:
-    """CRUD operations for corner_batches table."""
+class BatchRepository:
+    """CRUD operations for batches table."""
 
     def __init__(self, conn: sqlite3.Connection):
         self.conn = conn
 
-    def create(self, batch: "CornerBatch") -> int:
+    def create(self, batch: "Batch") -> int:
         ts = now_iso()
         cursor = self.conn.execute(
-            """INSERT INTO corner_batches (batch_uuid, name, deck_id, deck_zone,
-               card_count, created_at) VALUES (?, ?, ?, ?, ?, ?)""",
+            """INSERT INTO batches (batch_uuid, name, deck_id, deck_zone,
+               card_count, batch_type, product_type, set_code, notes, order_id,
+               created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (batch.batch_uuid, batch.name, batch.deck_id, batch.deck_zone,
-             batch.card_count, ts),
+             batch.card_count, batch.batch_type, batch.product_type,
+             batch.set_code, batch.notes, batch.order_id, ts),
         )
         return cursor.lastrowid
 
     def get(self, batch_id: int) -> Optional[Dict[str, Any]]:
         row = self.conn.execute(
-            "SELECT * FROM corner_batches WHERE id = ?", (batch_id,)
+            "SELECT * FROM batches WHERE id = ?", (batch_id,)
         ).fetchone()
         return dict(row) if row else None
 
     def get_by_uuid(self, batch_uuid: str) -> Optional[Dict[str, Any]]:
         row = self.conn.execute(
-            "SELECT * FROM corner_batches WHERE batch_uuid = ?", (batch_uuid,)
+            "SELECT * FROM batches WHERE batch_uuid = ?", (batch_uuid,)
         ).fetchone()
         return dict(row) if row else None
 
-    def list_all(self) -> List[Dict[str, Any]]:
-        cursor = self.conn.execute(
-            """SELECT cb.*, d.name as deck_name
-               FROM corner_batches cb
-               LEFT JOIN decks d ON cb.deck_id = d.id
-               ORDER BY cb.created_at DESC"""
-        )
+    def list_all(self, batch_type: Optional[str] = None) -> List[Dict[str, Any]]:
+        if batch_type:
+            cursor = self.conn.execute(
+                """SELECT b.*, d.name as deck_name,
+                          o.order_number, o.seller_name, o.total as order_total
+                   FROM batches b
+                   LEFT JOIN decks d ON b.deck_id = d.id
+                   LEFT JOIN orders o ON b.order_id = o.id
+                   WHERE b.batch_type = ?
+                   ORDER BY b.created_at DESC""",
+                (batch_type,),
+            )
+        else:
+            cursor = self.conn.execute(
+                """SELECT b.*, d.name as deck_name,
+                          o.order_number, o.seller_name, o.total as order_total
+                   FROM batches b
+                   LEFT JOIN decks d ON b.deck_id = d.id
+                   LEFT JOIN orders o ON b.order_id = o.id
+                   ORDER BY b.created_at DESC"""
+            )
         return [dict(row) for row in cursor]
 
     def get_cards(self, batch_id: int) -> List[Dict[str, Any]]:
@@ -2246,31 +2283,47 @@ class CornerBatchRepository:
                       p.set_code, p.collector_number, p.rarity, p.image_uri,
                       card.name, card.type_line, card.mana_cost,
                       s.set_name
-               FROM ingest_lineage il
-               JOIN collection c ON il.collection_id = c.id
+               FROM collection c
                JOIN printings p ON c.printing_id = p.printing_id
                JOIN cards card ON p.oracle_id = card.oracle_id
                JOIN sets s ON p.set_code = s.set_code
-               WHERE il.batch_id = ?
-               ORDER BY il.card_index""",
+               WHERE c.batch_id = ?
+               ORDER BY card.name""",
             (batch_id,),
         )
         return [dict(row) for row in cursor]
 
+    def update(self, batch_id: int, **kwargs) -> bool:
+        """Update batch metadata. Accepts name, product_type, set_code, notes."""
+        allowed = {"name", "product_type", "set_code", "notes"}
+        updates = {k: v for k, v in kwargs.items() if k in allowed}
+        if not updates:
+            return False
+        set_clause = ", ".join(f"{k} = ?" for k in updates)
+        values = list(updates.values()) + [batch_id]
+        cursor = self.conn.execute(
+            f"UPDATE batches SET {set_clause} WHERE id = ?", values
+        )
+        return cursor.rowcount > 0
+
     def increment_card_count(self, batch_id: int, count: int = 1) -> None:
         self.conn.execute(
-            "UPDATE corner_batches SET card_count = card_count + ? WHERE id = ?",
+            "UPDATE batches SET card_count = card_count + ? WHERE id = ?",
             (count, batch_id),
         )
 
     def set_deck(self, batch_id: int, deck_id: int, deck_zone: str = "mainboard") -> None:
         self.conn.execute(
-            "UPDATE corner_batches SET deck_id = ?, deck_zone = ? WHERE id = ?",
+            "UPDATE batches SET deck_id = ?, deck_zone = ? WHERE id = ?",
             (deck_id, deck_zone, batch_id),
         )
 
     def complete(self, batch_id: int) -> None:
         self.conn.execute(
-            "UPDATE corner_batches SET completed_at = ? WHERE id = ?",
+            "UPDATE batches SET completed_at = ? WHERE id = ?",
             (now_iso(), batch_id),
         )
+
+
+# Backward-compatible alias
+CornerBatchRepository = BatchRepository

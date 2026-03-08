@@ -2,7 +2,7 @@
 
 import sqlite3
 
-SCHEMA_VERSION = 30
+SCHEMA_VERSION = 31
 
 SCHEMA_SQL = """
 -- Abstract cards (oracle-level, cached from Scryfall)
@@ -139,10 +139,12 @@ CREATE TABLE IF NOT EXISTS collection (
     order_id INTEGER REFERENCES orders(id),
     deck_id INTEGER REFERENCES decks(id) ON DELETE SET NULL,
     binder_id INTEGER REFERENCES binders(id) ON DELETE SET NULL,
-    deck_zone TEXT CHECK(deck_zone IN ('mainboard', 'sideboard', 'commander') OR deck_zone IS NULL)
+    deck_zone TEXT CHECK(deck_zone IN ('mainboard', 'sideboard', 'commander') OR deck_zone IS NULL),
+    batch_id INTEGER REFERENCES batches(id)
 );
 CREATE INDEX IF NOT EXISTS idx_collection_deck ON collection(deck_id);
 CREATE INDEX IF NOT EXISTS idx_collection_binder ON collection(binder_id);
+CREATE INDEX IF NOT EXISTS idx_collection_batch ON collection(batch_id);
 
 -- Status audit log (append-only)
 CREATE TABLE IF NOT EXISTS status_log (
@@ -196,17 +198,24 @@ CREATE TABLE IF NOT EXISTS ingest_cache (
     created_at TEXT NOT NULL
 );
 
--- Corner batches: group corner-ingest sessions
-CREATE TABLE IF NOT EXISTS corner_batches (
+-- Batches: group cards from any ingestion flow
+CREATE TABLE IF NOT EXISTS batches (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     batch_uuid TEXT NOT NULL UNIQUE,
     name TEXT,
     deck_id INTEGER REFERENCES decks(id),
     deck_zone TEXT,
     card_count INTEGER NOT NULL DEFAULT 0,
+    batch_type TEXT NOT NULL DEFAULT 'corner',
+    product_type TEXT,
+    set_code TEXT,
+    notes TEXT,
+    order_id INTEGER REFERENCES orders(id),
     created_at TEXT NOT NULL,
     completed_at TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_batches_type ON batches(batch_type);
+CREATE INDEX IF NOT EXISTS idx_batches_order ON batches(order_id);
 
 -- Ingest lineage: track which card came from which image
 CREATE TABLE IF NOT EXISTS ingest_lineage (
@@ -215,7 +224,7 @@ CREATE TABLE IF NOT EXISTS ingest_lineage (
     image_md5 TEXT NOT NULL,
     image_path TEXT NOT NULL,
     card_index INTEGER NOT NULL,
-    batch_id INTEGER REFERENCES corner_batches(id),
+    batch_id INTEGER REFERENCES batches(id),
     created_at TEXT NOT NULL
 );
 
@@ -480,14 +489,17 @@ SELECT
     c.deck_id,
     c.deck_zone,
     c.binder_id,
+    c.batch_id,
     d.name AS deck_name,
-    b.name AS binder_name
+    b.name AS binder_name,
+    bat.name AS batch_name
 FROM collection c
 JOIN printings p ON c.printing_id = p.printing_id
 JOIN cards card ON p.oracle_id = card.oracle_id
 JOIN sets s ON p.set_code = s.set_code
 LEFT JOIN decks d ON c.deck_id = d.id
-LEFT JOIN binders b ON c.binder_id = b.id;
+LEFT JOIN binders b ON c.binder_id = b.id
+LEFT JOIN batches bat ON c.batch_id = bat.id;
 """
 
 
@@ -601,6 +613,8 @@ def init_db(conn: sqlite3.Connection, force: bool = False) -> bool:
             _migrate_v28_to_v29(conn)
         if current < 30:
             _migrate_v29_to_v30(conn)
+        if current < 31:
+            _migrate_v30_to_v31(conn)
 
     # Record schema version
     conn.execute(
@@ -1732,6 +1746,169 @@ def _migrate_v29_to_v30(conn: sqlite3.Connection):
         )
 
 
+def _migrate_v30_to_v31(conn: sqlite3.Connection):
+    """Generalize corner_batches → batches, add batch_id to collection."""
+    from mtg_collector.utils import now_iso
+
+    tables = [r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    ).fetchall()]
+
+    # Must drop views before ALTER TABLE — SQLite validates schema on ALTER
+    conn.execute("DROP VIEW IF EXISTS collection_view")
+    conn.execute("DROP VIEW IF EXISTS sealed_collection_view")
+
+    # Rename corner_batches → batches
+    if "corner_batches" in tables and "batches" not in tables:
+        conn.execute("ALTER TABLE corner_batches RENAME TO batches")
+    elif "corner_batches" not in tables and "batches" not in tables:
+        conn.execute("""
+            CREATE TABLE batches (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                batch_uuid TEXT NOT NULL UNIQUE,
+                name TEXT,
+                deck_id INTEGER REFERENCES decks(id),
+                deck_zone TEXT,
+                card_count INTEGER NOT NULL DEFAULT 0,
+                batch_type TEXT NOT NULL DEFAULT 'corner',
+                product_type TEXT,
+                set_code TEXT,
+                notes TEXT,
+                order_id INTEGER REFERENCES orders(id),
+                created_at TEXT NOT NULL,
+                completed_at TEXT
+            )
+        """)
+
+    # Add new columns to batches (guard each)
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(batches)").fetchall()]
+    if "batch_type" not in cols:
+        conn.execute("ALTER TABLE batches ADD COLUMN batch_type TEXT NOT NULL DEFAULT 'corner'")
+    if "product_type" not in cols:
+        conn.execute("ALTER TABLE batches ADD COLUMN product_type TEXT")
+    if "set_code" not in cols:
+        conn.execute("ALTER TABLE batches ADD COLUMN set_code TEXT")
+    if "notes" not in cols:
+        conn.execute("ALTER TABLE batches ADD COLUMN notes TEXT")
+    if "order_id" not in cols:
+        conn.execute("ALTER TABLE batches ADD COLUMN order_id INTEGER REFERENCES orders(id)")
+
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_batches_type ON batches(batch_type)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_batches_order ON batches(order_id)")
+
+    # Add batch_id to collection
+    coll_cols = [r[1] for r in conn.execute("PRAGMA table_info(collection)").fetchall()]
+    if "batch_id" not in coll_cols:
+        conn.execute("ALTER TABLE collection ADD COLUMN batch_id INTEGER REFERENCES batches(id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_collection_batch ON collection(batch_id)")
+
+    # Backfill collection.batch_id from ingest_lineage for existing corner batches
+    if "ingest_lineage" in tables:
+        conn.execute("""
+            UPDATE collection SET batch_id = (
+                SELECT il.batch_id FROM ingest_lineage il
+                WHERE il.collection_id = collection.id AND il.batch_id IS NOT NULL
+                LIMIT 1
+            )
+            WHERE batch_id IS NULL AND id IN (
+                SELECT collection_id FROM ingest_lineage WHERE batch_id IS NOT NULL
+            )
+        """)
+
+    # Create Batch records for each existing order and backfill collection.batch_id
+    ts = now_iso()
+    if "orders" in tables:
+        orders = conn.execute(
+            "SELECT id, order_number, seller_name FROM orders"
+        ).fetchall()
+        for order in orders:
+            oid = order[0]
+            number = order[1] or "?"
+            seller = order[2] or "Unknown"
+            # Check if batch already exists for this order
+            existing = conn.execute(
+                "SELECT id FROM batches WHERE order_id = ?", (oid,)
+            ).fetchone()
+            if existing:
+                batch_id = existing[0]
+            else:
+                import uuid
+                cursor = conn.execute(
+                    """INSERT INTO batches (batch_uuid, name, batch_type, order_id, created_at)
+                       VALUES (?, ?, 'order', ?, ?)""",
+                    (str(uuid.uuid4()), f"Order {number} ({seller})", oid, ts),
+                )
+                batch_id = cursor.lastrowid
+            # Backfill collection entries linked to this order
+            conn.execute(
+                "UPDATE collection SET batch_id = ? WHERE order_id = ? AND batch_id IS NULL",
+                (batch_id, oid),
+            )
+
+    # Rebuild sealed_collection_view (we dropped it above for ALTER TABLE safety)
+    conn.execute("""
+        CREATE VIEW IF NOT EXISTS sealed_collection_view AS
+        SELECT
+            sc.id, sc.quantity, sc.condition, sc.purchase_price, sc.purchase_date,
+            sc.source, sc.seller_name, sc.notes, sc.status, sc.sale_price, sc.added_at,
+            sp.uuid, sp.name, sp.set_code, sp.category, sp.subtype,
+            sp.tcgplayer_product_id, sp.card_count, sp.release_date,
+            sp.purchase_url_tcgplayer, sp.purchase_url_cardkingdom,
+            s.set_name, s.set_type, s.released_at AS set_released_at
+        FROM sealed_collection sc
+        JOIN sealed_products sp ON sc.sealed_product_uuid = sp.uuid
+        LEFT JOIN sets s ON sp.set_code = s.set_code
+    """)
+
+    # Rebuild collection_view with batch columns
+    conn.execute("""
+        CREATE VIEW IF NOT EXISTS collection_view AS
+        SELECT
+            c.id,
+            card.name,
+            s.set_name,
+            p.set_code,
+            p.collector_number,
+            p.rarity,
+            p.promo,
+            c.finish,
+            c.condition,
+            c.language,
+            card.type_line,
+            card.mana_cost,
+            card.cmc,
+            card.colors,
+            card.color_identity,
+            p.artist,
+            c.purchase_price,
+            c.acquired_at,
+            c.source,
+            c.source_image,
+            c.notes,
+            c.tags,
+            c.tradelist,
+            c.status,
+            c.sale_price,
+            c.printing_id,
+            p.oracle_id,
+            c.order_id,
+            c.deck_id,
+            c.deck_zone,
+            c.binder_id,
+            c.batch_id,
+            d.name AS deck_name,
+            b.name AS binder_name,
+            bat.name AS batch_name
+        FROM collection c
+        JOIN printings p ON c.printing_id = p.printing_id
+        JOIN cards card ON p.oracle_id = card.oracle_id
+        JOIN sets s ON p.set_code = s.set_code
+        LEFT JOIN decks d ON c.deck_id = d.id
+        LEFT JOIN binders b ON c.binder_id = b.id
+        LEFT JOIN batches bat ON c.batch_id = bat.id
+    """)
+
+
 def drop_all_tables(conn: sqlite3.Connection):
     """Drop all tables (for testing/reset)."""
     conn.executescript("""
@@ -1756,7 +1933,7 @@ def drop_all_tables(conn: sqlite3.Connection):
         DROP TABLE IF EXISTS settings;
         DROP TABLE IF EXISTS ingest_images;
         DROP TABLE IF EXISTS ingest_lineage;
-        DROP TABLE IF EXISTS corner_batches;
+        DROP TABLE IF EXISTS batches;
         DROP TABLE IF EXISTS ingest_cache;
         DROP TABLE IF EXISTS collection_views;
         DROP TABLE IF EXISTS collection;
