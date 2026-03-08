@@ -401,6 +401,21 @@ header h1 { font-size: 1.2rem; color: #e0e0e0; }
       </select>
     </div>
 
+    <label>Batch (optional)</label>
+    <input type="text" id="batch-name" placeholder="e.g. Foundations Starter Collection" style="width:100%">
+    <div class="controls">
+      <select id="product-type" style="flex:1">
+        <option value="">Product type...</option>
+        <option value="starter_collection">Starter Collection</option>
+        <option value="booster_box">Booster Box</option>
+        <option value="bundle">Bundle</option>
+        <option value="precon">Precon</option>
+        <option value="singles">Singles</option>
+        <option value="other">Other</option>
+      </select>
+      <input type="text" id="batch-set-code" placeholder="Set" style="width:70px">
+    </div>
+
     <button class="btn-primary" id="resolve-btn" disabled>Resolve</button>
   </div>
 
@@ -682,6 +697,14 @@ async function commitCards() {
       source: 'manual_id',
     };
     if (assignSel && assignSel.value) commitBody.assign_target = assignSel.value;
+    const batchName = document.getElementById('batch-name').value.trim();
+    if (batchName) {
+      commitBody.batch_name = batchName;
+      const pt = document.getElementById('product-type').value;
+      if (pt) commitBody.product_type = pt;
+      const sc = document.getElementById('batch-set-code').value.trim();
+      if (sc) commitBody.batch_set_code = sc;
+    }
     const res = await fetch('/api/ingest-ids/commit', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},

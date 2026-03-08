@@ -25,14 +25,14 @@ import sqlite3
 from pathlib import Path
 
 from mtg_collector.db.models import (
+    Batch,
+    BatchRepository,
     Binder,
     BinderRepository,
     CollectionEntry,
     CollectionRepository,
     CollectionView,
     CollectionViewRepository,
-    CornerBatch,
-    CornerBatchRepository,
     Deck,
     DeckRepository,
     Order,
@@ -638,8 +638,8 @@ def load_demo_data(conn: sqlite3.Connection) -> bool:
             binder_repo.add_cards(binder_id, card_ids)
         binders_created += 1
 
-    # Create demo corner batches
-    batch_repo = CornerBatchRepository(conn)
+    # Create demo batches
+    batch_repo = BatchRepository(conn)
     batches_created = 0
     for batch_def in DEMO_CORNER_BATCHES:
         # Find deck ID if batch should be assigned
@@ -651,10 +651,11 @@ def load_demo_data(conn: sqlite3.Connection) -> bool:
             if row:
                 assign_deck_id = row["id"]
 
-        batch = CornerBatch(
+        batch = Batch(
             id=None,
             batch_uuid=batch_def["batch_uuid"],
             name=batch_def.get("name"),
+            batch_type="corner",
             deck_id=assign_deck_id,
             deck_zone=batch_def.get("deck_zone") if assign_deck_id else None,
         )
@@ -666,6 +667,11 @@ def load_demo_data(conn: sqlite3.Connection) -> bool:
             if ci in collection_id_by_card_idx:
                 cid = collection_id_by_card_idx[ci]
                 batch_card_ids.append(cid)
+                # Set batch_id on collection entry
+                conn.execute(
+                    "UPDATE collection SET batch_id = ? WHERE id = ?",
+                    (batch_id, cid),
+                )
                 # Create lineage record linking to batch
                 conn.execute(
                     """INSERT INTO ingest_lineage
@@ -713,7 +719,7 @@ def load_demo_data(conn: sqlite3.Connection) -> bool:
     print(f"  Added {wishlist_added} wishlist entries")
     print(f"  Created {decks_created} demo decks")
     print(f"  Created {binders_created} demo binders")
-    print(f"  Created {batches_created} demo corner batches")
+    print(f"  Created {batches_created} demo batches")
     print(f"  Created {views_created} demo views")
     print(f"  Added {ingest_added} demo ingest samples")
 
