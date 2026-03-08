@@ -418,6 +418,7 @@ def run_agent(
     max_calls: int | None = None,
     status_callback=None,
     trace_out: list[str] | None = None,
+    set_hint: str | None = None,
 ) -> tuple[list[dict], list[str], dict]:
     """Run the tool-using agent to identify MTG cards from an image.
 
@@ -430,6 +431,8 @@ def run_agent(
         trace_out: Optional list to accumulate trace lines in-place. If provided,
                    the caller retains access to partial trace even if an exception
                    is raised.
+        set_hint: Optional set code or name provided by the user. When present,
+                  the agent should strongly prefer printings from this set.
 
     Returns:
         (cards, trace, usage) where cards is a list of card dicts, trace is the
@@ -463,6 +466,13 @@ def run_agent(
         + _format_fragments(ocr_fragments)
         + "\n\nPlease identify the MTG card in this image."
     )
+    if set_hint:
+        initial_content += (
+            f"\n\nIMPORTANT: The user has indicated this card is from set '{set_hint}'. "
+            f"When querying the database, ALWAYS filter by this set code first "
+            f"(e.g. WHERE p.set_code = '{set_hint.lower()}'). "
+            f"Only consider other sets if the card does not exist in '{set_hint}'."
+        )
     messages = [{"role": "user", "content": initial_content}]
 
     tool_call_count = 0
