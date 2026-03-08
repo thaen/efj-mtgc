@@ -563,7 +563,7 @@ def _process_image_core(conn, image_id, img, log_fn):
     from mtg_collector.services.fake_agent import run_agent as fake_agent
     from mtg_collector.services.ocr import run_ocr_with_boxes
 
-    def run_agent(image_path, ocr_fragments, status_callback=None, trace_out=None):
+    def run_agent(image_path, ocr_fragments, status_callback=None, trace_out=None, set_hint=None):
         """Dispatch to fake or real agent based on env config.
 
         API key only: always real agent.
@@ -580,7 +580,8 @@ def _process_image_core(conn, image_id, img, log_fn):
                 else:
                     raise
         return real_agent(image_path, ocr_fragments=ocr_fragments,
-                          status_callback=status_callback, trace_out=trace_out)
+                          status_callback=status_callback, trace_out=trace_out,
+                          set_hint=set_hint)
     from mtg_collector.utils import now_iso
 
     image_path = str(_get_ingest_images_dir() / img["stored_name"])
@@ -622,6 +623,19 @@ def _process_image_core(conn, image_id, img, log_fn):
         _log_ingest(f"Merged {len(raw_fragments)} -> {len(ocr_fragments)} fragments")
         log_fn("ocr_complete", {"fragment_count": len(ocr_fragments), "fragments": ocr_fragments})
 
+    # Resolve set_hint early so we can pass it to the agent
+    hint_set_code = None
+    raw_hint = (img.get("set_hint") or "").strip()
+    if raw_hint:
+        from mtg_collector.db.models import SetRepository
+        set_repo = SetRepository(conn)
+        s = set_repo.get(raw_hint.lower())
+        if not s:
+            s = set_repo.get_by_name(raw_hint)
+        if s:
+            hint_set_code = s.set_code
+            _log_ingest(f"Resolved set_hint '{raw_hint}' -> {hint_set_code}")
+
     # Step 2: Agent extraction
     if claude_cards is None:
         log_fn("status", {"message": "Calling agent..."})
@@ -632,6 +646,7 @@ def _process_image_core(conn, image_id, img, log_fn):
                 ocr_fragments=ocr_fragments,
                 status_callback=lambda msg: log_fn("status", {"message": msg}),
                 trace_out=agent_trace,
+                set_hint=hint_set_code,
             )
         except Exception as e:
             e.agent_trace = agent_trace
@@ -660,29 +675,20 @@ def _process_image_core(conn, image_id, img, log_fn):
     # Step 3: Local DB resolution
     log_fn("status", {"message": "Resolving card..."})
 
-    # Apply set_hint as fallback set_code for cards that lack one
-    hint_set_code = None
-    raw_hint = (img.get("set_hint") or "").strip()
-    if raw_hint:
-        from mtg_collector.db.models import SetRepository
-        set_repo = SetRepository(conn)
-        # Try as set code first, then as set name
-        s = set_repo.get(raw_hint.lower())
-        if not s:
-            s = set_repo.get_by_name(raw_hint)
-        if s:
-            hint_set_code = s.set_code
-            _log_ingest(f"Resolved set_hint '{raw_hint}' -> {hint_set_code}")
-    if hint_set_code:
-        for ci in claude_cards:
-            if not (ci.get("set_code") or "").strip():
-                ci["set_code"] = hint_set_code
-
     all_matches = []
     all_crops = []
 
     if best:
         candidates = _resolve_candidates(conn, claude_cards)
+
+        # If the user provided a set hint, promote candidates from that set
+        # to the front of the list so the correct printing is auto-selected.
+        if hint_set_code and candidates:
+            hinted = [c for c in candidates if c.get("set", "").lower() == hint_set_code]
+            others = [c for c in candidates if c.get("set", "").lower() != hint_set_code]
+            if hinted:
+                candidates = hinted + others
+                _log_ingest(f"Set hint '{hint_set_code}': promoted {len(hinted)} candidate(s) to front")
 
         formatted = _format_candidates(candidates)
         all_matches.append(formatted)
