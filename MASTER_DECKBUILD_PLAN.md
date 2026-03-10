@@ -136,9 +136,9 @@ Tested with Stonebrow, Krosan Hero — Claude returned real tags:
 
 ---
 
-## Phase 4: Autofill
+## Phase 4: Autofill — DONE
 
-### 4.1: Fill deck from plan + tags
+### 4.1: Fill deck from plan + tags — DONE
 
 Given a plan (tag-based targets) and the user's collection, automatically
 select cards to fill each tag target.
@@ -152,21 +152,37 @@ select cards to fill each tag target.
 
 **Composite ranking score (autofill weights):**
 
-| Signal              | Source                                | Direction       | Notes |
-|---------------------|---------------------------------------|-----------------|-------|
-| EDHREC popularity   | `raw_json $.edhrec_rank`              | lower = better  | Primary signal for card quality |
-| Salt / annoyance    | `salt_scores.salt_score`              | lower = better  | Avoid grief cards |
-| Monetary value      | `raw_json $.prices.usd`              | higher = better | Proxy for power level |
-| Cross-functionality | `COUNT(tags) / cmc`                   | higher = better | Multi-role efficiency |
-| Uniqueness          | inverse EDHREC rank (high rank = unique) | tunable      | Surprise factor — less popular cards make games more interesting |
-| Recency             | `sets.released_at`                    | newer = better  | Fresher cards feel more fun |
+| Signal              | Weight | Source                                | Direction       | Notes |
+|---------------------|--------|---------------------------------------|-----------------|-------|
+| EDHREC popularity   | 0.20   | `raw_json $.edhrec_rank`              | lower = better  | Primary signal for card quality |
+| Bling               | 0.25   | frame_effects, full_art, promo        | higher = better | Full-art, borderless, extended art, showcase |
+| Random              | 0.25   | uniform random [0,1)                  | —               | Keeps suggestions fresh across runs |
+| Uniqueness          | 0.10   | inverse EDHREC rank                   | higher = better | Less popular cards make games more interesting |
+| Recency             | 0.10   | `sets.released_at`                    | newer = better  | Fresher cards feel more fun |
+| Salt / annoyance    | 0.05   | `salt_scores.salt_score`              | lower = better  | Avoid grief cards |
+| Monetary value      | 0.05   | `raw_json $.prices.usd`              | higher = better | Proxy for power level |
+| Cross-functionality | 0.00   | disabled                              | —               | Tag count rewards Scryfall tag noise, not real multi-role |
 
-Fixed weights for autofill. Phase 5 (card replacement) will expose weight
-tuning to the user.
+Phase 5 (card replacement) will expose weight tuning to the user.
+
+### 4.2: Haiku tag validation — DONE
+
+Scryfall tags have significant false positives (e.g. "Demystify" tagged
+`boardwipe`, "Grove of the Burnwillows" tagged `mana-rock`). Haiku
+validates ALL of a card's tags on first encounter during autofill, caching
+results in `card_tag_validations` (schema v35). Future queries are instant
+cache hits.
+
+- Overfetches 3x candidates to account for filtering.
+- SSE streaming shows per-card validation progress in the UI.
+- Backfill logic handles cards partially validated from earlier runs.
+- Without API key, suggestions are shown unvalidated with a warning banner.
+- Tag hints in `TAG_ROLE_HINTS` give Haiku precise definitions (e.g. ramp
+  requires NET INCREASE in mana sources — fetchlands are not ramp).
 
 **Server side:**
-- `POST /api/decks/{id}/autofill` — runs the fill algorithm, returns
-  proposed additions grouped by tag.
+- `POST /api/decks/{id}/autofill` — SSE stream with progress events,
+  returns proposed additions grouped by tag.
 - Does NOT auto-commit. Returns suggestions for user to review.
 - `POST /api/decks/{id}/cards` (existing) to actually add approved cards.
 
@@ -176,9 +192,7 @@ tuning to the user.
   individual suggestions.
 - "Add Selected" button commits chosen cards to the deck.
 
-### 4.2: Ship it
-
-For testing, create a "fake agent"-style test environment where an end-to-end test can execute without an API key: the "fake agent" should just returned canned (deterministic, cached) plans for the commander being used in the test. 
+### 4.3: Ship it
 
 ---
 
@@ -213,13 +227,46 @@ alternatives from the collection.
 
 ---
 
+## Phase 6: Intelligent Land Autofill
+
+### 6.1: Color-fixing land selection
+
+Current `fill_lands` just counts mana pips and distributes basics
+proportionally. This works but ignores the user's owned dual lands,
+fetch lands, utility lands, and color-fixing needs.
+
+**How it works:**
+1. Analyze the deck's color requirements: pip counts per color, number of
+   cards with demanding costs (e.g. {W}{W}{W}, {U}{U}), curve by color.
+2. Query owned lands: duals, fetches, shocks, check lands, pain lands,
+   filter lands, utility lands — anything that produces colored mana.
+3. Prioritize color-fixing lands that cover the deck's weakest colors or
+   most demanding costs. A 4-color deck with heavy white pips needs more
+   white sources than a splash color.
+4. Fill remaining slots with basics proportional to pip distribution.
+5. Suggest utility lands (Command Tower, Reliquary Tower, etc.) from the
+   user's collection.
+
+**Ranking signals for lands:**
+- Number of colors produced (more = better for multicolor decks)
+- Enters untapped vs tapped (untapped = better)
+- Covers weak colors (colors with few sources relative to pip demand)
+- Fetchable by other lands in the deck (e.g. shocks are fetchable)
+
+### 6.2: Ship it
+
+---
+
 ## Reference
 
 ### Key files
-- `mtg_collector/db/schema.py` — schema v33, `card_tags` table at v33
+- `mtg_collector/db/schema.py` — schema v35, `card_tags` at v33,
+  `salt_scores`/`plan`/`deck_note` at v34, `card_tag_validations` at v35
 - `mtg_collector/cli/cache_cmd.py` — `cache_all()`, add `cache_tags()`
-- `mtg_collector/services/deck_builder/service.py` — `DeckBuilderService`
-  (870 lines), already uses `card_tags` for `_classify_card()`
+- `mtg_collector/services/deck_builder/service.py` — `DeckBuilderService`,
+  autofill with composite scoring, Haiku validation integration
+- `mtg_collector/services/deck_builder/tag_validator.py` — `TagValidator`,
+  Haiku-based tag validation with `TAG_ROLE_HINTS` and DB caching
 - `mtg_collector/services/deck_builder/constants.py` — `INFRASTRUCTURE`
   mapping (categories → tag sets)
 - `mtg_collector/static/collection.html` — collection page, client-side

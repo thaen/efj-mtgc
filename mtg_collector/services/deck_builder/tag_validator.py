@@ -16,7 +16,7 @@ import httpx
 # Role hints for common tags — helps Haiku understand what the tag means
 TAG_ROLE_HINTS = {
     # Ramp
-    "ramp": "produces extra mana or accelerates mana development",
+    "ramp": "results in a NET INCREASE in mana sources. Fetchlands that sacrifice themselves to find a land (e.g. Marsh Flats, Evolving Wilds) are NOT ramp — they trade 1 land for 1 land",
     "mana-dork": "creature that taps for mana",
     "mana-rock": "artifact that taps for mana",
     "adds-multiple-mana": "produces 2+ mana from a single source",

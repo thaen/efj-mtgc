@@ -34,13 +34,13 @@ from mtg_collector.utils import parse_json_array
 # Fixed weights for autofill. Phase 5 (card replacement) will
 # expose these as user-tunable sliders.
 AUTOFILL_WEIGHTS = {
-    "edhrec": 0.25,       # EDHREC popularity (lower rank = better)
+    "edhrec": 0.20,       # EDHREC popularity (lower rank = better)
     "salt": 0.05,         # Salt / annoyance (lower = better)
     "price": 0.05,        # Monetary value (higher = better, proxy for power)
     "cross_func": 0.00,   # Disabled — tag count rewards Scryfall tag noise, not real multi-role
     "uniqueness": 0.10,   # Inverse EDHREC (higher rank = more unique/surprising)
-    "recency": 0.15,      # Newer set release = fresher card
-    "bling": 0.15,        # Full-art, borderless, extended art, or showcase frame
+    "recency": 0.10,      # Newer set release = fresher card
+    "bling": 0.25,        # Full-art, borderless, extended art, or showcase frame
     "random": 0.25,       # Uniform random — keeps suggestions fresh across runs
 }
 
