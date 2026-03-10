@@ -109,6 +109,11 @@ class TagValidator:
         if not candidates:
             return []
 
+        # Type tags are deterministically correct — verify from type_line,
+        # cache the result, and skip Haiku entirely.
+        if tag.startswith("type:"):
+            return self._validate_type_tag(candidates, tag)
+
         oracle_ids = [c["oracle_id"] for c in candidates]
 
         # Look up existing validations for the current tag
@@ -168,6 +173,37 @@ class TagValidator:
         # Return only valid candidates, preserving original order
         return [c for c in candidates if c["oracle_id"] in valid_oids]
 
+    def _validate_type_tag(self, candidates: list[dict], tag: str) -> list[dict]:
+        """Validate a type: tag deterministically from type_line.
+
+        Type tags are derived from card types/subtypes, so we can verify
+        them without an LLM call. Results are cached in card_tag_validations
+        for consistency with Haiku-validated tags.
+        """
+        from mtg_collector.services.deck_builder.type_tags import _parse_type_tags
+
+        now = datetime.now(timezone.utc).isoformat()
+        valid = []
+        for c in candidates:
+            oid = c["oracle_id"]
+            type_line = c.get("type_line") or ""
+            card_type_tags = _parse_type_tags(type_line)
+            is_valid = tag in card_type_tags
+
+            # Cache for future lookups
+            self.conn.execute(
+                "INSERT OR IGNORE INTO card_tag_validations "
+                "(oracle_id, tag, valid, reason, validated_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (oid, tag, int(is_valid), "type_line check", now),
+            )
+
+            if is_valid:
+                valid.append(c)
+
+        self.conn.commit()
+        return valid
+
     def _validate_all_tags_for_cards(self, cards: list[dict]):
         """Validate ALL tags for each card in one Haiku call, caching results."""
         # Gather all tags for each card
@@ -177,7 +213,8 @@ class TagValidator:
             rows = self.conn.execute(
                 "SELECT tag FROM card_tags WHERE oracle_id = ?", (oid,)
             ).fetchall()
-            card_tags_map[oid] = [r["tag"] for r in rows]
+            # Skip type: tags — they're validated deterministically, not by Haiku
+            card_tags_map[oid] = [r["tag"] for r in rows if not r["tag"].startswith("type:")]
 
         results = self._call_haiku_all_tags(cards, card_tags_map)
         now = datetime.now(timezone.utc).isoformat()

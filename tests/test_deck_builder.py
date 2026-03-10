@@ -958,6 +958,55 @@ class TestTagValidation:
         assert row2["valid"] == 1
         assert "artifact" in row2["reason"].lower()
 
+    def test_type_tags_skip_haiku(self, seeded_db):
+        """type: tags should be validated deterministically, not via Haiku."""
+        db, entries = seeded_db
+        from unittest.mock import MagicMock
+        from mtg_collector.services.deck_builder.tag_validator import TagValidator
+
+        # Insert type tags for Atraxa
+        from mtg_collector.services.deck_builder.type_tags import insert_type_tags
+        insert_type_tags(db)
+
+        validator = TagValidator(db)
+        validator.client = MagicMock()  # Should NOT be called
+
+        candidates = [{"oracle_id": "atraxa-id", "name": "Atraxa, Praetors' Voice",
+                       "type_line": "Legendary Creature — Phyrexian Angel Horror",
+                       "oracle_text": "Flying, vigilance, deathtouch, lifelink"}]
+        result = validator.validate_and_filter(candidates, "type:creature")
+
+        assert len(result) == 1
+        validator.client.messages.create.assert_not_called()
+
+        # Verify it was cached
+        row = db.execute(
+            "SELECT valid, reason FROM card_tag_validations WHERE oracle_id = ? AND tag = ?",
+            ("atraxa-id", "type:creature"),
+        ).fetchone()
+        assert row["valid"] == 1
+        assert row["reason"] == "type_line check"
+
+    def test_type_tag_filters_wrong_type(self, seeded_db):
+        """type: validation should reject cards that don't have the type."""
+        db, entries = seeded_db
+        from unittest.mock import MagicMock
+        from mtg_collector.services.deck_builder.tag_validator import TagValidator
+        from mtg_collector.services.deck_builder.type_tags import insert_type_tags
+        insert_type_tags(db)
+
+        validator = TagValidator(db)
+        validator.client = MagicMock()
+
+        # Sol Ring is an Artifact, not a Spider
+        candidates = [{"oracle_id": "solring-id", "name": "Sol Ring",
+                       "type_line": "Artifact",
+                       "oracle_text": "Tap: Add {C}{C}."}]
+        result = validator.validate_and_filter(candidates, "type:spider")
+
+        assert len(result) == 0
+        validator.client.messages.create.assert_not_called()
+
 
 # =============================================================================
 # Scoring Improvements
