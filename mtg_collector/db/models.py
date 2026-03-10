@@ -1855,7 +1855,8 @@ class DeckRepository:
         params = []
         allowed = ("name", "description", "format", "is_precon",
                     "sleeve_color", "deck_box", "storage_location",
-                    "origin_set_code", "origin_theme", "origin_variation")
+                    "origin_set_code", "origin_theme", "origin_variation",
+                    "plan")
         for key in allowed:
             if key in data:
                 fields.append(f"{key} = ?")

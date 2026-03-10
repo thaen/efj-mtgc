@@ -1095,6 +1095,18 @@ class CrackPackHandler(BaseHTTPRequestHandler):
                 self._api_deck_expected_get(int(did))
             else:
                 self._send_json({"error": "Not found"}, 404)
+        elif path.startswith("/api/decks/") and path.endswith("/plan/generate"):
+            did = path[len("/api/decks/"):-len("/plan/generate")]
+            if did.isdigit():
+                self._api_deck_plan_generate_sse(int(did))
+            else:
+                self._send_json({"error": "Not found"}, 404)
+        elif path.startswith("/api/decks/") and path.endswith("/plan"):
+            did = path[len("/api/decks/"):-len("/plan")]
+            if did.isdigit():
+                self._api_deck_plan_get(int(did))
+            else:
+                self._send_json({"error": "Not found"}, 404)
         elif path.startswith("/api/decks/") and path.endswith("/completeness"):
             did = path[len("/api/decks/"):-len("/completeness")]
             if did.isdigit():
@@ -1314,6 +1326,15 @@ class CrackPackHandler(BaseHTTPRequestHandler):
                 if data is None:
                     return
                 self._api_deck_expected_set(int(did), data)
+            else:
+                self._send_json({"error": "Not found"}, 404)
+        elif path.startswith("/api/decks/") and path.endswith("/plan"):
+            did = path[len("/api/decks/"):-len("/plan")]
+            if did.isdigit():
+                data = self._read_json_body()
+                if data is None:
+                    return
+                self._api_deck_plan_save(int(did), data)
             else:
                 self._send_json({"error": "Not found"}, 404)
         elif path.startswith("/api/decks/") and path.endswith("/reassemble"):
@@ -4875,6 +4896,201 @@ class CrackPackHandler(BaseHTTPRequestHandler):
         result = repo.get(deck_id)
         conn.close()
         self._send_json(result, 201)
+
+    def _api_deck_plan_get(self, deck_id: int):
+        """GET /api/decks/:id/plan — return current plan."""
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        from mtg_collector.services.deck_builder.service import DeckBuilderService
+        svc = DeckBuilderService(conn)
+        plan = svc.get_plan(deck_id)
+        conn.close()
+        self._send_json(plan or {})
+
+    def _api_deck_plan_save(self, deck_id: int, data: dict):
+        """POST /api/decks/:id/plan — save chosen plan variant."""
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        from mtg_collector.services.deck_builder.service import DeckBuilderService
+        svc = DeckBuilderService(conn)
+        targets = data.get("targets")
+        if not targets or not isinstance(targets, dict):
+            conn.close()
+            self._send_json({"error": "targets dict is required"}, 400)
+            return
+        try:
+            result = svc.set_plan(deck_id, targets)
+        except ValueError as e:
+            conn.close()
+            self._send_json({"error": str(e)}, 400)
+            return
+        conn.close()
+        self._send_json(result)
+
+    def _api_deck_plan_generate_sse(self, deck_id: int):
+        """POST /api/decks/:id/plan/generate — SSE stream Claude plan generation."""
+        if not _has_api_key():
+            self._send_json({
+                "error": "API key required",
+                "message": "Deck plan generation requires an Anthropic API key. "
+                "Set the ANTHROPIC_API_KEY environment variable and restart the server.",
+            }, 503)
+            return
+
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        from mtg_collector.db.models import DeckRepository
+        repo = DeckRepository(conn)
+        deck = repo.get(deck_id)
+        if not deck:
+            conn.close()
+            self._send_json({"error": "Deck not found"}, 404)
+            return
+
+        # Get commander info (including oracle_text from cards table)
+        commander = conn.execute(
+            """SELECT card.name, card.type_line, card.mana_cost, card.colors,
+                      card.color_identity, card.oracle_text
+               FROM collection c
+               JOIN printings p ON c.printing_id = p.printing_id
+               JOIN cards card ON p.oracle_id = card.oracle_id
+               WHERE c.deck_id = ? AND c.deck_zone = 'commander'
+               LIMIT 1""",
+            (deck_id,),
+        ).fetchone()
+
+        if not commander:
+            conn.close()
+            self._send_json({"error": "No commander assigned to this deck"}, 400)
+            return
+        commander = dict(commander)
+
+        # Build Claude prompt
+        from mtg_collector.services.deck_builder.constants import INFRASTRUCTURE
+        infra_lines = []
+        for cat, info in INFRASTRUCTURE.items():
+            infra_lines.append(f"- {cat}: {info['min']} cards (tags: {', '.join(sorted(info['tags'])[:5])}...)")
+
+        color_identity = commander.get("color_identity") or "[]"
+        if isinstance(color_identity, str):
+            import json as _json
+            try:
+                color_identity = _json.loads(color_identity)
+            except (ValueError, TypeError):
+                color_identity = []
+        colors_str = ", ".join(color_identity) if color_identity else "Colorless"
+
+        prompt = f"""You are an expert Magic: The Gathering Commander/EDH deck builder.
+
+I need you to create 3 different deck plan variants for a Commander deck led by:
+
+**Commander:** {commander['name']}
+**Type:** {commander.get('type_line', 'Unknown')}
+**Mana Cost:** {commander.get('mana_cost', 'Unknown')}
+**Color Identity:** {colors_str}
+**Oracle Text:** {commander.get('oracle_text', 'N/A')}
+
+## Base Template (Command Zone Episode 658)
+A 99-card Commander deck typically has:
+- 38 Lands (including utility lands)
+- 10 Ramp (prioritize 2-mana rocks/spells)
+- 12 Card Advantage (draw, impulse, selection)
+- 12 Targeted Removal (destroy, exile, bounce, counter)
+- 6 Board Wipes (mass removal)
+- ~25 Standalone (threats, win conditions)
+- ~10 Enhancers (synergy multipliers)
+- ~7 Enablers (utility glue)
+
+## Commander Adjustments
+- If commander provides card draw → fewer card advantage slots
+- If commander IS removal → fewer removal slots
+- If commander is cheap (1-3 MV) → can shave a land or two
+- If commander is expensive (6+ MV) → more ramp, possibly 39 lands
+- Run fewer cards at commander's mana value
+
+## Infrastructure Categories
+{chr(10).join(infra_lines)}
+
+## Your Task
+Create exactly 3 plan variants. Each should have a different strategic angle based on what this commander enables. For each variant, provide:
+1. A short name (2-3 words, e.g. "Aggressive Burn", "Value Engine", "Combo Control")
+2. A 1-2 sentence strategy description
+3. Adjusted slot counts for ALL categories: lands, ramp, card_advantage, targeted_removal, board_wipes, standalone, enhancers, enablers
+
+Respond with ONLY valid JSON in this exact format:
+{{
+  "variants": [
+    {{
+      "name": "Variant Name",
+      "strategy": "Brief strategy description.",
+      "targets": {{
+        "lands": 38,
+        "ramp": 10,
+        "card_advantage": 12,
+        "targeted_removal": 12,
+        "board_wipes": 6,
+        "standalone": 25,
+        "enhancers": 10,
+        "enablers": 7
+      }}
+    }}
+  ]
+}}
+
+The counts across all categories must sum to exactly 99 for each variant."""
+
+        # Set up SSE
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        self.send_header("X-Accel-Buffering", "no")
+        self.end_headers()
+
+        def send_event(event_type, data_obj):
+            payload = f"event: {event_type}\ndata: {json.dumps(data_obj)}\n\n"
+            try:
+                self.wfile.write(payload.encode())
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+
+        send_event("status", {"message": "Generating deck plans..."})
+
+        try:
+            import anthropic
+            client = anthropic.Anthropic()
+            # Stream the response
+            collected_text = ""
+            with client.messages.stream(
+                model="claude-sonnet-4-20250514",
+                max_tokens=2000,
+                messages=[{"role": "user", "content": prompt}],
+            ) as stream:
+                for text in stream.text_stream:
+                    collected_text += text
+                    send_event("chunk", {"text": text})
+
+            # Parse the completed JSON
+            # Extract JSON from response (may have markdown fencing)
+            json_text = collected_text.strip()
+            if json_text.startswith("```"):
+                # Strip markdown code fences
+                lines = json_text.split("\n")
+                start = 1 if lines[0].startswith("```") else 0
+                end = len(lines) - 1 if lines[-1].strip() == "```" else len(lines)
+                json_text = "\n".join(lines[start:end])
+
+            result = json.loads(json_text)
+            send_event("plans", result)
+            send_event("done", {})
+        except json.JSONDecodeError as e:
+            send_event("error", {"message": f"Failed to parse Claude's response as JSON: {e}"})
+            send_event("done", {"error": True})
+        except Exception as e:
+            send_event("error", {"message": str(e)})
+            send_event("done", {"error": True})
+        conn.close()
 
     def _api_deck_update(self, deck_id: int, data: dict):
         conn = sqlite3.connect(self.db_path)

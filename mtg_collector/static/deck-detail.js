@@ -39,11 +39,20 @@
       </div>
       <div class="actions">
         <button class="secondary" id="btn-edit">Edit</button>
+        <button id="btn-generate-plan" style="display:none">Generate Plan</button>
         <button id="btn-add-cards">Add Cards</button>
         <button class="secondary" id="btn-remove-selected">Remove Selected</button>
         <button class="secondary" id="btn-import-expected">Import Expected List</button>
         <button class="danger" id="btn-delete">Delete Deck</button>
       </div>
+    </div>
+
+    <div class="plan-section" id="plan-section" style="display:none">
+      <div class="plan-header">
+        <h3>Deck Plan</h3>
+        <button class="secondary" id="btn-clear-plan" style="display:none;font-size:0.8rem;padding:4px 10px">Clear Plan</button>
+      </div>
+      <div class="plan-body" id="plan-body"></div>
     </div>
 
     <div class="zone-tabs" id="zone-tabs">
@@ -200,10 +209,12 @@
 
   // Header buttons
   document.getElementById('btn-edit').addEventListener('click', showEditModal);
+  document.getElementById('btn-generate-plan').addEventListener('click', generatePlan);
   document.getElementById('btn-add-cards').addEventListener('click', showAddCardsModal);
   document.getElementById('btn-remove-selected').addEventListener('click', removeSelectedCards);
   document.getElementById('btn-import-expected').addEventListener('click', showExpectedModal);
   document.getElementById('btn-delete').addEventListener('click', deleteDeck);
+  document.getElementById('btn-clear-plan').addEventListener('click', clearPlan);
 
   // Completeness header toggle
   document.getElementById('completeness-header').addEventListener('click', toggleCompleteness);
@@ -616,6 +627,198 @@
     await loadDeckCards();
   }
 
+  // --- Plan ---
+  async function loadPlan() {
+    // Show Generate Plan button for Commander decks
+    if (deck.format === 'commander') {
+      document.getElementById('btn-generate-plan').style.display = '';
+    }
+
+    const res = await fetch(`/api/decks/${deck.id}/plan`);
+    const plan = await res.json();
+    if (plan && plan.targets) {
+      showPlanProgress(plan.targets);
+    }
+  }
+
+  function showPlanProgress(targets) {
+    const section = document.getElementById('plan-section');
+    const body = document.getElementById('plan-body');
+    section.style.display = '';
+    document.getElementById('btn-clear-plan').style.display = '';
+
+    // Count cards currently in deck by approximation (total nonland vs target)
+    // For now show targets; full progress tracking would need audit endpoint
+    const CATEGORY_LABELS = {
+      lands: 'Lands', ramp: 'Ramp', card_advantage: 'Card Advantage',
+      targeted_removal: 'Targeted Removal', board_wipes: 'Board Wipes',
+      standalone: 'Standalone', enhancers: 'Enhancers', enablers: 'Enablers'
+    };
+
+    let html = '<div class="plan-progress">';
+    for (const [key, target] of Object.entries(targets)) {
+      const label = CATEGORY_LABELS[key] || key;
+      const current = 0; // TODO: wire up audit endpoint for real counts
+      const pct = target > 0 ? Math.min((current / target) * 100, 100) : 0;
+      const cls = current >= target ? 'met' : current > target ? 'over' : 'under';
+      html += `<span class="cat">${esc(label)}</span>`;
+      html += `<span class="bar-cell"><div class="bar"><div class="bar-fill ${cls}" style="width:${pct}%"></div></div></span>`;
+      html += `<span class="counts">${current}/${target}</span>`;
+    }
+    html += '</div>';
+    const total = Object.values(targets).reduce((s, n) => s + n, 0);
+    html += `<div style="margin-top:8px;font-size:0.85rem;color:var(--text-secondary)">Total: ${total} cards</div>`;
+    body.innerHTML = html;
+  }
+
+  async function generatePlan() {
+    const btn = document.getElementById('btn-generate-plan');
+    btn.disabled = true;
+    btn.textContent = 'Generating...';
+
+    const section = document.getElementById('plan-section');
+    const body = document.getElementById('plan-body');
+    section.style.display = '';
+    body.innerHTML = '<div class="plan-streaming"><span class="spinner"></span> Asking Claude for deck plans...</div>';
+
+    // Use fetch to stream the SSE response (handles non-SSE error responses too)
+    let res;
+    try {
+      res = await fetch(`/api/decks/${deck.id}/plan/generate`);
+    } catch (_) {
+      body.innerHTML = '<div class="plan-error">Connection to server failed. Is the server running?</div>';
+      btn.disabled = false;
+      btn.textContent = 'Generate Plan';
+      return;
+    }
+
+    // Non-SSE error response (e.g. missing API key)
+    if (res.headers.get('content-type')?.includes('application/json')) {
+      const err = await res.json();
+      body.innerHTML = `<div class="plan-error">${esc(err.message || err.error || 'Unknown error')}</div>`;
+      btn.disabled = false;
+      btn.textContent = 'Generate Plan';
+      return;
+    }
+
+    // Parse SSE stream manually
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let gotPlans = false;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      // Process complete SSE messages
+      while (buffer.includes('\n\n')) {
+        const idx = buffer.indexOf('\n\n');
+        const message = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+
+        let eventType = 'message';
+        let eventData = '';
+        for (const line of message.split('\n')) {
+          if (line.startsWith('event: ')) eventType = line.slice(7);
+          else if (line.startsWith('data: ')) eventData = line.slice(6);
+        }
+
+        if (!eventData) continue;
+        const data = JSON.parse(eventData);
+
+        if (eventType === 'status') {
+          body.innerHTML = `<div class="plan-streaming"><span class="spinner"></span> ${esc(data.message)}</div>`;
+        } else if (eventType === 'chunk' && !gotPlans) {
+          body.innerHTML = '<div class="plan-streaming"><span class="spinner"></span> Claude is thinking...</div>';
+        } else if (eventType === 'plans') {
+          gotPlans = true;
+          showPlanVariants(data.variants || []);
+        } else if (eventType === 'error') {
+          body.innerHTML = `<div class="plan-error">${esc(data.message)}</div>`;
+        } else if (eventType === 'done') {
+          if (data.error && !gotPlans) {
+            body.innerHTML = '<div class="plan-error">Plan generation failed. Try again.</div>';
+          }
+        }
+      }
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'Generate Plan';
+  }
+
+  let selectedVariantIdx = null;
+
+  function showPlanVariants(variants) {
+    const body = document.getElementById('plan-body');
+    if (!variants.length) {
+      body.innerHTML = '<div class="plan-error">No plan variants returned. Try again.</div>';
+      return;
+    }
+    selectedVariantIdx = null;
+
+    let html = '<div class="plan-variants">';
+    variants.forEach((v, i) => {
+      html += `<div class="plan-variant" data-idx="${i}">`;
+      html += `<h4>${esc(v.name)}</h4>`;
+      html += `<div class="strategy">${esc(v.strategy)}</div>`;
+      html += '<div class="slots">';
+      const LABELS = {
+        lands: 'Lands', ramp: 'Ramp', card_advantage: 'Card Adv.',
+        targeted_removal: 'Removal', board_wipes: 'Wipes',
+        standalone: 'Standalone', enhancers: 'Enhancers', enablers: 'Enablers'
+      };
+      for (const [key, count] of Object.entries(v.targets || {})) {
+        html += `<span class="cat">${LABELS[key] || key}</span><span class="count">${count}</span>`;
+      }
+      html += '</div></div>';
+    });
+    html += '</div>';
+    html += '<div class="plan-actions"><button id="btn-save-plan" disabled>Save Selected Plan</button></div>';
+    body.innerHTML = html;
+
+    // Wire up variant selection
+    body.querySelectorAll('.plan-variant').forEach(el => {
+      el.addEventListener('click', () => {
+        body.querySelectorAll('.plan-variant').forEach(v => v.classList.remove('selected'));
+        el.classList.add('selected');
+        selectedVariantIdx = parseInt(el.dataset.idx);
+        document.getElementById('btn-save-plan').disabled = false;
+      });
+    });
+
+    // Wire up save button
+    document.getElementById('btn-save-plan').addEventListener('click', async () => {
+      if (selectedVariantIdx === null) return;
+      const chosen = variants[selectedVariantIdx];
+      const res = await fetch(`/api/decks/${deck.id}/plan`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targets: chosen.targets }),
+      });
+      if (res.ok) {
+        showPlanProgress(chosen.targets);
+      } else {
+        const err = await res.json();
+        alert(err.error || 'Failed to save plan');
+      }
+    });
+  }
+
+  async function clearPlan() {
+    if (!confirm('Clear the deck plan?')) return;
+    await fetch(`/api/decks/${deck.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ plan: null }),
+    });
+    document.getElementById('plan-section').style.display = 'none';
+    document.getElementById('btn-clear-plan').style.display = 'none';
+    document.getElementById('plan-body').innerHTML = '';
+  }
+
   // --- Utils ---
   function closeModal(id) {
     document.getElementById(id).classList.remove('active');
@@ -623,5 +826,6 @@
 
   // --- Initial render ---
   renderDeckDetail();
+  loadPlan();
   switchZone('mainboard');
 })();

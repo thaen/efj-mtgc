@@ -203,6 +203,95 @@ button.danger:hover { background: #a93226; }
   font-size: 0.9rem;
 }
 
+/* Plan section */
+.plan-section {
+  margin-bottom: 24px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.plan-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--bg-secondary);
+}
+.plan-header h3 { color: var(--accent); font-size: 1rem; margin: 0; }
+.plan-body { padding: 16px; }
+
+/* Plan variants during selection */
+.plan-variants {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+.plan-variant {
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  padding: 16px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.plan-variant:hover { border-color: var(--accent); }
+.plan-variant.selected { border-color: var(--accent); background: rgba(233, 69, 96, 0.08); }
+.plan-variant h4 { color: var(--accent); margin: 0 0 6px 0; font-size: 1rem; }
+.plan-variant .strategy { color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 10px; }
+.plan-variant .slots {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 12px;
+  font-size: 0.85rem;
+}
+.plan-variant .slots .cat { color: var(--text-secondary); text-transform: capitalize; }
+.plan-variant .slots .count { text-align: right; }
+.plan-actions { display: flex; gap: 8px; margin-top: 12px; }
+
+/* Plan progress (after saving) */
+.plan-progress {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 4px 16px;
+  font-size: 0.9rem;
+  align-items: center;
+}
+.plan-progress .cat { text-transform: capitalize; }
+.plan-progress .bar-cell { width: 120px; }
+.plan-progress .bar {
+  height: 8px;
+  background: var(--border-color);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.plan-progress .bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s;
+}
+.plan-progress .bar-fill.under { background: var(--accent); }
+.plan-progress .bar-fill.met { background: #27ae60; }
+.plan-progress .bar-fill.over { background: #e67e22; }
+.plan-progress .counts { color: var(--text-secondary); font-size: 0.85rem; min-width: 50px; text-align: right; }
+
+/* SSE streaming indicator */
+.plan-streaming {
+  padding: 16px;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+.plan-streaming .spinner { display: inline-block; margin-right: 8px; }
+
+/* Error banner */
+.plan-error {
+  padding: 12px 16px;
+  background: rgba(231, 76, 60, 0.1);
+  border: 1px solid #e74c3c;
+  border-radius: 8px;
+  color: #e74c3c;
+  font-size: 0.9rem;
+  margin-bottom: 12px;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .deck-detail-layout { padding: 16px; }
