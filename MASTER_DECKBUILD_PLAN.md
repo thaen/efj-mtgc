@@ -178,6 +178,8 @@ tuning to the user.
 
 ### 4.2: Ship it
 
+For testing, create a "fake agent"-style test environment where an end-to-end test can execute without an API key: the "fake agent" should just returned canned (deterministic, cached) plans for the commander being used in the test. 
+
 ---
 
 ## Phase 5: Card Replacement

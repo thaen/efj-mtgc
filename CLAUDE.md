@@ -13,6 +13,7 @@ MTG Card Collection Builder — Python CLI + web UI for managing Magic: The Gath
 - As few error paths as possible. Let it crash visibly.
 - Tests use pre-populated `tests/fixtures/test-cards.sqlite` for offline testing. Corner identification tests require `ANTHROPIC_API_KEY`.
 - Aggressively limit modality. Defaults are good enough for everyone.
+- **Do data work in SQL, not Python.** Filtering, joining, and aggregating belong in the query. Python should score/rank small result sets, not build giant in-memory data structures from broad queries. Prefer N targeted queries over 1 superset query + Python filtering.
 - **Tests that demonstrate bugs must fail.** If a test exists to reproduce a known bug, it should assert the correct/fixed behavior — not the broken behavior. A passing test means the bug is fixed; a failing test means the bug still exists. Never write a test that passes when the bug is present.
 - **After implementing any feature with UI changes, run `/qa-finish`** to generate UI scenario tests (intents, hints, implementations). This is a skill defined in `.claude/skills/qa-finish/SKILL.md`. It deploys a test container, walks the feature, and writes test artifacts under `tests/ui/`.
 

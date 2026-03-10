@@ -40,6 +40,7 @@
       <div class="actions">
         <button class="secondary" id="btn-edit">Edit</button>
         <button id="btn-generate-plan" style="display:none">Generate Plan</button>
+        <button id="btn-autofill" style="display:none">Autofill</button>
         <button id="btn-add-cards">Add Cards</button>
         <button class="secondary" id="btn-remove-selected">Remove Selected</button>
         <button class="secondary" id="btn-import-expected">Import Expected List</button>
@@ -189,6 +190,18 @@
         </div>
       </div>
     </div>
+
+    <!-- Autofill Suggestions Modal -->
+    <div class="modal-backdrop" id="autofill-modal">
+      <div class="modal" style="max-width:700px;max-height:80vh;overflow-y:auto">
+        <h3>Autofill Suggestions</h3>
+        <div id="autofill-body"><span class="spinner"></span> Finding cards...</div>
+        <div class="form-actions">
+          <button id="btn-autofill-add" disabled>Add Selected</button>
+          <button class="secondary" id="btn-autofill-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
   `;
 
   // --- Wire up event handlers ---
@@ -210,6 +223,7 @@
   // Header buttons
   document.getElementById('btn-edit').addEventListener('click', showEditModal);
   document.getElementById('btn-generate-plan').addEventListener('click', generatePlan);
+  document.getElementById('btn-autofill').addEventListener('click', runAutofill);
   document.getElementById('btn-add-cards').addEventListener('click', showAddCardsModal);
   document.getElementById('btn-remove-selected').addEventListener('click', removeSelectedCards);
   document.getElementById('btn-import-expected').addEventListener('click', showExpectedModal);
@@ -226,6 +240,8 @@
   document.getElementById('btn-cancel-add').addEventListener('click', () => closeModal('add-cards-modal'));
   document.getElementById('btn-import-expected-confirm').addEventListener('click', importExpectedList);
   document.getElementById('btn-cancel-expected').addEventListener('click', () => closeModal('expected-modal'));
+  document.getElementById('btn-autofill-add').addEventListener('click', addAutofillCards);
+  document.getElementById('btn-autofill-cancel').addEventListener('click', () => closeModal('autofill-modal'));
 
   // Precon checkbox toggle
   document.getElementById('f-precon').addEventListener('change', function() {
@@ -628,6 +644,8 @@
   }
 
   // --- Plan ---
+  let planProgress = null;  // {tag: {current, target}} from audit
+
   async function loadPlan() {
     // Show Generate Plan button for Commander decks
     if (deck.format === 'commander') {
@@ -637,7 +655,14 @@
     const res = await fetch(`/api/decks/${deck.id}/plan`);
     const plan = await res.json();
     if (plan && plan.targets) {
+      // Fetch audit for real progress counts
+      const auditRes = await fetch(`/api/decks/${deck.id}/audit`);
+      if (auditRes.ok) {
+        const audit = await auditRes.json();
+        planProgress = audit.plan_progress;
+      }
       showPlanProgress(plan.targets);
+      document.getElementById('btn-autofill').style.display = '';
     }
   }
 
@@ -657,9 +682,9 @@
     let html = '<div class="plan-progress">';
     for (const [tag, target] of sorted) {
       const label = tag.replace(/-/g, ' ');
-      const current = 0; // TODO: wire up audit endpoint for real counts
+      const current = (planProgress && planProgress[tag]) ? planProgress[tag].current : 0;
       const pct = target > 0 ? Math.min((current / target) * 100, 100) : 0;
-      const cls = current >= target ? 'met' : current > target ? 'over' : 'under';
+      const cls = current >= target ? 'met' : 'under';
       html += `<span class="cat">${esc(label)}</span>`;
       html += `<span class="bar-cell"><div class="bar"><div class="bar-fill ${cls}" style="width:${pct}%"></div></div></span>`;
       html += `<span class="counts">${current}/${target}</span>`;
@@ -804,6 +829,95 @@
         alert(err.error || 'Failed to save plan');
       }
     });
+  }
+
+  // --- Autofill ---
+  let autofillSuggestions = {};  // tag -> {cards: [...]}
+
+  async function runAutofill() {
+    document.getElementById('autofill-modal').classList.add('active');
+    const body = document.getElementById('autofill-body');
+    body.innerHTML = '<span class="spinner"></span> Finding cards for your plan...';
+    document.getElementById('btn-autofill-add').disabled = true;
+
+    const res = await fetch(`/api/decks/${deck.id}/autofill`, { method: 'POST' });
+    const data = await res.json();
+
+    if (data.error) {
+      body.innerHTML = `<div style="color:var(--error)">${esc(data.error)}</div>`;
+      return;
+    }
+
+    autofillSuggestions = data.suggestions || {};
+    const tags = Object.keys(autofillSuggestions);
+
+    if (tags.length === 0) {
+      body.innerHTML = '<div style="padding:12px;color:var(--text-secondary)">All plan targets are already met!</div>';
+      return;
+    }
+
+    let html = '';
+    for (const tag of tags) {
+      const group = autofillSuggestions[tag];
+      const label = tag.replace(/-/g, ' ');
+      html += `<div class="autofill-group">`;
+      html += `<div class="autofill-tag-header">`;
+      html += `<strong>${esc(label)}</strong>`;
+      html += `<span style="color:var(--text-secondary);font-size:0.85rem">${group.current}/${group.target}</span>`;
+      html += `</div>`;
+      for (const card of group.cards) {
+        html += `<label class="autofill-card">`;
+        html += `<input type="checkbox" checked data-cid="${card.collection_id}" data-tag="${esc(tag)}">`;
+        html += `<span class="autofill-card-name">${esc(card.name)}</span>`;
+        html += `<span class="mana">${renderMana(card.mana_cost || '')}</span>`;
+        html += `<span class="autofill-card-type">${esc(card.type_line || '')}</span>`;
+        html += `<span class="autofill-card-set">${esc(card.set_code.toUpperCase())}</span>`;
+        html += `</label>`;
+      }
+      html += `</div>`;
+    }
+    body.innerHTML = html;
+    document.getElementById('btn-autofill-add').disabled = false;
+
+    // Update button label with count
+    updateAutofillCount();
+    body.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+      cb.addEventListener('change', updateAutofillCount);
+    });
+  }
+
+  function updateAutofillCount() {
+    const checked = document.querySelectorAll('#autofill-body input[type="checkbox"]:checked');
+    const btn = document.getElementById('btn-autofill-add');
+    btn.textContent = `Add Selected (${checked.length})`;
+    btn.disabled = checked.length === 0;
+  }
+
+  async function addAutofillCards() {
+    const checked = document.querySelectorAll('#autofill-body input[type="checkbox"]:checked');
+    const ids = Array.from(checked).map(cb => parseInt(cb.dataset.cid));
+    if (ids.length === 0) return;
+
+    const btn = document.getElementById('btn-autofill-add');
+    btn.disabled = true;
+    btn.textContent = 'Adding...';
+
+    const res = await fetch(`/api/decks/${deck.id}/cards`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ collection_ids: ids, zone: 'mainboard' }),
+    });
+    const result = await res.json();
+    if (result.error) { alert(result.error); btn.disabled = false; return; }
+
+    closeModal('autofill-modal');
+
+    // Refresh deck data
+    const deckRes = await fetch(`/api/decks/${deck.id}`);
+    deck = await deckRes.json();
+    renderDeckDetail();
+    await loadDeckCards();
+    await loadPlan();  // Refresh plan progress
   }
 
   async function clearPlan() {

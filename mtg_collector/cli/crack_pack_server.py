@@ -1095,6 +1095,12 @@ class CrackPackHandler(BaseHTTPRequestHandler):
                 self._api_deck_expected_get(int(did))
             else:
                 self._send_json({"error": "Not found"}, 404)
+        elif path.startswith("/api/decks/") and path.endswith("/audit"):
+            did = path[len("/api/decks/"):-len("/audit")]
+            if did.isdigit():
+                self._api_deck_audit(int(did))
+            else:
+                self._send_json({"error": "Not found"}, 404)
         elif path.startswith("/api/decks/") and path.endswith("/plan/generate"):
             did = path[len("/api/decks/"):-len("/plan/generate")]
             if did.isdigit():
@@ -4903,6 +4909,21 @@ class CrackPackHandler(BaseHTTPRequestHandler):
         conn.close()
         self._send_json(result, 201)
 
+    def _api_deck_audit(self, deck_id: int):
+        """GET /api/decks/:id/audit — return deck audit with plan progress."""
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        from mtg_collector.services.deck_builder.service import DeckBuilderService
+        svc = DeckBuilderService(conn)
+        try:
+            result = svc.audit_deck(deck_id)
+        except ValueError as e:
+            conn.close()
+            self._send_json({"error": str(e)}, 400)
+            return
+        conn.close()
+        self._send_json(result)
+
     def _api_deck_plan_get(self, deck_id: int):
         """GET /api/decks/:id/plan — return current plan."""
         conn = sqlite3.connect(self.db_path)
@@ -4935,8 +4956,18 @@ class CrackPackHandler(BaseHTTPRequestHandler):
 
     def _api_deck_autofill(self, deck_id: int):
         """POST /api/decks/:id/autofill — suggest cards to fill plan tags."""
-        # TODO: Phase 4 implementation (after plan uses real tags)
-        self._send_json({"error": "Not yet implemented"}, 501)
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            from mtg_collector.services.deck_builder.service import DeckBuilderService
+            svc = DeckBuilderService(conn)
+            result = svc.autofill(deck_id)
+        except ValueError as e:
+            conn.close()
+            self._send_json({"error": str(e)}, 400)
+            return
+        conn.close()
+        self._send_json(result)
 
     def _api_deck_plan_generate_sse(self, deck_id: int):
         """POST /api/decks/:id/plan/generate — SSE stream Claude plan generation."""
