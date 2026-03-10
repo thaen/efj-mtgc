@@ -2,7 +2,7 @@
 
 import sqlite3
 
-SCHEMA_VERSION = 32
+SCHEMA_VERSION = 33
 
 SCHEMA_SQL = """
 -- Abstract cards (oracle-level, cached from Scryfall)
@@ -264,6 +264,14 @@ CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+-- Scryfall tagger tags (synced from oracletag: search)
+CREATE TABLE IF NOT EXISTS card_tags (
+    oracle_id TEXT NOT NULL,
+    tag TEXT NOT NULL,
+    PRIMARY KEY (oracle_id, tag)
+);
+CREATE INDEX IF NOT EXISTS idx_card_tags_tag ON card_tags(tag);
 
 -- Schema version tracking
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -630,6 +638,8 @@ def init_db(conn: sqlite3.Connection, force: bool = False) -> bool:
             _migrate_v30_to_v31(conn)
         if current < 32:
             _migrate_v31_to_v32(conn)
+        if current < 33:
+            _migrate_v32_to_v33(conn)
 
     # Record schema version
     conn.execute(
@@ -1941,6 +1951,18 @@ def _migrate_v31_to_v32(conn: sqlite3.Connection):
     conn.execute("CREATE INDEX IF NOT EXISTS idx_spc_product ON sealed_product_cards(sealed_product_uuid)")
 
 
+def _migrate_v32_to_v33(conn: sqlite3.Connection):
+    """Add card_tags table for Scryfall tagger tags."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS card_tags (
+            oracle_id TEXT NOT NULL,
+            tag TEXT NOT NULL,
+            PRIMARY KEY (oracle_id, tag)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_card_tags_tag ON card_tags(tag)")
+
+
 def drop_all_tables(conn: sqlite3.Connection):
     """Drop all tables (for testing/reset)."""
     conn.executescript("""
@@ -1948,6 +1970,7 @@ def drop_all_tables(conn: sqlite3.Connection):
         DROP VIEW IF EXISTS sealed_collection_view;
         DROP VIEW IF EXISTS collection_view;
         DROP TABLE IF EXISTS latest_prices;
+        DROP TABLE IF EXISTS card_tags;
         DROP TABLE IF EXISTS tcgplayer_groups;
         DROP TABLE IF EXISTS sealed_prices;
         DROP TABLE IF EXISTS sealed_product_cards;

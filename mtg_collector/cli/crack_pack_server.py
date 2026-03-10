@@ -1806,7 +1806,8 @@ class CrackPackHandler(BaseHTTPRequestHandler):
                         o.order_number as order_number,
                         o.order_date as order_date,
                         c.purchase_price,
-                        GROUP_CONCAT(DISTINCT ii.id || '|' || il.card_index || '|' || ii.filename || '|' || ii.created_at) as ingest_lineage_raw
+                        GROUP_CONCAT(DISTINCT ii.id || '|' || il.card_index || '|' || ii.filename || '|' || ii.created_at) as ingest_lineage_raw,
+                        (SELECT GROUP_CONCAT(ct.tag) FROM card_tags ct WHERE ct.oracle_id = card.oracle_id) as card_tags
                     FROM printings p
                     JOIN cards card ON p.oracle_id = card.oracle_id
                     JOIN sets s ON p.set_code = s.set_code
@@ -1842,7 +1843,8 @@ class CrackPackHandler(BaseHTTPRequestHandler):
                         o.order_number as order_number,
                         o.order_date as order_date,
                         c.purchase_price,
-                        GROUP_CONCAT(DISTINCT ii.id || '|' || il.card_index || '|' || ii.filename || '|' || ii.created_at) as ingest_lineage_raw
+                        GROUP_CONCAT(DISTINCT ii.id || '|' || il.card_index || '|' || ii.filename || '|' || ii.created_at) as ingest_lineage_raw,
+                        (SELECT GROUP_CONCAT(ct.tag) FROM card_tags ct WHERE ct.oracle_id = card.oracle_id) as card_tags
                     FROM printings p
                     JOIN cards card ON p.oracle_id = card.oracle_id
                     JOIN sets s ON p.set_code = s.set_code
@@ -1879,7 +1881,8 @@ class CrackPackHandler(BaseHTTPRequestHandler):
                     c.deck_id, c.deck_zone, c.binder_id,
                     d.name as deck_name,
                     b.name as binder_name,
-                    GROUP_CONCAT(DISTINCT ii.id || '|' || il.card_index || '|' || ii.filename || '|' || ii.created_at) as ingest_lineage_raw
+                    GROUP_CONCAT(DISTINCT ii.id || '|' || il.card_index || '|' || ii.filename || '|' || ii.created_at) as ingest_lineage_raw,
+                    (SELECT GROUP_CONCAT(ct.tag) FROM card_tags ct WHERE ct.oracle_id = card.oracle_id) as card_tags
                 FROM collection c
                 JOIN printings p ON c.printing_id = p.printing_id
                 JOIN cards card ON p.oracle_id = card.oracle_id
@@ -1935,6 +1938,10 @@ class CrackPackHandler(BaseHTTPRequestHandler):
                 "acquired_at": row["acquired_at"],
                 "owned": bool(row["owned"]) if include_unowned else True,
             }
+            # Tags
+            tags_raw = row["card_tags"] if "card_tags" in row.keys() else None
+            if tags_raw:
+                card["card_tags"] = tags_raw.split(",")
             # Deck/binder info
             if "deck_id" in row.keys() and row["deck_id"]:
                 card["deck_id"] = row["deck_id"]
