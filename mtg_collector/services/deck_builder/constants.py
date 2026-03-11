@@ -125,6 +125,21 @@ ZONE_COMMANDER = "commander"
 # Embedding tag inference threshold (cosine similarity)
 DESCRIPTION_MATCH_THRESHOLD = 0.80
 
+# Autofill composite scoring weights (sum to 1.0)
+AUTOFILL_WEIGHTS = {
+    "edhrec": 3,            # Per-commander EDHREC inclusion (cards popular with THIS general)
+    "salt": 2,              # Salt / annoyance (lower = better)
+    "price": 1,             # Log-scaled monetary value (proxy for power level)
+    "plan_overlap": 3,      # Cards matching multiple plan categories score higher
+    "novelty": 3,           # Inverse global EDHREC rank (less popular overall = more interesting)
+    "recency": 2,           # Newer set release = fresher card
+    "bling": 4,             # Full-art/borderless/extended/showcase
+    "random": 2,            # Uniform jitter for variety
+}
+# Normalize weights to sum to 1.0 at import time
+_aw_total = sum(AUTOFILL_WEIGHTS.values())
+AUTOFILL_WEIGHTS = {k: v / _aw_total for k, v in AUTOFILL_WEIGHTS.items()}
+
 # Land suggestion scoring weights
 LAND_WEIGHTS = {
     "color_coverage": 0.35,  # Covers needed colors, weighted by pip demand

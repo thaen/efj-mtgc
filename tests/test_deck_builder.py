@@ -1145,19 +1145,40 @@ class TestAutofill:
         # Sol Ring has both "ramp" and "mana-rock" tags
         # If we need 1 ramp and 1 mana-rock, picking Sol Ring for ramp
         # should also satisfy mana-rock (cross-tag counting)
-        svc.set_plan(deck["deck_id"], {"ramp": 1, "mana-rock": 1})
+        svc.set_plan(deck["deck_id"], {"ramp": 1, "mana-rock": 1, "lands": 97})
         result = svc.autofill(deck["deck_id"])
 
         suggestions = result["suggestions"]
-        total_suggested = sum(
-            len(group["cards"]) for group in suggestions.values()
+        # Exclude creature fallback from the count — we're testing tag overlap
+        tag_suggested = sum(
+            len(group["cards"]) for tag, group in suggestions.items()
+            if tag != "creatures"
         )
         # With cross-tag counting, Sol Ring picked for ramp satisfies mana-rock too
-        # So total should be 1 (not 2)
-        assert total_suggested == 1, (
-            f"Expected 1 card (cross-tag), got {total_suggested}: "
+        # So tag-based suggestions should be 1 (not 2)
+        assert tag_suggested == 1, (
+            f"Expected 1 card (cross-tag), got {tag_suggested}: "
             f"{[(t, [c['name'] for c in g['cards']]) for t, g in suggestions.items()]}"
         )
+
+    def test_autofill_creature_fallback(self, seeded_db):
+        """When tag targets are filled but budget remains, fill with creatures."""
+        db, entries = seeded_db
+        svc = DeckBuilderService(db)
+        deck = svc.create_deck("Atraxa, Praetors' Voice")
+        # Small tag target leaves most of the budget unfilled
+        svc.set_plan(deck["deck_id"], {"ramp": 1, "lands": 37})
+        result = svc.autofill(deck["deck_id"])
+
+        suggestions = result["suggestions"]
+        assert "creatures" in suggestions, (
+            f"Expected creature fallback, got tags: {list(suggestions.keys())}"
+        )
+        # Total should fill up to budget (99 - 1 commander - 37 lands = 61)
+        total = sum(len(g["cards"]) for g in suggestions.values())
+        assert total <= 61, f"Over budget: {total}"
+        # Should have more than just the 1 ramp card
+        assert total > 1, f"Fallback should have added creatures, got {total} total"
 
 
 # =============================================================================
@@ -1359,12 +1380,12 @@ class TestScoringImprovements:
         assert obscure["_novelty"] == pytest.approx(math.log2(10000), rel=0.01)
 
     def test_score_with_per_commander_data(self, seeded_db):
-        """When edhrec_data is provided, novelty should use inclusion rate."""
+        """When edhrec_data is provided, edhrec signal uses inclusion rate."""
         db, _ = seeded_db
         svc = DeckBuilderService(db)
         edhrec_data = {
-            "Staple Card": 0.80,   # 80% inclusion — low novelty
-            "Hidden Gem": 0.02,    # 2% inclusion — high novelty
+            "Staple Card": 0.80,   # 80% inclusion — high edhrec score
+            "Hidden Gem": 0.02,    # 2% inclusion — low edhrec score
         }
         candidates = [
             {"oracle_id": "solring-id", "name": "Staple Card", "cmc": 2, "tag_count": 1,
@@ -1379,9 +1400,14 @@ class TestScoringImprovements:
         staple = next(c for c in scored if c["name"] == "Staple Card")
         gem = next(c for c in scored if c["name"] == "Hidden Gem")
 
-        # -log2(0.80) ≈ 0.32, -log2(0.02) ≈ 5.64 — gem much more novel
-        assert staple["_novelty"] == pytest.approx(-math.log2(0.80), rel=0.01)
-        assert gem["_novelty"] == pytest.approx(-math.log2(0.02), rel=0.01)
+        # edhrec uses inclusion rate directly (higher = better for this commander)
+        assert staple["_edhrec"] == 0.80
+        assert gem["_edhrec"] == 0.02
+        assert staple["_edhrec"] > gem["_edhrec"]
+
+        # novelty still uses global rank (higher rank = more novel)
+        assert staple["_novelty"] == pytest.approx(math.log2(5), rel=0.01)
+        assert gem["_novelty"] == pytest.approx(math.log2(5000), rel=0.01)
         assert gem["_novelty"] > staple["_novelty"]
 
     def test_plan_overlap_boosts_multi_tag_cards(self, seeded_db):

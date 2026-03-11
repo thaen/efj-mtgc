@@ -16,6 +16,7 @@ from mtg_collector.db.models import (
 )
 from mtg_collector.services.deck_builder.constants import (
     ANY_NUMBER_CARDS,
+    AUTOFILL_WEIGHTS,
     AVG_CMC_TARGET,
     BASIC_LANDS,
     BLING_WEIGHTS,
@@ -107,16 +108,6 @@ TAG_ALIASES: dict[str, list[str]] = {
     "gives-pp-counters": ["counters-matter"],
 }
 
-AUTOFILL_WEIGHTS = {
-    "edhrec": 0.15,         # Global EDHREC rank (lower rank = better)
-    "salt": 0.05,           # Salt / annoyance (lower = better)
-    "price": 0.05,          # Log-scaled monetary value
-    "plan_overlap": 0.15,   # Cards matching multiple plan categories score higher
-    "novelty": 0.15,        # Self-information from per-commander inclusion (global rank fallback)
-    "recency": 0.10,        # Newer set release = fresher card
-    "bling": 0.20,          # Full-art/borderless/extended/showcase
-    "random": 0.15,         # Uniform jitter for variety
-}
 
 
 class DeckBuilderService:
@@ -780,6 +771,45 @@ class DeckBuilderService:
 
             remaining_budget -= len(picks)
 
+        # Fallback: fill remaining slots with creatures
+        if remaining_budget > 0:
+            if progress_cb:
+                progress_cb(f"Filling {remaining_budget} remaining slots with creatures")
+            candidates = self._query_creature_candidates(
+                deck_id, commander_ci, ci_clauses, exclude_oids,
+                limit=remaining_budget * 3,
+            )
+            scored = self._score_candidates(candidates, edhrec_data=edhrec_data,
+                                              plan_tags=expanded_plan_tags)
+            scored.sort(key=lambda c: -c["score"])
+            picks = scored[:remaining_budget]
+
+            if picks:
+                fallback_tag = "creatures"
+                suggestions[fallback_tag] = {
+                    "target": remaining_budget,
+                    "current": 0,
+                    "cards": [
+                        {
+                            "oracle_id": p["oracle_id"],
+                            "name": p["name"],
+                            "mana_cost": p["mana_cost"],
+                            "cmc": p["cmc"],
+                            "type_line": p["type_line"],
+                            "set_code": p["set_code"],
+                            "collector_number": p["collector_number"],
+                            "collection_id": p["collection_id"],
+                            "score": round(p["score"], 3),
+                            "edhrec_rank": p["edhrec_rank"],
+                            "tag_count": p["tag_count"],
+                        }
+                        for p in picks
+                    ],
+                }
+                for p in picks:
+                    exclude_oids.add(p["oracle_id"])
+                remaining_budget -= len(picks)
+
         result = {"deck_id": deck_id, "suggestions": suggestions}
         if not self.api_key:
             result["unvalidated"] = True
@@ -848,6 +878,47 @@ class DeckBuilderService:
         rows = self.conn.execute(query, tags).fetchall()
         return [dict(r) for r in rows]
 
+    def _query_creature_candidates(self, deck_id: int,
+                                    commander_ci: Set[str], ci_clauses: str,
+                                    exclude_oids: Set[str],
+                                    limit: int | None = None) -> list[dict]:
+        """Query owned creatures in CI, not excluded — fallback for autofill."""
+        exclude_list = ",".join(f"'{oid}'" for oid in exclude_oids) if exclude_oids else "''"
+        limit_clause = f"LIMIT {int(limit)}" if limit else ""
+
+        query = f"""
+            SELECT card.oracle_id, card.name, card.type_line,
+                   card.mana_cost, card.cmc, card.oracle_text,
+                   p.set_code, p.collector_number, p.raw_json,
+                   MIN(c.id) AS collection_id,
+                   s.released_at,
+                   COUNT(ct_all.tag) AS tag_count,
+                   COALESCE(salt.salt_score, 1.0) AS salt_score,
+                   MAX(CASE WHEN p.full_art = 1
+                            OR p.frame_effects LIKE '%borderless%'
+                            OR p.frame_effects LIKE '%extendedart%'
+                            OR p.frame_effects LIKE '%showcase%'
+                       THEN 1 ELSE 0 END) AS is_bling
+            FROM cards card
+            JOIN printings p ON p.oracle_id = card.oracle_id
+            JOIN collection c ON c.printing_id = p.printing_id
+            JOIN sets s ON p.set_code = s.set_code
+            LEFT JOIN card_tags ct_all ON ct_all.oracle_id = card.oracle_id
+              AND {tag_validation_filter("ct_all")}
+            LEFT JOIN salt_scores salt ON salt.card_name = card.name
+            WHERE card.type_line LIKE '%Creature%'
+              AND c.status = 'owned'
+              AND card.oracle_id NOT IN ({exclude_list})
+              AND card.type_line NOT LIKE '%Basic Land%'
+              AND card.type_line NOT LIKE 'Token%'
+              {ci_clauses}
+            GROUP BY card.oracle_id
+            ORDER BY json_extract(p.raw_json, '$.edhrec_rank') ASC NULLS LAST
+            {limit_clause}
+        """  # noqa: S608
+        rows = self.conn.execute(query).fetchall()
+        return [dict(r) for r in rows]
+
     def _score_candidates(self, candidates: list[dict],
                           edhrec_data: dict[str, float] | None = None,
                           plan_tags: set[str] | None = None) -> list[dict]:
@@ -857,8 +928,9 @@ class DeckBuilderService:
         weighted sum. Returns the same list with a 'score' field added.
 
         If *edhrec_data* is provided (per-commander inclusion rates from
-        EDHREC), novelty uses ``-log2(inclusion_pct)`` for cards present
-        in the map, falling back to ``log2(edhrec_rank)`` otherwise.
+        EDHREC), the edhrec signal uses inclusion percentage (higher = more
+        popular with this commander). Novelty uses inverse global EDHREC
+        rank (higher rank number = less popular = more novel).
 
         If *plan_tags* is provided (expanded set of all plan categories +
         aliases), each candidate gets a plan_overlap score based on how
@@ -900,7 +972,7 @@ class DeckBuilderService:
                         pass
 
             c["edhrec_rank"] = edhrec_rank
-            c["_edhrec"] = edhrec_rank if edhrec_rank is not None else 999999
+            global_rank = edhrec_rank if edhrec_rank is not None else 999999
             c["_salt"] = c.get("salt_score") or 1.0
             c["_price"] = math.log1p(price_usd)
 
@@ -908,13 +980,18 @@ class DeckBuilderService:
             card_tags = tags_by_oid.get(c["oracle_id"], set())
             c["_plan_overlap"] = len(card_tags & plan_tags)
 
-            # Novelty: per-commander inclusion rate when available,
-            # else log2 of global EDHREC rank (higher = more novel)
+            # EDHREC: per-commander inclusion rate (higher = more popular
+            # with this general). Falls back to inverse global rank.
             inclusion_pct = edhrec_data.get(c["name"])
             if inclusion_pct is not None:
-                c["_novelty"] = -math.log2(max(inclusion_pct, 0.001))
+                c["_edhrec"] = inclusion_pct
             else:
-                c["_novelty"] = math.log2(max(c["_edhrec"], 1))
+                # Approximate: lower global rank → higher inclusion proxy
+                c["_edhrec"] = 1.0 / math.log2(max(global_rank, 2))
+
+            # Novelty: inverse global EDHREC rank (higher rank = less
+            # popular overall = more interesting/unique choice)
+            c["_novelty"] = math.log2(max(global_rank, 1))
 
             # Recency: days since 1993-01-01
             recency = 0
@@ -949,8 +1026,8 @@ class DeckBuilderService:
         w = AUTOFILL_WEIGHTS
         for c in candidates:
             c["score"] = (
-                (1.0 - c["_edhrec_n"]) * w["edhrec"]       # lower rank = better
-                + (1.0 - c["_salt_n"]) * w["salt"]          # lower salt = better
+                c["_edhrec_n"] * w["edhrec"]                 # higher commander inclusion = better
+                + (1.0 - c["_salt_n"]) * w["salt"]           # lower salt = better
                 + c["_price_n"] * w["price"]                 # higher price = better
                 + c["_plan_overlap_n"] * w["plan_overlap"]   # more plan tags = better
                 + c["_novelty_n"] * w["novelty"]             # higher novelty = better

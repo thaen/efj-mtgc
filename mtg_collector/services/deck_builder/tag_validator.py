@@ -95,7 +95,7 @@ class TagValidator:
         # Validate one card at a time
         for c in unknowns:
             if progress_cb:
-                progress_cb(f"Validating {c['name']}")
+                progress_cb(f"Validating tags for {c['name']}")
             self._validate_card(c)
 
             row = self.conn.execute(

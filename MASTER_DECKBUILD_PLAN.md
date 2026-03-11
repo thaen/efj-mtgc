@@ -150,20 +150,22 @@ select cards to fill each tag target.
 3. Fill up to the target count for each tag. Cards already in the deck
    are excluded. A card used in one tag target isn't reused in another.
 
-**Composite ranking score (autofill weights):**
+**Composite ranking score (autofill weights in `constants.py`):**
+
+Weights are integers auto-normalized to sum to 1.0 at import time.
 
 | Signal              | Weight | Source                                | Direction       | Notes |
 |---------------------|--------|---------------------------------------|-----------------|-------|
-| EDHREC popularity   | 0.15   | `raw_json $.edhrec_rank`              | lower = better  | Primary signal for card quality |
-| Bling               | 0.20   | frame_effects, full_art, promo        | higher = better | Full-art, borderless, extended art, showcase |
-| Random              | 0.15   | uniform random [0,1)                  | —               | Keeps suggestions fresh across runs |
-| Plan tag overlap    | 0.15   | card tags ∩ plan target categories    | more = better   | Multi-role cards that fill several plan needs |
-| Novelty             | 0.15   | `log2(edhrec_rank)` or per-commander  | higher = better | Less popular cards make games more interesting |
-| Recency             | 0.10   | `sets.released_at`                    | newer = better  | Fresher cards feel more fun |
-| Salt / annoyance    | 0.05   | `salt_scores.salt_score`              | lower = better  | Avoid grief cards |
-| Monetary value      | 0.05   | `raw_json $.prices.usd` (log-scaled)  | higher = better | Proxy for power level |
+| EDHREC (commander)  | 3      | Per-commander inclusion rate          | higher = better | Cards popular with THIS general |
+| Bling               | 4      | frame_effects, full_art, promo        | higher = better | Full-art, borderless, extended art, showcase |
+| Plan tag overlap    | 3      | card tags ∩ plan target categories    | more = better   | Multi-role cards that fill several plan needs |
+| Novelty             | 3      | `log2(global edhrec_rank)`            | higher = better | Less popular overall = more interesting |
+| Salt / annoyance    | 2      | `salt_scores.salt_score`              | lower = better  | Avoid grief cards |
+| Recency             | 2      | `sets.released_at`                    | newer = better  | Fresher cards feel more fun |
+| Random              | 2      | uniform random [0,1)                  | —               | Keeps suggestions fresh across runs |
+| Monetary value      | 1      | `raw_json $.prices.usd` (log-scaled)  | higher = better | Proxy for power level |
 
-Phase 5 (card replacement) will expose weight tuning to the user.
+Phase 6 (card replacement) will expose weight tuning to the user.
 
 ### 4.2: Haiku tag validation — DONE
 

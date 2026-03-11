@@ -269,7 +269,6 @@
         <div id="plan-variants-body"></div>
         <div class="form-actions">
           <button id="btn-save-plan" disabled>Save Selected Plan</button>
-          <button class="secondary" id="btn-cancel-plan-variants">Cancel</button>
         </div>
       </div>
     </div>
@@ -310,7 +309,7 @@
   document.getElementById('btn-fill-lands').addEventListener('click', runFillLands);
   document.getElementById('btn-fill-lands-add').addEventListener('click', addFillLandsCards);
   document.getElementById('btn-fill-lands-cancel').addEventListener('click', () => closeModal('fill-lands-modal'));
-  document.getElementById('btn-cancel-plan-variants').addEventListener('click', () => closeModal('plan-variants-modal'));
+  document.getElementById('btn-save-plan').addEventListener('click', savePlanVariant);
 
   // Precon checkbox toggle
   document.getElementById('f-precon').addEventListener('change', function() {
@@ -362,10 +361,10 @@
     if (card) window.location.href = `/card/${card.dataset.sc}/${card.dataset.cn}`;
   });
 
-  // Close modals on backdrop click
+  // Close modals on backdrop click (except plan-variants — must choose a plan)
   document.querySelectorAll('.modal-backdrop').forEach(el => {
     el.addEventListener('click', e => {
-      if (e.target === el) el.classList.remove('active');
+      if (e.target === el && el.id !== 'plan-variants-modal') el.classList.remove('active');
     });
   });
 
@@ -1045,6 +1044,7 @@
   }
 
   let selectedVariantIdx = null;
+  let pendingVariants = [];
 
   function showPlanVariants(variants) {
     // Hide the streaming indicator in sidebar
@@ -1061,7 +1061,10 @@
     const body = document.getElementById('plan-variants-body');
     const saveBtn = document.getElementById('btn-save-plan');
 
-    let html = '<div class="plan-variants">';
+    pendingVariants = variants;
+    selectedVariantIdx = null;
+
+    let html = '<div class="plan-variants-grid">';
     variants.forEach((v, i) => {
       html += `<div class="plan-variant" data-idx="${i}">`;
       html += `<h4>${esc(v.name)}</h4>`;
@@ -1081,6 +1084,7 @@
     html += '</div>';
     body.innerHTML = html;
     saveBtn.disabled = true;
+    saveBtn.textContent = 'Save Selected Plan';
     modal.classList.add('active');
 
     // Wire up variant selection
@@ -1092,39 +1096,37 @@
         saveBtn.disabled = false;
       });
     });
+  }
 
-    // Wire up save button (clone to remove old listeners)
-    const newSaveBtn = saveBtn.cloneNode(true);
-    saveBtn.parentNode.replaceChild(newSaveBtn, saveBtn);
-    newSaveBtn.addEventListener('click', async () => {
-      if (selectedVariantIdx === null) return;
-      const chosen = variants[selectedVariantIdx];
-      newSaveBtn.disabled = true;
-      newSaveBtn.textContent = 'Saving...';
-      const res = await fetch(`/api/decks/${deck.id}/plan`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ targets: chosen.targets }),
-      });
-      if (res.ok) {
-        currentPlanTargets = chosen.targets;
-        planTargetTags = new Set(Object.keys(chosen.targets));
-        const auditRes = await fetch(`/api/decks/${deck.id}/audit`);
-        if (auditRes.ok) {
-          const audit = await auditRes.json();
-          planProgress = audit.plan_progress;
-        }
-        closeModal('plan-variants-modal');
-        showPlanProgress(chosen.targets);
-        document.getElementById('btn-generate-plan').style.display = 'none';
-        updateDynamicButtons();
-      } else {
-        const err = await res.json();
-        alert(err.error || 'Failed to save plan');
-        newSaveBtn.disabled = false;
-        newSaveBtn.textContent = 'Save Selected Plan';
-      }
+  async function savePlanVariant() {
+    if (selectedVariantIdx === null || !pendingVariants.length) return;
+    const chosen = pendingVariants[selectedVariantIdx];
+    const saveBtn = document.getElementById('btn-save-plan');
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving...';
+    const res = await fetch(`/api/decks/${deck.id}/plan`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targets: chosen.targets }),
     });
+    if (res.ok) {
+      currentPlanTargets = chosen.targets;
+      planTargetTags = new Set(Object.keys(chosen.targets));
+      const auditRes = await fetch(`/api/decks/${deck.id}/audit`);
+      if (auditRes.ok) {
+        const audit = await auditRes.json();
+        planProgress = audit.plan_progress;
+      }
+      closeModal('plan-variants-modal');
+      showPlanProgress(chosen.targets);
+      document.getElementById('btn-generate-plan').style.display = 'none';
+      updateDynamicButtons();
+    } else {
+      const err = await res.json();
+      alert(err.error || 'Failed to save plan');
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Save Selected Plan';
+    }
   }
 
   // --- Autofill ---

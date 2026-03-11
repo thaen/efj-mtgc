@@ -354,8 +354,13 @@ button.danger:hover { background: #a93226; }
 .plan-header h3 { color: var(--accent); font-size: 1rem; margin: 0; }
 .plan-body { padding: 16px; }
 
+/* Plan variants modal needs extra width for side-by-side layout */
+#plan-variants-modal .modal {
+  width: 900px;
+  max-width: 95vw;
+}
 /* Plan variants during selection */
-.plan-variants {
+.plan-variants-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 12px;
