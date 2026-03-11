@@ -125,6 +125,15 @@ ZONE_COMMANDER = "commander"
 # Embedding tag inference threshold (cosine similarity)
 DESCRIPTION_MATCH_THRESHOLD = 0.80
 
+# Land suggestion scoring weights
+LAND_WEIGHTS = {
+    "color_coverage": 0.35,  # Covers needed colors, weighted by pip demand
+    "untapped": 0.20,        # Enters untapped bonus
+    "edhrec": 0.20,          # Lower rank = better
+    "bling": 0.15,           # Foil/borderless/extended
+    "random": 0.10,          # Variety jitter
+}
+
 
 PRIME_PROMPT = """# Commander Deck Builder
 

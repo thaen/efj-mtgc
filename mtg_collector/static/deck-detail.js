@@ -23,103 +23,113 @@
   document.title = `${deck.name} — DeckDumpster`;
 
   // State
-  let currentZone = 'mainboard';
   let deckCards = [];
   let selectedCardIds = new Set();
   let pickerSelected = new Set();
   let editingDeckId = null;
   let activeRoleFilter = null;
-  let currentView = 'table';
+  let activeTypeFilter = null;
+  let currentView = 'grid';
   const COL_MIN = 1, COL_MAX = 12;
   let gridCols = parseInt(localStorage.getItem('deckGridCols'))
-    || (window.innerWidth < 600 ? 2 : 6);
+    || (window.innerWidth < 600 ? 2 : 5);
 
   // Build the page
   const layout = document.getElementById('deck-detail-layout');
+  // Add delete button to site header
+  const siteHeader = document.querySelector('.site-header');
+  if (siteHeader) {
+    const delBtn = document.createElement('button');
+    delBtn.id = 'btn-delete';
+    delBtn.className = 'danger';
+    delBtn.style.cssText = 'font-size:0.8rem;padding:4px 12px;margin-left:auto';
+    delBtn.textContent = 'Delete Deck';
+    siteHeader.appendChild(delBtn);
+  }
+
   layout.innerHTML = `
-    <div class="deck-detail-header">
-      <div class="info">
+    <div class="deck-two-col">
+      <div class="deck-col-main">
+        <div class="deck-view-bar">
+          <div class="zone-tabs" id="type-filters"></div>
+          <div class="deck-view-controls">
+            <div class="view-toggle-group">
+              <button class="secondary" id="view-table-btn" title="Table view">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                  <rect x="1" y="1" width="14" height="3" rx="1"/>
+                  <rect x="1" y="6" width="14" height="3" rx="1"/>
+                  <rect x="1" y="11" width="14" height="3" rx="1"/>
+                </svg>
+              </button>
+              <button class="secondary active" id="view-grid-btn" title="Grid view">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                  <rect x="1" y="1" width="6" height="6" rx="1"/>
+                  <rect x="9" y="1" width="6" height="6" rx="1"/>
+                  <rect x="1" y="9" width="6" height="6" rx="1"/>
+                  <rect x="9" y="9" width="6" height="6" rx="1"/>
+                </svg>
+              </button>
+            </div>
+            <div class="col-controls" id="grid-size-wrap">
+              <button class="col-btn" id="col-minus">&minus;</button>
+              <div class="col-count" id="col-count"></div>
+              <button class="col-btn" id="col-plus">+</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="active-filter-banner" class="active-filter-banner" style="display:none"></div>
+
+        <div id="card-display">
+        <table class="card-table" id="card-table" style="display:none">
+          <thead>
+            <tr>
+              <th><input type="checkbox" id="select-all"></th>
+              <th>Name</th>
+              <th>Role</th>
+              <th>Set</th>
+              <th>Mana</th>
+              <th>Type</th>
+              <th>Finish</th>
+              <th>Condition</th>
+            </tr>
+          </thead>
+          <tbody id="card-tbody"></tbody>
+        </table>
+        <div class="card-grid" id="card-grid"></div>
+        </div>
+
+        <div class="completeness-section" id="completeness-section" style="display:none">
+          <div class="completeness-header" id="completeness-header">
+            <h3>Expected Cards <span id="completeness-summary"></span></h3>
+            <span id="completeness-toggle">&#9660;</span>
+          </div>
+          <div class="completeness-body" id="completeness-body"></div>
+        </div>
+      </div>
+
+      <div class="deck-col-sidebar">
         <h2 id="deck-name"></h2>
+        <div id="commander-display" class="commander-display"></div>
         <div class="deck-meta-grid" id="deck-meta"></div>
-      </div>
-      <div class="actions">
-        <button class="secondary" id="btn-edit">Edit</button>
-        <button id="btn-generate-plan" style="display:none">Generate Plan</button>
-        <button id="btn-autofill" style="display:none">Autofill</button>
-        <button id="btn-add-cards">Add Cards</button>
-        <button class="secondary" id="btn-remove-selected">Remove Selected</button>
-        <button class="secondary" id="btn-import-expected">Import Expected List</button>
-        <button class="danger" id="btn-delete">Delete Deck</button>
-      </div>
-    </div>
 
-    <div class="plan-section" id="plan-section" style="display:none">
-      <div class="plan-header">
-        <h3>Deck Plan</h3>
-        <button class="secondary" id="btn-clear-plan" style="display:none;font-size:0.8rem;padding:4px 10px">Clear Plan</button>
-      </div>
-      <div class="plan-body" id="plan-body"></div>
-    </div>
-
-    <div class="deck-view-bar">
-      <div class="zone-tabs" id="zone-tabs">
-        <div class="tab active" data-zone="mainboard">Mainboard <span id="count-mainboard"></span></div>
-        <div class="tab" data-zone="sideboard">Sideboard <span id="count-sideboard"></span></div>
-        <div class="tab" data-zone="commander">Commander <span id="count-commander"></span></div>
-      </div>
-      <div class="deck-view-controls">
-        <div class="view-toggle-group">
-          <button class="secondary active" id="view-table-btn" title="Table view">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-              <rect x="1" y="1" width="14" height="3" rx="1"/>
-              <rect x="1" y="6" width="14" height="3" rx="1"/>
-              <rect x="1" y="11" width="14" height="3" rx="1"/>
-            </svg>
-          </button>
-          <button class="secondary" id="view-grid-btn" title="Grid view">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-              <rect x="1" y="1" width="6" height="6" rx="1"/>
-              <rect x="9" y="1" width="6" height="6" rx="1"/>
-              <rect x="1" y="9" width="6" height="6" rx="1"/>
-              <rect x="9" y="9" width="6" height="6" rx="1"/>
-            </svg>
-          </button>
+        <div class="sidebar-actions">
+          <button class="secondary" id="btn-edit">Edit</button>
+          <button id="btn-generate-plan" style="display:none">Generate Plan</button>
+          <button id="btn-autofill" style="display:none">Autofill</button>
+          <button id="btn-fill-lands" style="display:none">Fill Lands</button>
         </div>
-        <div class="col-controls" id="grid-size-wrap" style="display:none">
-          <button class="col-btn" id="col-minus">&minus;</button>
-          <div class="col-count" id="col-count"></div>
-          <button class="col-btn" id="col-plus">+</button>
+
+        <div class="plan-section" id="plan-section" style="display:none">
+          <div class="plan-header">
+            <h3>Deck Plan</h3>
+            <div class="plan-header-actions">
+              <button class="secondary" id="btn-edit-plan" style="display:none;font-size:0.8rem;padding:4px 10px">Edit</button>
+            </div>
+          </div>
+          <div class="plan-body" id="plan-body"></div>
         </div>
       </div>
-    </div>
-
-    <div id="active-filter-banner" class="active-filter-banner" style="display:none"></div>
-
-    <div id="card-display">
-    <table class="card-table" id="card-table">
-      <thead>
-        <tr>
-          <th><input type="checkbox" id="select-all"></th>
-          <th>Name</th>
-          <th>Role</th>
-          <th>Set</th>
-          <th>Mana</th>
-          <th>Type</th>
-          <th>Finish</th>
-          <th>Condition</th>
-        </tr>
-      </thead>
-      <tbody id="card-tbody"></tbody>
-    </table>
-    <div class="card-grid" id="card-grid" style="display:none"></div>
-    </div>
-
-    <div class="completeness-section" id="completeness-section" style="display:none">
-      <div class="completeness-header" id="completeness-header">
-        <h3>Expected Cards <span id="completeness-summary"></span></h3>
-        <span id="completeness-toggle">&#9660;</span>
-      </div>
-      <div class="completeness-body" id="completeness-body"></div>
     </div>
 
     <!-- Edit Deck Modal -->
@@ -239,14 +249,35 @@
         </div>
       </div>
     </div>
+
+    <!-- Fill Lands Modal -->
+    <div class="modal-backdrop" id="fill-lands-modal">
+      <div class="modal" style="max-width:700px;max-height:80vh;overflow-y:auto">
+        <h3>Land Suggestions</h3>
+        <div id="fill-lands-body"><span class="spinner"></span> Finding lands...</div>
+        <div class="form-actions">
+          <button id="btn-fill-lands-add" disabled>Add Selected</button>
+          <button class="secondary" id="btn-fill-lands-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Plan Variants Modal -->
+    <div class="modal-backdrop" id="plan-variants-modal">
+      <div class="modal" style="max-width:800px;max-height:85vh;overflow-y:auto">
+        <h3>Choose a Deck Plan</h3>
+        <div id="plan-variants-body"></div>
+        <div class="form-actions">
+          <button id="btn-save-plan" disabled>Save Selected Plan</button>
+          <button class="secondary" id="btn-cancel-plan-variants">Cancel</button>
+        </div>
+      </div>
+    </div>
   `;
 
   // --- Wire up event handlers ---
 
-  // Zone tabs
-  document.querySelectorAll('#zone-tabs .tab').forEach(tab => {
-    tab.addEventListener('click', () => switchZone(tab.dataset.zone));
-  });
+  // Type filter pills are wired dynamically in buildTypeFilters()
 
   // Select all checkbox
   document.getElementById('select-all').addEventListener('change', function() {
@@ -257,15 +288,12 @@
     renderCards();
   });
 
-  // Header buttons
+  // Header/sidebar buttons
   document.getElementById('btn-edit').addEventListener('click', showEditModal);
   document.getElementById('btn-generate-plan').addEventListener('click', generatePlan);
   document.getElementById('btn-autofill').addEventListener('click', runAutofill);
-  document.getElementById('btn-add-cards').addEventListener('click', showAddCardsModal);
-  document.getElementById('btn-remove-selected').addEventListener('click', removeSelectedCards);
-  document.getElementById('btn-import-expected').addEventListener('click', showExpectedModal);
   document.getElementById('btn-delete').addEventListener('click', deleteDeck);
-  document.getElementById('btn-clear-plan').addEventListener('click', clearPlan);
+  document.getElementById('btn-edit-plan').addEventListener('click', enterPlanEditMode);
 
   // Completeness header toggle
   document.getElementById('completeness-header').addEventListener('click', toggleCompleteness);
@@ -279,6 +307,10 @@
   document.getElementById('btn-cancel-expected').addEventListener('click', () => closeModal('expected-modal'));
   document.getElementById('btn-autofill-add').addEventListener('click', addAutofillCards);
   document.getElementById('btn-autofill-cancel').addEventListener('click', () => closeModal('autofill-modal'));
+  document.getElementById('btn-fill-lands').addEventListener('click', runFillLands);
+  document.getElementById('btn-fill-lands-add').addEventListener('click', addFillLandsCards);
+  document.getElementById('btn-fill-lands-cancel').addEventListener('click', () => closeModal('fill-lands-modal'));
+  document.getElementById('btn-cancel-plan-variants').addEventListener('click', () => closeModal('plan-variants-modal'));
 
   // Precon checkbox toggle
   document.getElementById('f-precon').addEventListener('change', function() {
@@ -313,6 +345,7 @@
     document.getElementById('col-count').textContent = gridCols;
     document.getElementById('col-minus').disabled = gridCols <= COL_MIN;
     document.getElementById('col-plus').disabled = gridCols >= COL_MAX;
+    document.getElementById('card-grid').style.setProperty('--grid-cols', gridCols);
     localStorage.setItem('deckGridCols', gridCols);
   }
   document.getElementById('col-minus').addEventListener('click', () => {
@@ -356,34 +389,95 @@
     loadCompleteness();
   }
 
-  // --- Zone switching ---
-  function switchZone(zone) {
-    currentZone = zone;
-    selectedCardIds.clear();
-    document.getElementById('select-all').checked = false;
-    document.querySelectorAll('#zone-tabs .tab').forEach(t => {
-      t.classList.toggle('active', t.dataset.zone === zone);
+  // --- Card type from type_line ---
+  const TYPE_ORDER = ['Creature', 'Instant', 'Sorcery', 'Artifact', 'Enchantment', 'Planeswalker', 'Battle', 'Land'];
+
+  function primaryType(typeLine) {
+    if (!typeLine) return 'Other';
+    for (const t of TYPE_ORDER) {
+      if (typeLine.includes(t)) return t;
+    }
+    return 'Other';
+  }
+
+  function buildTypeFilters() {
+    const typeCounts = {};
+    const nonCmdCards = allDeckCards.filter(c => c.deck_zone !== 'commander');
+    for (const c of nonCmdCards) {
+      const t = primaryType(c.type_line);
+      typeCounts[t] = (typeCounts[t] || 0) + 1;
+    }
+    // Sort by TYPE_ORDER, then Other at end
+    const types = Object.keys(typeCounts).sort((a, b) => {
+      const ai = TYPE_ORDER.indexOf(a), bi = TYPE_ORDER.indexOf(b);
+      return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
     });
-    loadDeckCards();
+
+    const container = document.getElementById('type-filters');
+    const allCount = nonCmdCards.length;
+    let html = `<div class="tab${activeTypeFilter === null ? ' active' : ''}" data-type="all">All (${allCount})</div>`;
+    for (const t of types) {
+      html += `<div class="tab${activeTypeFilter === t ? ' active' : ''}" data-type="${esc(t)}">${esc(t)} (${typeCounts[t]})</div>`;
+    }
+    container.innerHTML = html;
+
+    container.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        const type = tab.dataset.type;
+        activeTypeFilter = type === 'all' ? null : type;
+        container.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        deckCards = getMainboardCards();
+        renderCards();
+      });
+    });
+  }
+
+  function getMainboardCards() {
+    const nonCmd = allDeckCards.filter(c => c.deck_zone !== 'commander');
+    if (!activeTypeFilter) return nonCmd;
+    return nonCmd.filter(c => primaryType(c.type_line) === activeTypeFilter);
   }
 
   // --- Load and render cards ---
+  let allDeckCards = [];  // All cards across all zones
+
   async function loadDeckCards() {
     const res = await fetch(`/api/decks/${deck.id}/cards`);
     const allCards = await res.json();
+    allDeckCards = allCards;
 
-    const counts = { mainboard: 0, sideboard: 0, commander: 0 };
-    allCards.forEach(c => { if (counts[c.deck_zone] !== undefined) counts[c.deck_zone]++; });
-    document.getElementById('count-mainboard').textContent = `(${counts.mainboard})`;
-    document.getElementById('count-sideboard').textContent = `(${counts.sideboard})`;
-    document.getElementById('count-commander').textContent = `(${counts.commander})`;
+    // Render commander card in sidebar
+    const cmdCards = allCards.filter(c => c.deck_zone === 'commander');
+    const cmdEl = document.getElementById('commander-display');
+    if (cmdCards.length > 0) {
+      cmdEl.innerHTML = cmdCards.map(c => {
+        const sc = c.set_code.toLowerCase();
+        const cn = c.collector_number;
+        const rarityColor = getRarityColor(c.rarity);
+        const foilClass = (c.finish === 'foil' || c.finish === 'etched') ? ' foil' : '';
+        return `<a href="/card/${esc(sc)}/${esc(cn)}" class="commander-card">
+          <div class="sheet-card-img-wrap${foilClass}" style="--rarity-color:${rarityColor};--set-color:#111">
+            <img src="${c.image_uri || ''}" alt="${esc(c.name)}">
+          </div>
+        </a>`;
+      }).join('');
+      cmdEl.style.display = '';
+    } else {
+      cmdEl.innerHTML = '';
+      cmdEl.style.display = 'none';
+    }
 
-    deckCards = allCards.filter(c => c.deck_zone === currentZone);
+    buildTypeFilters();
+    deckCards = getMainboardCards();
     renderCards();
   }
 
   function getFilteredCards() {
     if (!activeRoleFilter) return deckCards;
+    if (activeRoleFilter === 'lands') {
+      return deckCards.filter(c => (c.type_line || '').includes('Land'));
+    }
     return deckCards.filter(c => {
       const tags = c.tags ? c.tags.split(',') : [];
       return tags.includes(activeRoleFilter);
@@ -451,19 +545,16 @@
   function renderGrid(cards) {
     const grid = document.getElementById('card-grid');
     if (cards.length === 0) {
-      grid.innerHTML = '<div style="padding:24px;color:var(--text-secondary);text-align:center">No cards in this zone</div>';
+      grid.innerHTML = '<div style="padding:24px;color:var(--text-secondary);text-align:center;grid-column:1/-1">No cards in this zone</div>';
       return;
     }
-    const gap = 10;
-    const containerWidth = grid.clientWidth || document.getElementById('card-display').clientWidth || 800;
-    const cardWidth = Math.floor((containerWidth - (gridCols - 1) * gap) / gridCols);
 
     grid.innerHTML = cards.map(c => {
       const sc = c.set_code.toLowerCase();
       const cn = c.collector_number;
       const rarityColor = getRarityColor(c.rarity);
       const foilClass = (c.finish === 'foil' || c.finish === 'etched') ? ' foil' : '';
-      return `<div class="sheet-card" data-sc="${esc(sc)}" data-cn="${esc(cn)}" style="width:${cardWidth}px">
+      return `<div class="sheet-card" data-sc="${esc(sc)}" data-cn="${esc(cn)}">
         <div class="sheet-card-img-wrap${foilClass}" style="--rarity-color:${rarityColor};--set-color:#111">
           <img src="${c.image_uri || ''}" alt="${esc(c.name)}" loading="lazy">
         </div>
@@ -780,9 +871,27 @@
     await loadDeckCards();
   }
 
+  // --- Dynamic button visibility ---
+  function updateDynamicButtons() {
+    const totalCards = allDeckCards.length;
+    const landCount = allDeckCards.filter(c =>
+      (c.type_line || '').includes('Land') && c.deck_zone !== 'commander'
+    ).length;
+    const hasPlan = !!(currentPlanTargets && Object.keys(currentPlanTargets).length);
+
+    // Autofill: hide if >90 cards or no plan
+    const autofillBtn = document.getElementById('btn-autofill');
+    autofillBtn.style.display = (hasPlan && totalCards <= 90) ? '' : 'none';
+
+    // Fill Lands: hide if >20 lands or no plan
+    const fillLandsBtn = document.getElementById('btn-fill-lands');
+    fillLandsBtn.style.display = (hasPlan && landCount <= 20) ? '' : 'none';
+  }
+
   // --- Plan ---
   let planProgress = null;  // {tag: {current, target}} from audit
   let planTargetTags = new Set();  // tags from current plan targets
+  let currentPlanTargets = null;  // {tag: count} — raw plan targets for editing
 
   async function loadPlan() {
     // Show Generate Plan button for Commander decks
@@ -793,6 +902,7 @@
     const res = await fetch(`/api/decks/${deck.id}/plan`);
     const plan = await res.json();
     if (plan && plan.targets) {
+      currentPlanTargets = plan.targets;
       planTargetTags = new Set(Object.keys(plan.targets));
       // Fetch audit for real progress counts
       const auditRes = await fetch(`/api/decks/${deck.id}/audit`);
@@ -801,7 +911,8 @@
         planProgress = audit.plan_progress;
       }
       showPlanProgress(plan.targets);
-      document.getElementById('btn-autofill').style.display = '';
+      document.getElementById('btn-generate-plan').style.display = 'none';
+      updateDynamicButtons();
     }
   }
 
@@ -809,7 +920,7 @@
     const section = document.getElementById('plan-section');
     const body = document.getElementById('plan-body');
     section.style.display = '';
-    document.getElementById('btn-clear-plan').style.display = '';
+    document.getElementById('btn-edit-plan').style.display = '';
 
     // Sort: "lands" first, then alphabetical
     const sorted = Object.entries(targets).sort(([a], [b]) => {
@@ -825,9 +936,10 @@
       const pct = target > 0 ? Math.min((current / target) * 100, 100) : 0;
       const cls = current >= target ? 'met' : 'under';
       const activeClass = activeRoleFilter === tag ? ' active' : '';
-      html += `<span class="cat clickable${activeClass}" data-tag="${esc(tag)}">${esc(label)}</span>`;
-      html += `<span class="bar-cell"><div class="bar"><div class="bar-fill ${cls}" style="width:${pct}%"></div></div></span>`;
-      html += `<span class="counts">${current}/${target}</span>`;
+      html += `<div class="plan-progress-row">`;
+      html += `<div class="plan-progress-top"><span class="cat clickable${activeClass}" data-tag="${esc(tag)}">${esc(label)}</span><span class="counts">${current}/${target}</span></div>`;
+      html += `<div class="bar"><div class="bar-fill ${cls}" style="width:${pct}%"></div></div>`;
+      html += `</div>`;
     }
     html += '</div>';
     body.innerHTML = html;
@@ -935,12 +1047,19 @@
   let selectedVariantIdx = null;
 
   function showPlanVariants(variants) {
-    const body = document.getElementById('plan-body');
+    // Hide the streaming indicator in sidebar
+    document.getElementById('plan-section').style.display = 'none';
+
     if (!variants.length) {
-      body.innerHTML = '<div class="plan-error">No plan variants returned. Try again.</div>';
+      document.getElementById('plan-body').innerHTML = '<div class="plan-error">No plan variants returned. Try again.</div>';
+      document.getElementById('plan-section').style.display = '';
       return;
     }
     selectedVariantIdx = null;
+
+    const modal = document.getElementById('plan-variants-modal');
+    const body = document.getElementById('plan-variants-body');
+    const saveBtn = document.getElementById('btn-save-plan');
 
     let html = '<div class="plan-variants">';
     variants.forEach((v, i) => {
@@ -948,7 +1067,6 @@
       html += `<h4>${esc(v.name)}</h4>`;
       html += `<div class="strategy">${esc(v.strategy)}</div>`;
       html += '<div class="slots">';
-      // Sort: lands first, then by count descending
       const sortedTargets = Object.entries(v.targets || {}).sort(([a, ac], [b, bc]) => {
         if (a === 'lands') return -1;
         if (b === 'lands') return 1;
@@ -961,8 +1079,9 @@
       html += '</div></div>';
     });
     html += '</div>';
-    html += '<div class="plan-actions"><button id="btn-save-plan" disabled>Save Selected Plan</button></div>';
     body.innerHTML = html;
+    saveBtn.disabled = true;
+    modal.classList.add('active');
 
     // Wire up variant selection
     body.querySelectorAll('.plan-variant').forEach(el => {
@@ -970,32 +1089,40 @@
         body.querySelectorAll('.plan-variant').forEach(v => v.classList.remove('selected'));
         el.classList.add('selected');
         selectedVariantIdx = parseInt(el.dataset.idx);
-        document.getElementById('btn-save-plan').disabled = false;
+        saveBtn.disabled = false;
       });
     });
 
-    // Wire up save button
-    document.getElementById('btn-save-plan').addEventListener('click', async () => {
+    // Wire up save button (clone to remove old listeners)
+    const newSaveBtn = saveBtn.cloneNode(true);
+    saveBtn.parentNode.replaceChild(newSaveBtn, saveBtn);
+    newSaveBtn.addEventListener('click', async () => {
       if (selectedVariantIdx === null) return;
       const chosen = variants[selectedVariantIdx];
+      newSaveBtn.disabled = true;
+      newSaveBtn.textContent = 'Saving...';
       const res = await fetch(`/api/decks/${deck.id}/plan`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ targets: chosen.targets }),
       });
       if (res.ok) {
-        // Fetch real progress from audit before rendering
+        currentPlanTargets = chosen.targets;
+        planTargetTags = new Set(Object.keys(chosen.targets));
         const auditRes = await fetch(`/api/decks/${deck.id}/audit`);
         if (auditRes.ok) {
           const audit = await auditRes.json();
           planProgress = audit.plan_progress;
         }
+        closeModal('plan-variants-modal');
         showPlanProgress(chosen.targets);
-        document.getElementById('btn-autofill').style.display = '';
-        document.getElementById('btn-clear-plan').style.display = '';
+        document.getElementById('btn-generate-plan').style.display = 'none';
+        updateDynamicButtons();
       } else {
         const err = await res.json();
         alert(err.error || 'Failed to save plan');
+        newSaveBtn.disabled = false;
+        newSaveBtn.textContent = 'Save Selected Plan';
       }
     });
   }
@@ -1011,7 +1138,11 @@
 
     let res;
     try {
-      res = await fetch(`/api/decks/${deck.id}/autofill`, { method: 'POST' });
+      res = await fetch(`/api/decks/${deck.id}/autofill`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reset: true }),
+      });
     } catch (_) {
       body.innerHTML = '<div style="color:var(--error)">Connection to server failed.</div>';
       return;
@@ -1148,6 +1279,127 @@
     await loadPlan();  // Refresh plan progress
   }
 
+  // --- Fill Lands ---
+
+  const MANA_COLORS = { W: '#f9faf4', U: '#0e68ab', B: '#150b00', R: '#d3202a', G: '#00733e' };
+
+  async function runFillLands() {
+    document.getElementById('fill-lands-modal').classList.add('active');
+    const body = document.getElementById('fill-lands-body');
+    body.innerHTML = '<span class="spinner"></span> Finding lands...';
+    document.getElementById('btn-fill-lands-add').disabled = true;
+
+    let res;
+    try {
+      res = await fetch(`/api/decks/${deck.id}/fill-lands`, { method: 'POST' });
+    } catch (_) {
+      body.innerHTML = '<div style="color:var(--error)">Connection to server failed.</div>';
+      return;
+    }
+
+    const data = await res.json();
+    if (data.error) {
+      body.innerHTML = `<div style="color:var(--error)">${esc(data.error)}</div>`;
+      return;
+    }
+
+    const nonbasic = data.suggestions?.nonbasic || [];
+    const basic = data.suggestions?.basic || [];
+
+    if (nonbasic.length === 0 && basic.length === 0) {
+      body.innerHTML = '<div style="padding:12px;color:var(--text-secondary)">No lands needed — deck has enough lands already.</div>';
+      return;
+    }
+
+    let html = `<div style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:12px">` +
+      `Lands: ${data.existing_lands}/${data.land_target} — suggesting ${nonbasic.length + basic.reduce((a,b) => a+b.count, 0)} lands</div>`;
+
+    if (nonbasic.length > 0) {
+      html += '<div class="autofill-group">';
+      html += '<div class="autofill-tag-header"><strong>Nonbasic Lands</strong></div>';
+      for (const land of nonbasic) {
+        const tappedLabel = land.enters_tapped ? ' <span class="land-etb-tapped">ETB tapped</span>' : '';
+        const dots = (land.produced_mana || []).map(c =>
+          `<span class="land-mana-dot" style="background:${MANA_COLORS[c] || '#888'}"></span>`
+        ).join('');
+        html += `<label class="autofill-card">`;
+        html += `<input type="checkbox" checked data-cid="${land.collection_id}" data-type="nonbasic">`;
+        html += `<span class="autofill-card-name">${esc(land.name)}</span>`;
+        html += `<span class="land-mana-dots">${dots}</span>`;
+        html += `<span class="autofill-card-set">${esc(land.set_code.toUpperCase())}${tappedLabel}</span>`;
+        html += `</label>`;
+      }
+      html += '</div>';
+    }
+
+    if (basic.length > 0) {
+      html += '<div class="autofill-group">';
+      html += '<div class="autofill-tag-header"><strong>Basic Lands</strong></div>';
+      for (const group of basic) {
+        html += `<label class="autofill-card">`;
+        html += `<input type="checkbox" checked data-cids='${JSON.stringify(group.collection_ids)}' data-type="basic">`;
+        html += `<span class="autofill-card-name">${esc(group.name)} x${group.count}</span>`;
+        html += `</label>`;
+      }
+      html += '</div>';
+    }
+
+    body.innerHTML = html;
+    document.getElementById('btn-fill-lands-add').disabled = false;
+    updateFillLandsCount();
+    body.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+      cb.addEventListener('change', updateFillLandsCount);
+    });
+  }
+
+  function updateFillLandsCount() {
+    const checked = document.querySelectorAll('#fill-lands-body input[type="checkbox"]:checked');
+    let count = 0;
+    for (const cb of checked) {
+      if (cb.dataset.type === 'basic') {
+        count += JSON.parse(cb.dataset.cids).length;
+      } else {
+        count++;
+      }
+    }
+    const btn = document.getElementById('btn-fill-lands-add');
+    btn.textContent = `Add Selected (${count})`;
+    btn.disabled = count === 0;
+  }
+
+  async function addFillLandsCards() {
+    const checked = document.querySelectorAll('#fill-lands-body input[type="checkbox"]:checked');
+    const ids = [];
+    for (const cb of checked) {
+      if (cb.dataset.type === 'basic') {
+        ids.push(...JSON.parse(cb.dataset.cids));
+      } else {
+        ids.push(parseInt(cb.dataset.cid));
+      }
+    }
+    if (ids.length === 0) return;
+
+    const btn = document.getElementById('btn-fill-lands-add');
+    btn.disabled = true;
+    btn.textContent = 'Adding...';
+
+    const res = await fetch(`/api/decks/${deck.id}/cards`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ collection_ids: ids, zone: 'mainboard' }),
+    });
+    const result = await res.json();
+    if (result.error) { alert(result.error); btn.disabled = false; return; }
+
+    closeModal('fill-lands-modal');
+
+    const deckRes = await fetch(`/api/decks/${deck.id}`);
+    deck = await deckRes.json();
+    renderDeckDetail();
+    await loadDeckCards();
+    await loadPlan();
+  }
+
   async function clearPlan() {
     if (!confirm('Clear the deck plan?')) return;
     await fetch(`/api/decks/${deck.id}`, {
@@ -1156,8 +1408,121 @@
       body: JSON.stringify({ plan: null }),
     });
     document.getElementById('plan-section').style.display = 'none';
-    document.getElementById('btn-clear-plan').style.display = 'none';
     document.getElementById('plan-body').innerHTML = '';
+  }
+
+  // --- Plan Editing ---
+  function enterPlanEditMode() {
+    if (!currentPlanTargets) return;
+    const body = document.getElementById('plan-body');
+
+    // Sort same as display: lands first, then alphabetical
+    const sorted = Object.entries(currentPlanTargets).sort(([a], [b]) => {
+      if (a === 'lands') return -1;
+      if (b === 'lands') return 1;
+      return a.localeCompare(b);
+    });
+
+    let html = '<div class="plan-edit">';
+    for (const [tag, count] of sorted) {
+      html += `<div class="plan-edit-row" data-original-tag="${esc(tag)}">`;
+      html += `<input type="text" class="plan-edit-tag" value="${esc(tag)}" placeholder="tag name">`;
+      html += `<input type="number" class="plan-edit-count" value="${count}" min="0" max="99">`;
+      html += `<button class="plan-edit-delete" title="Remove">&times;</button>`;
+      html += `</div>`;
+    }
+    html += `<div class="plan-edit-row plan-edit-add">`;
+    html += `<input type="text" class="plan-edit-tag" placeholder="new tag name">`;
+    html += `<input type="number" class="plan-edit-count" value="3" min="0" max="99">`;
+    html += `<button class="secondary plan-edit-add-btn" title="Add">+</button>`;
+    html += `</div>`;
+    html += `<div class="plan-edit-actions">`;
+    html += `<button id="btn-save-plan-edit">Save</button>`;
+    html += `<button class="secondary" id="btn-cancel-plan-edit">Cancel</button>`;
+    html += `</div>`;
+    html += '</div>';
+    body.innerHTML = html;
+
+    // Hide header buttons during edit
+    document.getElementById('btn-edit-plan').style.display = 'none';
+
+    // Wire delete buttons
+    body.querySelectorAll('.plan-edit-delete').forEach(btn => {
+      btn.addEventListener('click', () => btn.closest('.plan-edit-row').remove());
+    });
+
+    // Wire add button
+    body.querySelector('.plan-edit-add-btn').addEventListener('click', () => {
+      const addRow = body.querySelector('.plan-edit-add');
+      const tagInput = addRow.querySelector('.plan-edit-tag');
+      const countInput = addRow.querySelector('.plan-edit-count');
+      const tag = tagInput.value.trim();
+      if (!tag) return;
+
+      // Insert new row before the add row
+      const newRow = document.createElement('div');
+      newRow.className = 'plan-edit-row';
+      newRow.dataset.originalTag = tag;
+      newRow.innerHTML = `<input type="text" class="plan-edit-tag" value="${esc(tag)}" placeholder="tag name">` +
+        `<input type="number" class="plan-edit-count" value="${countInput.value}" min="0" max="99">` +
+        `<button class="plan-edit-delete" title="Remove">&times;</button>`;
+      newRow.querySelector('.plan-edit-delete').addEventListener('click', () => newRow.remove());
+      addRow.parentNode.insertBefore(newRow, addRow);
+
+      // Reset add row
+      tagInput.value = '';
+      countInput.value = '3';
+      tagInput.focus();
+    });
+
+    // Save
+    body.querySelector('#btn-save-plan-edit').addEventListener('click', savePlanEdit);
+    // Cancel
+    body.querySelector('#btn-cancel-plan-edit').addEventListener('click', () => {
+      showPlanProgress(currentPlanTargets);
+    });
+  }
+
+  async function savePlanEdit() {
+    const body = document.getElementById('plan-body');
+    const rows = body.querySelectorAll('.plan-edit-row:not(.plan-edit-add)');
+    const targets = {};
+    for (const row of rows) {
+      const tag = row.querySelector('.plan-edit-tag').value.trim();
+      const count = parseInt(row.querySelector('.plan-edit-count').value) || 0;
+      if (tag && count > 0) {
+        targets[tag] = count;
+      }
+    }
+
+    if (Object.keys(targets).length === 0) {
+      alert('Plan must have at least one tag target.');
+      return;
+    }
+
+    const res = await fetch(`/api/decks/${deck.id}/plan`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targets }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      alert(err.error || 'Failed to save plan');
+      return;
+    }
+
+    // Refresh
+    currentPlanTargets = targets;
+    planTargetTags = new Set(Object.keys(targets));
+    // Re-fetch audit for updated progress
+    const auditRes = await fetch(`/api/decks/${deck.id}/audit`);
+    if (auditRes.ok) {
+      const audit = await auditRes.json();
+      planProgress = audit.plan_progress;
+    }
+    showPlanProgress(targets);
+    renderCards();  // Update role labels
   }
 
   // --- Utils ---
@@ -1168,5 +1533,5 @@
   // --- Initial render ---
   renderDeckDetail();
   loadPlan();
-  switchZone('mainboard');
+  loadDeckCards();
 })();

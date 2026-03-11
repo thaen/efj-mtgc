@@ -7,6 +7,32 @@ from typing import Any, Dict, List, Optional
 from mtg_collector.utils import now_iso, parse_json_array, to_json_array
 
 
+def tag_validation_filter(ct_alias: str = "ct") -> str:
+    """SQL NOT EXISTS clause that excludes invalidated tags.
+
+    This is the ONE place that defines the validation condition.
+    Use in any query that touches card_tags — JOINs, subqueries, counts.
+    """
+    return (
+        f"NOT EXISTS ("
+        f"SELECT 1 FROM card_tag_validations v"
+        f" WHERE v.oracle_id = {ct_alias}.oracle_id"
+        f" AND v.tag = {ct_alias}.tag AND v.valid = 0)"
+    )
+
+
+def validated_tags_sql(oracle_id_col: str, *, alias: str = "tags") -> str:
+    """SQL subquery fragment for validated tags as GROUP_CONCAT.
+
+    All tag display queries must use this — never query card_tags directly.
+    """
+    return (
+        f"(SELECT GROUP_CONCAT(ct.tag) FROM card_tags ct"
+        f" WHERE ct.oracle_id = {oracle_id_col}"
+        f" AND {tag_validation_filter()}) AS {alias}"
+    )
+
+
 @dataclass
 class Card:
     """Abstract card (oracle-level)."""
@@ -1907,7 +1933,7 @@ class DeckRepository:
         return [dict(row) for row in cursor]
 
     def get_cards(self, deck_id: int, zone: Optional[str] = None) -> List[Dict[str, Any]]:
-        query = """
+        query = f"""
             SELECT c.id, c.printing_id, c.finish, c.condition, c.language,
                    c.purchase_price, c.acquired_at, c.deck_zone,
                    p.set_code, p.collector_number, p.rarity, p.artist,
@@ -1916,8 +1942,7 @@ class DeckRepository:
                    card.name, card.type_line, card.mana_cost, card.cmc,
                    card.colors, card.color_identity, p.oracle_id,
                    s.set_name,
-                   (SELECT GROUP_CONCAT(ct.tag, ',')
-                    FROM card_tags ct WHERE ct.oracle_id = p.oracle_id) AS tags
+                   {validated_tags_sql("p.oracle_id")}
             FROM collection c
             JOIN printings p ON c.printing_id = p.printing_id
             JOIN cards card ON p.oracle_id = card.oracle_id

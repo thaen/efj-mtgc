@@ -1,53 +1,83 @@
 /* deck-detail.css — Page-specific styles for the deck detail page. */
 
-/* Single-column layout */
+/* Page layout */
 .deck-detail-layout {
-  max-width: 1400px;
   margin: 0 auto;
   padding: 24px;
   min-height: calc(100vh - 60px);
 }
 
-/* Header: info left, actions right */
-.deck-detail-header {
+/* Two-column desktop layout */
+.deck-two-col {
   display: flex;
-  align-items: flex-start;
   gap: 24px;
-  margin-bottom: 24px;
-  flex-wrap: wrap;
+}
+.deck-col-main {
+  flex: 1;
+  min-width: 0;
+}
+.deck-col-sidebar {
+  width: 25%;
+  min-width: 220px;
+  max-width: 300px;
+  flex-shrink: 0;
 }
 
-.deck-detail-header .info { flex: 1; min-width: 300px; }
-.deck-detail-header .info h2 { color: var(--accent); margin-bottom: 8px; font-size: 1.5rem; }
+/* Sidebar */
+.deck-col-sidebar h2 {
+  color: var(--accent);
+  margin-bottom: 12px;
+  font-size: 1.5rem;
+}
+
+.commander-display {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.commander-card {
+  display: block;
+  flex: 1;
+  text-decoration: none;
+}
+
+.sidebar-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.sidebar-actions button {
+  width: 100%;
+}
 
 .deck-meta-grid {
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 4px 16px;
   font-size: 0.9rem;
+  margin-bottom: 16px;
 }
 .deck-meta-grid .label { color: var(--text-secondary); }
 
-.deck-detail-header .actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
-/* Zone tabs */
+/* Type filter pills */
 .zone-tabs {
   display: flex;
-  gap: 0;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 .zone-tabs .tab {
-  padding: 10px 24px;
+  padding: 6px 14px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
+  border-radius: 6px;
   color: var(--text-secondary);
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
 }
-.zone-tabs .tab:first-child { border-radius: 8px 0 0 8px; }
-.zone-tabs .tab:last-child { border-radius: 0 8px 8px 0; }
-.zone-tabs .tab + .tab { border-left: none; }
 .zone-tabs .tab.active {
   background: var(--accent);
   border-color: var(--accent);
@@ -116,8 +146,8 @@
 
 /* Card grid */
 .card-grid {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(var(--grid-cols, 5), 1fr);
   gap: 10px;
 }
 .sheet-card { position: relative; cursor: pointer; }
@@ -353,18 +383,27 @@ button.danger:hover { background: #a93226; }
 
 /* Plan progress (after saving) */
 .plan-progress {
-  display: grid;
-  grid-template-columns: 1fr auto auto;
-  gap: 4px 16px;
-  font-size: 0.9rem;
-  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.85rem;
+}
+.plan-progress-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.plan-progress-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
 }
 .plan-progress .cat { text-transform: capitalize; }
 .plan-progress .cat.clickable {
   cursor: pointer;
   border-radius: 4px;
-  padding: 2px 6px;
-  margin: -2px -6px;
+  padding: 1px 4px;
+  margin: -1px -4px;
   transition: background 0.15s;
 }
 .plan-progress .cat.clickable:hover { background: rgba(233, 69, 96, 0.1); }
@@ -373,22 +412,85 @@ button.danger:hover { background: #a93226; }
   color: var(--accent);
   font-weight: 600;
 }
-.plan-progress .bar-cell { width: 120px; }
 .plan-progress .bar {
-  height: 8px;
+  height: 6px;
   background: var(--border-color);
-  border-radius: 4px;
+  border-radius: 3px;
   overflow: hidden;
 }
 .plan-progress .bar-fill {
   height: 100%;
-  border-radius: 4px;
+  border-radius: 3px;
   transition: width 0.3s;
 }
 .plan-progress .bar-fill.under { background: var(--accent); }
 .plan-progress .bar-fill.met { background: #27ae60; }
 .plan-progress .bar-fill.over { background: #e67e22; }
-.plan-progress .counts { color: var(--text-secondary); font-size: 0.85rem; min-width: 50px; text-align: right; }
+.plan-progress .counts { color: var(--text-secondary); font-size: 0.8rem; }
+
+/* Plan edit mode */
+.plan-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.plan-edit-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.plan-edit-row .plan-edit-tag {
+  flex: 1;
+  padding: 4px 8px;
+  font-size: 0.9rem;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+}
+.plan-edit-row .plan-edit-count {
+  width: 60px;
+  padding: 4px 8px;
+  font-size: 0.9rem;
+  text-align: center;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+}
+.plan-edit-delete {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  line-height: 1;
+}
+.plan-edit-delete:hover {
+  background: rgba(233, 69, 96, 0.15);
+}
+.plan-edit-add {
+  opacity: 0.7;
+  border-top: 1px dashed var(--border-color);
+  padding-top: 8px;
+  margin-top: 4px;
+}
+.plan-edit-add-btn {
+  font-size: 1rem;
+  padding: 2px 8px;
+}
+.plan-edit-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.plan-header-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
 
 /* SSE streaming indicator */
 .plan-streaming {
@@ -434,6 +536,25 @@ button.danger:hover { background: #a93226; }
 .autofill-card-name { font-weight: 500; }
 .autofill-card-type { color: var(--text-secondary); font-size: 0.8rem; }
 .autofill-card-set { color: var(--text-secondary); font-size: 0.8rem; }
+/* Land suggestion styling */
+.land-mana-dots {
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+}
+.land-mana-dot {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.2);
+}
+.land-etb-tapped {
+  font-style: italic;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+}
+
 .autofill-warning {
   background: rgba(255, 183, 0, 0.15);
   color: #ffb700;
@@ -446,8 +567,8 @@ button.danger:hover { background: #a93226; }
 /* Responsive */
 @media (max-width: 768px) {
   .deck-detail-layout { padding: 16px; }
-  .deck-detail-header { flex-direction: column; }
-  .deck-detail-header .info { min-width: unset; }
-  .zone-tabs { flex-wrap: wrap; }
-  .zone-tabs .tab { padding: 8px 16px; font-size: 0.85rem; }
+  .deck-two-col { flex-direction: column-reverse; }
+  .deck-col-sidebar { width: 100%; max-width: none; min-width: unset; }
+  .sidebar-actions { flex-direction: row; flex-wrap: wrap; }
+  .sidebar-actions button { width: auto; }
 }

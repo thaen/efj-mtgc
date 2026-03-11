@@ -7,6 +7,7 @@ similarity threshold. Keyword abilities are also mapped to tags directly.
 
 import re
 import sqlite3
+from datetime import datetime, timezone
 from typing import Callable, Dict, Optional, Set
 
 from mtg_collector.services.deck_builder.constants import DESCRIPTION_MATCH_THRESHOLD
@@ -264,6 +265,7 @@ def _apply_keyword_tags(
     rows = conn.execute(query).fetchall()
 
     additions = 0
+    keyword_validations: list[tuple[str, str]] = []  # (oracle_id, tag)
     for r in rows:
         oid = r["oracle_id"]
         if collection_oids is not None and oid not in collection_oids:
@@ -278,6 +280,17 @@ def _apply_keyword_tags(
             # "First strike", etc. whether standalone or in a list
             if re.search(r"\b" + re.escape(keyword) + r"\b", oracle_clean):
                 tag_cards.setdefault(tag, set()).add(oid)
+                keyword_validations.append((oid, tag))
                 additions += 1
+
+    # Pre-validate keyword-derived tags so Haiku can't override them.
+    # These are mechanically certain — the card literally has the keyword.
+    now = datetime.now(timezone.utc).isoformat()
+    for oid, tag in keyword_validations:
+        conn.execute(
+            "INSERT OR REPLACE INTO card_tag_validations "
+            "(oracle_id, tag, valid, reason, validated_at) VALUES (?, ?, 1, 'keyword_match', ?)",
+            (oid, tag, now),
+        )
 
     return additions

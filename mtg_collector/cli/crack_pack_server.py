@@ -19,6 +19,7 @@ from socketserver import ThreadingMixIn
 from urllib.parse import parse_qs, unquote, urlparse
 
 from mtg_collector.db.connection import get_db_path
+from mtg_collector.db.models import validated_tags_sql
 from mtg_collector.services.pack_generator import PackGenerator
 
 
@@ -1351,6 +1352,12 @@ class CrackPackHandler(BaseHTTPRequestHandler):
                 self._api_deck_autofill(int(did))
             else:
                 self._send_json({"error": "Not found"}, 404)
+        elif path.startswith("/api/decks/") and path.endswith("/fill-lands"):
+            did = path[len("/api/decks/"):-len("/fill-lands")]
+            if did.isdigit():
+                self._api_deck_fill_lands(int(did))
+            else:
+                self._send_json({"error": "Not found"}, 404)
         elif path.startswith("/api/decks/") and path.endswith("/reassemble"):
             did = path[len("/api/decks/"):-len("/reassemble")]
             if did.isdigit():
@@ -1444,6 +1451,15 @@ class CrackPackHandler(BaseHTTPRequestHandler):
                 if data is None:
                     return
                 self._api_collection_update(int(entry_id), data)
+            else:
+                self._send_json({"error": "Not found"}, 404)
+        elif path.startswith("/api/decks/") and path.endswith("/plan"):
+            did = path[len("/api/decks/"):-len("/plan")]
+            if did.isdigit():
+                data = self._read_json_body()
+                if data is None:
+                    return
+                self._api_deck_plan_save(int(did), data)
             else:
                 self._send_json({"error": "Not found"}, 404)
         elif path.startswith("/api/decks/"):
@@ -1845,7 +1861,7 @@ class CrackPackHandler(BaseHTTPRequestHandler):
                         o.order_date as order_date,
                         c.purchase_price,
                         GROUP_CONCAT(DISTINCT ii.id || '|' || il.card_index || '|' || ii.filename || '|' || ii.created_at) as ingest_lineage_raw,
-                        (SELECT GROUP_CONCAT(ct.tag) FROM card_tags ct WHERE ct.oracle_id = card.oracle_id) as card_tags
+                        {validated_tags_sql("card.oracle_id", alias="card_tags")}
                     FROM printings p
                     JOIN cards card ON p.oracle_id = card.oracle_id
                     JOIN sets s ON p.set_code = s.set_code
@@ -1882,7 +1898,7 @@ class CrackPackHandler(BaseHTTPRequestHandler):
                         o.order_date as order_date,
                         c.purchase_price,
                         GROUP_CONCAT(DISTINCT ii.id || '|' || il.card_index || '|' || ii.filename || '|' || ii.created_at) as ingest_lineage_raw,
-                        (SELECT GROUP_CONCAT(ct.tag) FROM card_tags ct WHERE ct.oracle_id = card.oracle_id) as card_tags
+                        {validated_tags_sql("card.oracle_id", alias="card_tags")}
                     FROM printings p
                     JOIN cards card ON p.oracle_id = card.oracle_id
                     JOIN sets s ON p.set_code = s.set_code
@@ -1920,7 +1936,7 @@ class CrackPackHandler(BaseHTTPRequestHandler):
                     d.name as deck_name,
                     b.name as binder_name,
                     GROUP_CONCAT(DISTINCT ii.id || '|' || il.card_index || '|' || ii.filename || '|' || ii.created_at) as ingest_lineage_raw,
-                    (SELECT GROUP_CONCAT(ct.tag) FROM card_tags ct WHERE ct.oracle_id = card.oracle_id) as card_tags
+                    {validated_tags_sql("card.oracle_id", alias="card_tags")}
                 FROM collection c
                 JOIN printings p ON c.printing_id = p.printing_id
                 JOIN cards card ON p.oracle_id = card.oracle_id
@@ -4974,6 +4990,16 @@ class CrackPackHandler(BaseHTTPRequestHandler):
 
     def _api_deck_autofill(self, deck_id: int):
         """POST /api/decks/:id/autofill — SSE stream autofill progress."""
+        # Read body before SSE headers (optional JSON with reset flag)
+        reset = False
+        content_length = int(self.headers.get("Content-Length", 0))
+        if content_length > 0:
+            try:
+                body = json.loads(self.rfile.read(content_length))
+                reset = bool(body.get("reset", False))
+            except (json.JSONDecodeError, ValueError):
+                pass
+
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
 
@@ -5014,7 +5040,7 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             send_event("status", {"message": message})
 
         try:
-            result = svc.autofill(deck_id, progress_cb=on_progress)
+            result = svc.autofill(deck_id, progress_cb=on_progress, reset=reset)
             send_event("result", result)
             send_event("done", {})
         except ValueError as e:
@@ -5024,6 +5050,22 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             send_event("error", {"message": str(e)})
             send_event("done", {"error": True})
         conn.close()
+
+    def _api_deck_fill_lands(self, deck_id: int):
+        """POST /api/decks/:id/fill-lands — suggest lands for the deck."""
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+
+        from mtg_collector.services.deck_builder.service import DeckBuilderService
+        svc = DeckBuilderService(conn)
+
+        try:
+            result = svc.suggest_lands(deck_id)
+            self._send_json(result)
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400)
+        finally:
+            conn.close()
 
     def _api_deck_plan_generate_sse(self, deck_id: int):
         """POST /api/decks/:id/plan/generate — SSE stream Claude plan generation."""

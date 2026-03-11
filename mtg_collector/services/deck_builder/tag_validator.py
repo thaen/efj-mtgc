@@ -3,88 +3,48 @@
 Scryfall tags have significant false positives. This module validates
 tag assignments using Claude Haiku and caches results in the DB for
 progressive improvement over time.
+
+Each validation call is ONE card with only the tags relevant to the
+current deck plan (intersected with the card's tags, minus already-cached).
+Structured output guarantees valid JSON — no parsing errors.
 """
 
-import json
 import sqlite3
-import time
 from datetime import datetime, timezone
 
 import anthropic
 import httpx
+from pydantic import BaseModel
 
-# Role hints for common tags — helps Haiku understand what the tag means
+from mtg_collector.services.retry import anthropic_retry
+
+# Hints only for tags where Haiku would plausibly get it wrong.
+# Most tags are self-evident from their name.
 TAG_ROLE_HINTS = {
-    # Ramp
-    "ramp": "results in a NET INCREASE in mana sources. Fetchlands that sacrifice themselves to find a land (e.g. Marsh Flats, Evolving Wilds) are NOT ramp — they trade 1 land for 1 land",
-    "mana-dork": "creature that taps for mana",
-    "mana-rock": "artifact that taps for mana",
-    "adds-multiple-mana": "produces 2+ mana from a single source",
-    "extra-land": "lets you play additional lands per turn",
-    "cost-reducer": "reduces the mana cost of spells",
-    "repeatable-treasures": "creates Treasure tokens repeatedly",
-    # Card advantage
-    "draw": "draws cards",
-    "card-advantage": "generates card advantage (draws, impulse, or creates value)",
-    "tutor": "searches your library for a specific card",
-    "repeatable-draw": "draws cards repeatedly (not just once)",
-    "burst-draw": "draws many cards at once",
-    "impulse": "exiles cards from the top of your library to cast them",
-    "repeatable-impulsive-draw": "repeatedly exiles cards to cast",
-    "wheel": "makes all players discard and draw new hands",
-    "curiosity-like": "draws a card when a creature deals damage",
-    "life-for-cards": "pays life to draw cards",
-    "bottle-draw": "stores cards for later (e.g. hideaway, suspend)",
-    # Targeted disruption
-    "removal": "removes an opponent's permanent",
-    "creature-removal": "specifically removes creatures",
-    "artifact-removal": "specifically removes artifacts",
-    "enchantment-removal": "specifically removes enchantments",
-    "planeswalker-removal": "specifically removes planeswalkers",
-    "removal-exile": "removes by exiling (not destroying)",
-    "removal-toughness": "removes creatures by reducing toughness",
-    "disenchant": "destroys artifacts or enchantments",
-    "counter": "counters spells on the stack",
-    "edict": "forces an opponent to sacrifice",
-    "bounce": "returns permanents to hand",
-    "graveyard-hate": "exiles or disrupts opponent graveyards",
-    "land-removal": "destroys or deals with opponent lands",
-    "hand-disruption": "forces opponents to discard",
-    "burn-creature": "deals damage to creatures",
-    # Mass disruption
-    "boardwipe": "destroys or removes all creatures/permanents",
-    "sweeper-one-sided": "board wipe that spares your own permanents",
-    "multi-removal": "removes multiple permanents at once",
-    "mass-land-denial": "destroys or locks down multiple lands",
-    # Recursion / reanimation
-    "recursion": "returns cards from graveyard to hand or battlefield",
-    "reanimate": "puts creatures from graveyard onto the battlefield",
-    # Synergy tags commonly appearing in deck plans
-    "synergy-token": "creates or synergizes with creature tokens",
-    "synergy-equipment": "is an equipment or synergizes with equipment",
-    "synergy-counters": "uses or synergizes with +1/+1 or other counters",
-    "synergy-sacrifice": "benefits from sacrificing permanents",
-    "synergy-blink": "exiles and returns your own permanents for ETB triggers",
-    "synergy-graveyard": "uses the graveyard as a resource",
-    "synergy-lifegain": "gains life or benefits from lifegain",
-    "synergy-aristocrats": "gains value from creatures dying",
-    "gives-hexproof": "grants hexproof or shroud to your permanents",
-    "gives-indestructible": "grants indestructible to your permanents",
-    "haste-enabler": "gives creatures haste",
-    "evasion": "grants or has evasion (flying, unblockable, menace, etc.)",
-    "finisher": "can win the game or deal massive damage",
-    "protection": "protects your permanents or life total",
+    "ramp": "must NET INCREASE mana sources — fetchlands are NOT ramp",
+    "boardwipe": "can potentialy destory 5 or more creatures given the right board state",
+    "multi-removal": "removes 2+ permanents in one action, not single-target",
+    "card-advantage": "must generate net card advantage, not just filter/loot",
+    "mana-rock": "an artifact that generates mana"
 }
 
 HAIKU_MODEL = "claude-haiku-4-5-20251001"
-RETRY_DELAYS = [3, 6, 12, 24]
+
+
+class TagResult(BaseModel):
+    tag: str
+    valid: bool
+
+
+class TagValidation(BaseModel):
+    results: list[TagResult]
 
 
 class TagValidator:
     """Validates Scryfall tag assignments using Claude Haiku.
 
-    Checks card_tag_validations cache first, batches unknowns to Haiku,
-    stores results, and filters out invalid tags.
+    Checks card_tag_validations cache first, calls Haiku for unknowns
+    one card at a time, stores results, and filters out invalid tags.
     """
 
     def __init__(self, conn: sqlite3.Connection):
@@ -97,20 +57,15 @@ class TagValidator:
                             progress_cb=None) -> list[dict]:
         """Filter candidates by validating their tag assignment.
 
-        For cards with no cached validations, validates ALL of the card's
-        tags in one Haiku call (not just the current tag). This means
-        future queries for that card against any tag are cache hits.
-
         1. Check card_tag_validations cache for the current tag
-        2. For uncached cards, validate ALL their tags via Haiku
-        3. Store all results
+        2. For uncached cards, validate relevant tags via Haiku (one card at a time)
+        3. Store results
         4. Return only candidates valid for the current tag
         """
         if not candidates:
             return []
 
-        # Type tags are deterministically correct — verify from type_line,
-        # cache the result, and skip Haiku entirely.
+        # Type tags are deterministically correct — no Haiku needed.
         if tag.startswith("type:"):
             return self._validate_type_tag(candidates, tag)
 
@@ -126,60 +81,35 @@ class TagValidator:
 
         cached = {r["oracle_id"]: bool(r["valid"]) for r in rows}
 
-        # Split into known-valid, known-invalid, unknown
         valid_oids = set()
         unknowns = []
-        backfill = []  # Cards cached for current tag but missing other tags
 
         for c in candidates:
             oid = c["oracle_id"]
             if oid in cached:
                 if cached[oid]:
                     valid_oids.add(oid)
-                # Check if this card needs backfill (partially validated)
-                validated_count = self.conn.execute(
-                    "SELECT COUNT(*) AS cnt FROM card_tag_validations WHERE oracle_id = ?",
-                    (oid,),
-                ).fetchone()["cnt"]
-                total_tags = self.conn.execute(
-                    "SELECT COUNT(*) AS cnt FROM card_tags WHERE oracle_id = ?",
-                    (oid,),
-                ).fetchone()["cnt"]
-                if validated_count < total_tags:
-                    backfill.append(c)
             else:
                 unknowns.append(c)
 
-        # Validate unknowns (blocks on result for current tag)
-        needs_validation = unknowns + backfill
-        total = len(needs_validation)
-        for i in range(0, total, 5):
-            batch = needs_validation[i:i + 5]
+        # Validate one card at a time
+        for c in unknowns:
             if progress_cb:
-                names = ", ".join(c["name"] for c in batch)
-                progress_cb(f"Validating {names} ({i + len(batch)}/{total})")
-            self._validate_all_tags_for_cards(batch)
+                progress_cb(f"Validating {c['name']}")
+            self._validate_card(c)
 
-            # Now check the cache for the current tag
-            for c in batch:
-                row = self.conn.execute(
-                    "SELECT valid FROM card_tag_validations "
-                    "WHERE oracle_id = ? AND tag = ?",
-                    (c["oracle_id"], tag),
-                ).fetchone()
-                if row and row["valid"]:
-                    valid_oids.add(c["oracle_id"])
+            row = self.conn.execute(
+                "SELECT valid FROM card_tag_validations "
+                "WHERE oracle_id = ? AND tag = ?",
+                (c["oracle_id"], tag),
+            ).fetchone()
+            if row and row["valid"]:
+                valid_oids.add(c["oracle_id"])
 
-        # Return only valid candidates, preserving original order
         return [c for c in candidates if c["oracle_id"] in valid_oids]
 
     def _validate_type_tag(self, candidates: list[dict], tag: str) -> list[dict]:
-        """Validate a type: tag deterministically from type_line.
-
-        Type tags are derived from card types/subtypes, so we can verify
-        them without an LLM call. Results are cached in card_tag_validations
-        for consistency with Haiku-validated tags.
-        """
+        """Validate a type: tag deterministically from type_line."""
         from mtg_collector.services.deck_builder.type_tags import _parse_type_tags
 
         now = datetime.now(timezone.utc).isoformat()
@@ -190,7 +120,6 @@ class TagValidator:
             card_type_tags = _parse_type_tags(type_line)
             is_valid = tag in card_type_tags
 
-            # Cache for future lookups
             self.conn.execute(
                 "INSERT OR IGNORE INTO card_tag_validations "
                 "(oracle_id, tag, valid, reason, validated_at) "
@@ -204,131 +133,63 @@ class TagValidator:
         self.conn.commit()
         return valid
 
-    def _validate_all_tags_for_cards(self, cards: list[dict]):
-        """Validate ALL tags for each card in one Haiku call, caching results."""
-        # Gather all tags for each card
-        card_tags_map: dict[str, list[str]] = {}
-        for c in cards:
-            oid = c["oracle_id"]
-            rows = self.conn.execute(
-                "SELECT tag FROM card_tags WHERE oracle_id = ?", (oid,)
-            ).fetchall()
-            # Skip type: tags — they're validated deterministically, not by Haiku
-            card_tags_map[oid] = [r["tag"] for r in rows if not r["tag"].startswith("type:")]
+    def _validate_card(self, card: dict):
+        """Validate one card's unvalidated tags via Haiku, cache results."""
+        oid = card["oracle_id"]
 
-        results = self._call_haiku_all_tags(cards, card_tags_map)
+        # Get all non-type tags for this card
+        rows = self.conn.execute(
+            "SELECT tag FROM card_tags WHERE oracle_id = ?", (oid,)
+        ).fetchall()
+        all_tags = [r["tag"] for r in rows if not r["tag"].startswith("type:")]
+
+        # Subtract already-cached validations
+        cached_rows = self.conn.execute(
+            "SELECT tag FROM card_tag_validations WHERE oracle_id = ?", (oid,)
+        ).fetchall()
+        cached_tags = {r["tag"] for r in cached_rows}
+        tags_to_validate = [t for t in all_tags if t not in cached_tags]
+
+        if not tags_to_validate:
+            return
+
+        # Build minimal prompt
+        name = card.get("name", "Unknown")
+        type_line = card.get("type_line", "")
+        oracle_text = card.get("oracle_text", "") or ""
+
+        # Only include hints for tags being validated
+        hints = []
+        for t in tags_to_validate:
+            if t in TAG_ROLE_HINTS:
+                hints.append(f"- {t}: {TAG_ROLE_HINTS[t]}")
+
+        hint_block = ""
+        if hints:
+            hint_block = "\n\nNotes:\n" + "\n".join(hints)
+
+        prompt = (
+            f"Does this card fulfill these roles?\n\n"
+            f"{name} ({type_line}): \"{oracle_text}\"\n"
+            f"Tags: {', '.join(tags_to_validate)}"
+            f"{hint_block}"
+        )
+
+        response = anthropic_retry(lambda: self.client.messages.parse(
+            model=HAIKU_MODEL,
+            max_tokens=1024,
+            messages=[{"role": "user", "content": prompt}],
+            output_format=TagValidation,
+        ))
+
         now = datetime.now(timezone.utc).isoformat()
-
-        for r in results:
-            self.conn.execute(
-                "INSERT OR REPLACE INTO card_tag_validations "
-                "(oracle_id, tag, valid, reason, validated_at) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (r["oracle_id"], r["tag"], int(r["valid"]), r.get("reason"), now),
-            )
+        for r in response.parsed_output.results:
+            if r.tag in tags_to_validate:
+                self.conn.execute(
+                    "INSERT OR REPLACE INTO card_tag_validations "
+                    "(oracle_id, tag, valid, reason, validated_at) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (oid, r.tag, int(r.valid), None, now),
+                )
 
         self.conn.commit()
-
-    def _call_haiku_all_tags(self, cards: list[dict],
-                             card_tags_map: dict[str, list[str]]) -> list[dict]:
-        """Call Claude Haiku to validate all tag assignments for a batch of cards.
-
-        Returns list of {oracle_id, tag, valid, reason} dicts.
-        """
-        lines = []
-        for c in cards:
-            name = c.get("name", "Unknown")
-            type_line = c.get("type_line", "")
-            oracle_text = c.get("oracle_text", "") or ""
-            tags = card_tags_map.get(c["oracle_id"], [])
-            tag_hints = []
-            for t in tags:
-                hint = TAG_ROLE_HINTS.get(t, t.replace("-", " "))
-                tag_hints.append(f"{t} ({hint})")
-            lines.append(
-                f"- **{name}** ({type_line}): \"{oracle_text}\"\n"
-                f"  Tags: {', '.join(tag_hints)}"
-            )
-
-        card_block = "\n".join(lines)
-
-        prompt = f"""For each card below, determine which of its assigned tags are genuinely correct and which are false positives.
-
-A tag is VALID if the card actually fulfills that role. A tag is INVALID if it's a misleading association (e.g. a card tagged "mana-rock" that doesn't produce mana, or "creature-removal" on a card that can't remove creatures).
-
-Cards and their tags:
-{card_block}
-
-For each card, evaluate ALL its tags. Respond with a JSON array where each element is:
-{{"name": "Card Name", "tag": "tag-name", "valid": true/false, "reason": "brief explanation"}}
-
-Return ONLY the JSON array, no other text."""
-
-        for attempt in range(len(RETRY_DELAYS) + 1):
-            try:
-                response = self.client.messages.create(
-                    model=HAIKU_MODEL,
-                    max_tokens=4096,
-                    messages=[{"role": "user", "content": prompt}],
-                )
-                text = response.content[0].text.strip()
-                # Strip markdown code fences if present
-                if text.startswith("```"):
-                    text = text.split("\n", 1)[1] if "\n" in text else text[3:]
-                    if text.endswith("```"):
-                        text = text[:-3].strip()
-
-                results = json.loads(text)
-
-                # Map results back to oracle_ids
-                name_to_oid = {c["name"]: c["oracle_id"] for c in cards}
-                validated = []
-                responded_keys: set[tuple[str, str]] = set()
-
-                for r in results:
-                    oid = name_to_oid.get(r.get("name"))
-                    tag = r.get("tag")
-                    if oid and tag:
-                        validated.append({
-                            "oracle_id": oid,
-                            "tag": tag,
-                            "valid": bool(r.get("valid", False)),
-                            "reason": r.get("reason", ""),
-                        })
-                        responded_keys.add((oid, tag))
-
-                # Any tags not in response — assume valid (don't block)
-                for c in cards:
-                    oid = c["oracle_id"]
-                    for tag in card_tags_map.get(oid, []):
-                        if (oid, tag) not in responded_keys:
-                            validated.append({
-                                "oracle_id": oid,
-                                "tag": tag,
-                                "valid": True,
-                                "reason": "not in Haiku response, assumed valid",
-                            })
-
-                return validated
-
-            except anthropic.BadRequestError:
-                # Don't retry 400 errors
-                break
-            except (anthropic.APIError, json.JSONDecodeError):
-                if attempt < len(RETRY_DELAYS):
-                    time.sleep(RETRY_DELAYS[attempt])
-                else:
-                    break
-
-        # On total failure, assume all valid (don't block autofill)
-        all_results = []
-        for c in cards:
-            oid = c["oracle_id"]
-            for tag in card_tags_map.get(oid, []):
-                all_results.append({
-                    "oracle_id": oid,
-                    "tag": tag,
-                    "valid": True,
-                    "reason": "validation failed, assumed valid",
-                })
-        return all_results

@@ -10,9 +10,12 @@ import sqlite3
 
 # Supertypes to strip — these don't carry thematic deck-building meaning
 _SUPERTYPES = frozenset({
-    "basic", "legendary", "snow", "world", "ongoing",
+    "basic", "snow", "world", "ongoing",
     "token", "host", "elite",
 })
+
+# Supertypes that ARE useful as plan targets (e.g. "type:legendary")
+_TAGGABLE_SUPERTYPES = frozenset({"legendary"})
 
 # Card types to include as tags (lowercased for matching)
 _CARD_TYPES = frozenset({
@@ -25,7 +28,7 @@ def _parse_type_tags(type_line: str) -> list[str]:
     """Extract type: tags from a type_line string.
 
     >>> sorted(_parse_type_tags("Legendary Creature — Pirate Wizard"))
-    ['type:creature', 'type:pirate', 'type:wizard']
+    ['type:creature', 'type:legendary', 'type:pirate', 'type:wizard']
     >>> sorted(_parse_type_tags("Artifact Creature — Robot"))
     ['type:artifact', 'type:creature', 'type:robot']
     >>> _parse_type_tags("Basic Land — Forest")
@@ -47,9 +50,12 @@ def _parse_type_tags(type_line: str) -> list[str]:
         else:
             type_part, subtype_part = face, ""
 
-        # Card types (excluding supertypes)
+        # Card types (excluding supertypes, but tagging useful supertypes)
         for word in type_part.split():
             w = word.lower().strip()
+            if w in _TAGGABLE_SUPERTYPES:
+                tags.append(f"type:{w}")
+                continue
             if w in _SUPERTYPES:
                 continue
             if w in _CARD_TYPES:

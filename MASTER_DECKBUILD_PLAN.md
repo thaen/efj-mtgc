@@ -222,34 +222,93 @@ cache hits.
   both "Creature Removal" and "Board Wipes".
 - `DeckRepository.get_cards()` returns `tags` via GROUP_CONCAT subquery.
 
-### 4.4: Tag coverage audit
+#### Two-column desktop layout — DONE
+- Desktop: two-column layout — cards (75%) left, sidebar (25%) right.
+- Sidebar contains: deck name, commander card image, deck meta (format,
+  card count), action buttons, plan progress.
+- Mobile: single-column with `column-reverse` (cards on top, sidebar below).
+- Full-width layout (no `max-width` cap).
 
-Audit the collection for cards that may fall through the cracks of the
-current autofill scoring:
+#### Card type filter pills — DONE
+- Replaced zone tabs (Mainboard/Sideboard/Commander) with dynamic card type
+  filter pills: Creature, Instant, Sorcery, Artifact, Enchantment,
+  Planeswalker, Battle, Land — only pills for types present in the deck.
+- "All" pill resets filter. Pills show count per type.
+- Commander zone cards excluded from type counts and filtering.
 
-1. **Cards with zero tags** — query `cards` LEFT JOIN `card_tags` WHERE
-   `card_tags.oracle_id IS NULL` AND the card is in the collection. These
-   cards will never be suggested by autofill since it queries by tag.
-   Check if any are legitimately useful (e.g. new cards Scryfall hasn't
-   tagged yet) and need manual tag backfill.
+#### Dynamic button visibility — DONE
+- "Generate Plan" hidden when a plan already exists.
+- "Autofill" hidden when deck has >90 cards.
+- "Fill Lands" hidden when deck has >20 lands.
+- "Delete Deck" moved to header bar (far right).
+- Removed: Import Expected List, Remove Selected, Add Cards, Clear Plan.
+- `updateDynamicButtons()` called after plan save, autofill, fill-lands.
 
-2. **Cards that autofill never suggests** — beyond zero-tag cards, some
-   tagged cards may be consistently out-scored. Run autofill across a
-   few representative commanders and collect the "always ignored" set.
-   Determine if the scoring weights or tag assignments need adjustment.
+#### Plan variants modal — DONE
+- Initial plan variant selection shown in a full-width modal instead of
+  the narrow sidebar panel.
+- Plan progress bars use stacked layout (label+count on top, bar below)
+  to fit the 25% sidebar width.
 
-3. **Tag coverage gaps** — compare tags that exist in `card_tags` against
-   tags that plans actually request. If plans routinely request tags that
-   have very few or zero matching owned cards, surface these as "acquire"
-   suggestions or flag the tag mapping as incomplete.
+#### Grid defaults — DONE
+- Grid view is the default (was table).
+- 5 cards per row on desktop, 2 on mobile.
+- CSS Grid with `--grid-cols` custom property (no JS pixel calculation).
 
-### 4.4: Ship it
+#### Lands plan category fix — DONE
+- Clicking "lands" in plan progress now correctly filters by
+  `type_line.includes('Land')` instead of looking for a nonexistent
+  "lands" tag in card tags.
+
+### 4.4: Plan editing
+
+Plans are currently generate-once with no way to adjust targets after creation.
+This causes problems when Claude picks a tag that's close but wrong (e.g.
+`gives-deathtouch` when you want creatures that *have* deathtouch, not grant it).
+
+- Edit plan targets inline in the deck detail UI: rename a tag, change the
+  count, add a new tag, remove one.
+- Regenerate plan: re-run Claude with the current commander + optional user
+  guidance ("I want deathtouch creatures, not deathtouch granters").
+- Edits save via existing `set_plan()` — no new API surface needed beyond
+  a PUT to update targets.
+
+### 4.5: Ship it
 
 ---
 
-## Phase 5: Card Replacement
+## Phase 5: Intelligent Land Autofill — DONE
 
-### 5.1: Replace a card and get suggestions
+### 5.1: Color-fixing land selection — DONE
+
+Current `fill_lands` counts mana pips and distributes basics proportionally.
+Also handles owned dual/utility lands and color-fixing needs.
+
+**How it works:**
+1. Analyze the deck's color requirements: pip counts per color, number of
+   cards with demanding costs (e.g. {W}{W}{W}, {U}{U}), curve by color.
+2. Query owned lands: duals, fetches, shocks, check lands, pain lands,
+   filter lands, utility lands — anything that produces colored mana.
+3. Prioritize color-fixing lands that cover the deck's weakest colors or
+   most demanding costs. A 4-color deck with heavy white pips needs more
+   white sources than a splash color.
+4. Fill remaining slots with basics proportional to pip distribution.
+5. Suggest utility lands (Command Tower, Reliquary Tower, etc.) from the
+   user's collection.
+
+**Ranking signals for lands:**
+- Number of colors produced (more = better for multicolor decks)
+- Enters untapped vs tapped (untapped = better)
+- Covers weak colors (colors with few sources relative to pip demand)
+- Fetchable by other lands in the deck (e.g. shocks are fetchable)
+
+### 5.2: Ship it — DONE
+
+---
+
+## Phase 6: Card Replacement
+
+### 6.1: Replace a card and get suggestions
 
 User selects a card in their deck and says "replace this". System suggests
 alternatives from the collection.
@@ -274,37 +333,109 @@ alternatives from the collection.
 - Sidebar or modal shows replacement candidates with weight sliders.
 - Clicking one does a swap (remove old, add new) via existing API.
 
-### 5.2: Ship it
+### 6.2: Ship it
 
 ---
 
-## Phase 6: Intelligent Land Autofill
+## Phase 7: Plans with Custom Queries
 
-### 6.1: Color-fixing land selection
+### Problem
 
-Current `fill_lands` just counts mana pips and distributes basics
-proportionally. This works but ignores the user's owned dual lands,
-fetch lands, utility lands, and color-fixing needs.
+Some commanders reward specific card characteristics that don't map to any
+existing Scryfall tag. Duskana, the Rage Mother rewards creatures with base
+power and toughness 2 or less. Slogurk, the Overslime wants cards that put
+lands in the graveyard. Teysa Karlov cares about creatures with death
+triggers. These needs can't be expressed as a tag lookup — they require
+actual SQL queries against card properties (power, toughness, oracle_text
+patterns, type_line patterns, etc.).
 
-**How it works:**
-1. Analyze the deck's color requirements: pip counts per color, number of
-   cards with demanding costs (e.g. {W}{W}{W}, {U}{U}), curve by color.
-2. Query owned lands: duals, fetches, shocks, check lands, pain lands,
-   filter lands, utility lands — anything that produces colored mana.
-3. Prioritize color-fixing lands that cover the deck's weakest colors or
-   most demanding costs. A 4-color deck with heavy white pips needs more
-   white sources than a splash color.
-4. Fill remaining slots with basics proportional to pip distribution.
-5. Suggest utility lands (Command Tower, Reliquary Tower, etc.) from the
-   user's collection.
+### 7.1: Planning agent emits custom queries
 
-**Ranking signals for lands:**
-- Number of colors produced (more = better for multicolor decks)
-- Enters untapped vs tapped (untapped = better)
-- Covers weak colors (colors with few sources relative to pip demand)
-- Fetchable by other lands in the deck (e.g. shocks are fetchable)
+During plan generation (`POST /api/decks/{id}/plan`), the Claude planning
+agent can define **custom query categories** alongside normal tag-based
+categories. Each custom category includes:
 
-### 6.2: Ship it
+- A category name (e.g. "small-creatures", "land-sacrifice", "death-triggers")
+- A target count
+- A SQL WHERE clause fragment that selects matching cards from the `cards`
+  table (e.g. `CAST(power AS INTEGER) <= 2 AND CAST(toughness AS INTEGER) <= 2
+  AND type_line LIKE '%Creature%'`)
+
+**Plan JSON format extension:**
+```json
+{
+  "targets": {
+    "ramp": 10,
+    "draw": 8,
+    "removal": 8
+  },
+  "custom_queries": {
+    "small-creatures": {
+      "target": 25,
+      "description": "Creatures with base power and toughness ≤ 2 (Duskana buff targets)",
+      "where": "CAST(power AS INTEGER) <= 2 AND CAST(toughness AS INTEGER) <= 2 AND type_line LIKE '%Creature%'"
+    }
+  }
+}
+```
+
+**Claude prompt changes:**
+- Include schema info for the `cards` table (column names, types) so Claude
+  can write valid WHERE clauses.
+- Provide examples of common custom query patterns (power/toughness checks,
+  oracle_text LIKE patterns, type_line matching).
+- Instruct Claude to use custom queries ONLY when no existing tag covers
+  the need — prefer tags when available.
+
+**Validation:**
+- The server validates each custom query by running
+  `SELECT COUNT(*) FROM cards WHERE <clause> LIMIT 1` before saving the plan.
+  If the query errors or returns 0 results, reject it with an error message
+  back to Claude for retry.
+- Parameterize defensively: the WHERE clause runs in a read-only query
+  against the cards table only — no JOINs to other tables, no subqueries,
+  no writes. Enforce via SQL parsing or by wrapping in a CTE.
+
+### 7.2: Autofill handles custom query categories
+
+`_query_tag_candidates()` gains a code path for custom query categories:
+
+1. If the category exists in `plan.custom_queries`, use the stored WHERE
+   clause instead of the tag-based JOIN to `card_tags`.
+2. The rest of the pipeline is identical: color identity filtering,
+   collection ownership check, exclude already-in-deck, composite scoring,
+   Haiku validation (skipped for custom queries — the SQL is the filter).
+3. Budget-aware loop treats custom query categories the same as tag
+   categories for cross-counting purposes. A card picked for a custom
+   query category still increments tag counts for any tags it has.
+
+**Query template:**
+```sql
+SELECT c.oracle_id, c.name, c.mana_cost, c.type_line, ...
+FROM cards c
+JOIN printings p ON p.oracle_id = c.oracle_id
+JOIN collection col ON col.printing_id = p.printing_id
+WHERE ({custom_where_clause})
+  AND c.color_identity_key IN ({color_filter})
+  AND c.oracle_id NOT IN ({exclude_ids})
+  AND col.status = 'owned'
+  AND col.deck_id IS NULL
+```
+
+### 7.3: Plan progress and UI
+
+- Custom query categories appear in the plan progress sidebar alongside
+  tag categories. Use the `description` field as a tooltip.
+- Clicking a custom query category filters the card grid to cards matching
+  that query (re-run the WHERE clause client-side is impractical — instead,
+  tag matching cards with a synthetic tag at load time, or use the
+  `plan_tags` intersection approach).
+- Simplest approach: when loading deck cards, for each custom query
+  category, run a server-side check (`GET /api/decks/{id}/plan/match?category=X`)
+  that returns oracle_ids matching the query. Client tags those cards with
+  the category name for filtering.
+
+### 7.4: Ship it
 
 ---
 
@@ -316,11 +447,20 @@ fetch lands, utility lands, and color-fixing needs.
   `type_line` backfill + `edhrec_commander_cards` at v36
 - `mtg_collector/cli/cache_cmd.py` — `cache_all()`, add `cache_tags()`
 - `mtg_collector/services/deck_builder/service.py` — `DeckBuilderService`,
-  autofill with composite scoring, Haiku validation integration
+  autofill with composite scoring, budget-aware loop, Haiku validation
 - `mtg_collector/services/deck_builder/tag_validator.py` — `TagValidator`,
   Haiku-based tag validation with `TAG_ROLE_HINTS` and DB caching
 - `mtg_collector/services/deck_builder/constants.py` — `INFRASTRUCTURE`
   mapping (categories → tag sets)
+- `mtg_collector/services/deck_builder/tags.py` — `TAG_ALIASES` for
+  autofill cross-tag search
+- `mtg_collector/services/deck_builder/type_tags.py` — deterministic
+  `type:` tag validation from type_line
+- `mtg_collector/static/deck-detail.js` — deck detail page logic:
+  two-column layout, grid/table view, type filter pills, dynamic buttons,
+  plan modal, autofill UI
+- `mtg_collector/static/deck-detail.css` — deck detail page styles
+- `mtg_collector/static/deck_detail.html` — deck detail page template
 - `mtg_collector/static/collection.html` — collection page, client-side
   filtering
 - `mtg_collector/static/decks.html` — deck page, list + detail views
