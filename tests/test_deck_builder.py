@@ -931,6 +931,170 @@ def _deterministic_autofill(monkeypatch):
     monkeypatch.setattr(svc_mod, "AUTOFILL_WEIGHTS", weights)
 
 
+class TestReplacements:
+    def _setup_replacement_fixture(self, seeded_db):
+        """Add extra cards for replacement testing."""
+        db, entries = seeded_db
+        card_repo = CardRepository(db)
+        printing_repo = PrintingRepository(db)
+        collection_repo = CollectionRepository(db)
+        set_repo = SetRepository(db)
+
+        # Another 1-CMC artifact with ramp tag (replacement for Sol Ring)
+        card_repo.upsert(Card(
+            oracle_id="mindstone-id", name="Mind Stone",
+            type_line="Artifact", mana_cost="{2}", cmc=2.0,
+            oracle_text="{T}: Add {C}. {1}, {T}, Sacrifice Mind Stone: Draw a card.",
+            colors=[], color_identity=[],
+        ))
+        printing_repo.upsert(Printing(
+            printing_id="mindstone-p1", oracle_id="mindstone-id", set_code="cmd",
+            collector_number="20", rarity="U",
+            raw_json=json.dumps({"legalities": {"commander": "legal"}}),
+        ))
+        entries["mindstone-p1"] = collection_repo.add(
+            CollectionEntry(id=None, printing_id="mindstone-p1", finish="nonfoil")
+        )
+        db.execute("INSERT OR IGNORE INTO card_tags (oracle_id, tag) VALUES (?, ?)",
+                   ("mindstone-id", "ramp"))
+        db.execute("INSERT OR IGNORE INTO card_tags (oracle_id, tag) VALUES (?, ?)",
+                   ("mindstone-id", "mana-rock"))
+
+        # Another 1-CMC instant, white, with removal tag (type-based for STP)
+        card_repo.upsert(Card(
+            oracle_id="pathtx-id", name="Path to Exile",
+            type_line="Instant", mana_cost="{W}", cmc=1.0,
+            oracle_text="Exile target creature.",
+            colors=["W"], color_identity=["W"],
+        ))
+        printing_repo.upsert(Printing(
+            printing_id="pathtx-p1", oracle_id="pathtx-id", set_code="cmd",
+            collector_number="21", rarity="U",
+            raw_json=json.dumps({"legalities": {"commander": "legal"}}),
+        ))
+        entries["pathtx-p1"] = collection_repo.add(
+            CollectionEntry(id=None, printing_id="pathtx-p1", finish="nonfoil")
+        )
+        db.execute("INSERT OR IGNORE INTO card_tags (oracle_id, tag) VALUES (?, ?)",
+                   ("pathtx-id", "removal"))
+        db.execute("INSERT OR IGNORE INTO card_tags (oracle_id, tag) VALUES (?, ?)",
+                   ("pathtx-id", "creature-removal"))
+
+        # A red card at CMC 1 (off-CI for Atraxa)
+        card_repo.upsert(Card(
+            oracle_id="shock-id", name="Shock",
+            type_line="Instant", mana_cost="{R}", cmc=1.0,
+            oracle_text="Shock deals 2 damage.",
+            colors=["R"], color_identity=["R"],
+        ))
+        printing_repo.upsert(Printing(
+            printing_id="shock-p1", oracle_id="shock-id", set_code="m21",
+            collector_number="22", rarity="C",
+            raw_json=json.dumps({"legalities": {"commander": "legal"}}),
+        ))
+        entries["shock-p1"] = collection_repo.add(
+            CollectionEntry(id=None, printing_id="shock-p1", finish="nonfoil")
+        )
+        db.execute("INSERT OR IGNORE INTO card_tags (oracle_id, tag) VALUES (?, ?)",
+                   ("shock-id", "removal"))
+
+        db.commit()
+        return db, entries
+
+    def test_get_replacements_role_based(self, seeded_db):
+        """Cards with same plan tags + CMC should appear in role suggestions."""
+        db, entries = self._setup_replacement_fixture(seeded_db)
+        svc = DeckBuilderService(db)
+        deck = svc.create_deck("Atraxa, Praetors' Voice")
+
+        # Add STP to deck, set plan with removal tag
+        svc.add_card(deck["deck_id"], "Swords to Plowshares")
+        svc.set_plan(deck["deck_id"], {"removal": 2})
+
+        # Find the STP collection entry in the deck
+        deck_cards = svc.deck_repo.get_cards(deck["deck_id"])
+        stp_cid = [c["id"] for c in deck_cards if c["name"] == "Swords to Plowshares"][0]
+
+        result = svc.get_replacements(deck["deck_id"], stp_cid)
+        role_names = [c["name"] for c in result["role_suggestions"]]
+        assert "Path to Exile" in role_names
+
+    def test_get_replacements_type_based(self, seeded_db):
+        """Cards with same type + CMC + color should appear in type suggestions."""
+        db, entries = self._setup_replacement_fixture(seeded_db)
+        svc = DeckBuilderService(db)
+        deck = svc.create_deck("Atraxa, Praetors' Voice")
+
+        svc.add_card(deck["deck_id"], "Swords to Plowshares")
+        svc.set_plan(deck["deck_id"], {"removal": 2})
+
+        deck_cards = svc.deck_repo.get_cards(deck["deck_id"])
+        stp_cid = [c["id"] for c in deck_cards if c["name"] == "Swords to Plowshares"][0]
+
+        result = svc.get_replacements(deck["deck_id"], stp_cid)
+        type_names = [c["name"] for c in result["type_suggestions"]]
+        # Path to Exile: same CMC=1, same color=[W], same type=Instant
+        assert "Path to Exile" in type_names
+
+    def test_get_replacements_no_plan_tags(self, seeded_db):
+        """Card with no plan tags should return empty role suggestions."""
+        db, entries = self._setup_replacement_fixture(seeded_db)
+        svc = DeckBuilderService(db)
+        deck = svc.create_deck("Atraxa, Praetors' Voice")
+
+        # Grizzly Bears has no plan-relevant tags
+        svc.add_card(deck["deck_id"], "Grizzly Bears")
+        svc.set_plan(deck["deck_id"], {"removal": 2})
+
+        deck_cards = svc.deck_repo.get_cards(deck["deck_id"])
+        bear_cid = [c["id"] for c in deck_cards if c["name"] == "Grizzly Bears"][0]
+
+        result = svc.get_replacements(deck["deck_id"], bear_cid)
+        assert result["role_suggestions"] == []
+        # Type suggestions might still work (Creature at CMC 2)
+
+    def test_get_replacements_excludes_deck_cards(self, seeded_db):
+        """Cards already in the deck should not appear in suggestions."""
+        db, entries = self._setup_replacement_fixture(seeded_db)
+        svc = DeckBuilderService(db)
+        deck = svc.create_deck("Atraxa, Praetors' Voice")
+
+        svc.add_card(deck["deck_id"], "Swords to Plowshares")
+        svc.add_card(deck["deck_id"], "Path to Exile")
+        svc.set_plan(deck["deck_id"], {"removal": 2})
+
+        deck_cards = svc.deck_repo.get_cards(deck["deck_id"])
+        stp_cid = [c["id"] for c in deck_cards if c["name"] == "Swords to Plowshares"][0]
+
+        result = svc.get_replacements(deck["deck_id"], stp_cid)
+        all_names = ([c["name"] for c in result["role_suggestions"]] +
+                     [c["name"] for c in result["type_suggestions"]])
+        # Path to Exile is already in deck, should not be suggested
+        assert "Path to Exile" not in all_names
+        # STP itself should not be suggested
+        assert "Swords to Plowshares" not in all_names
+
+    def test_get_replacements_ci_filtering(self, seeded_db):
+        """Cards outside commander CI should not appear."""
+        db, entries = self._setup_replacement_fixture(seeded_db)
+        svc = DeckBuilderService(db)
+        deck = svc.create_deck("Atraxa, Praetors' Voice")
+
+        svc.add_card(deck["deck_id"], "Swords to Plowshares")
+        svc.set_plan(deck["deck_id"], {"removal": 2})
+
+        deck_cards = svc.deck_repo.get_cards(deck["deck_id"])
+        stp_cid = [c["id"] for c in deck_cards if c["name"] == "Swords to Plowshares"][0]
+
+        result = svc.get_replacements(deck["deck_id"], stp_cid)
+        all_names = ([c["name"] for c in result["role_suggestions"]] +
+                     [c["name"] for c in result["type_suggestions"]])
+        # Shock has R in CI, Atraxa is WUBG — Shock should be excluded
+        assert "Shock" not in all_names
+        # Lightning Bolt too
+        assert "Lightning Bolt" not in all_names
+
+
 class TestAutofill:
     def test_autofill_suggests_cards_for_plan(self, seeded_db):
         """Autofill should suggest cards matching plan tag targets."""
@@ -1658,5 +1822,175 @@ class TestTypeTags:
         assert "type:creature" in tags
         assert "type:legendary" in tags
         assert "type:angel" in tags
+
+
+class TestCustomQueryTargets:
+    """Tests for custom query plan targets and curve scoring."""
+
+    def test_set_plan_custom_query_target(self, seeded_db):
+        """set_plan accepts dict targets with count/query/label."""
+        db, _ = seeded_db
+        svc = DeckBuilderService(db)
+        deck_id = svc.create_deck("Atraxa, Praetors' Voice")["deck_id"]
+
+        targets = {
+            "lands": 37,
+            "ramp": 8,
+            "creatures-with-deathtouch": {
+                "count": 5,
+                "query": "card.oracle_text LIKE '%deathtouch%' AND card.type_line LIKE '%Creature%'",
+                "label": "Deathtouch Creatures",
+            },
+        }
+        result = svc.set_plan(deck_id, targets)
+        assert result["targets"]["ramp"] == 8
+        assert result["targets"]["creatures-with-deathtouch"]["count"] == 5
+
+        # Verify it persists
+        plan = svc.get_plan(deck_id)
+        assert plan["targets"]["creatures-with-deathtouch"]["label"] == "Deathtouch Creatures"
+
+    def test_set_plan_rejects_invalid_custom_query(self, seeded_db):
+        """set_plan rejects custom query targets with invalid SQL."""
+        db, _ = seeded_db
+        svc = DeckBuilderService(db)
+        deck_id = svc.create_deck("Atraxa, Praetors' Voice")["deck_id"]
+
+        targets = {
+            "bad-query": {
+                "count": 5,
+                "query": "INVALID SQL GARBAGE HERE !!!",
+                "label": "Bad Query",
+            },
+        }
+        with pytest.raises(ValueError, match="Invalid custom query SQL"):
+            svc.set_plan(deck_id, targets)
+
+    def test_set_plan_rejects_mutation_query(self, seeded_db):
+        """set_plan rejects custom queries containing mutation keywords."""
+        db, _ = seeded_db
+        svc = DeckBuilderService(db)
+        deck_id = svc.create_deck("Atraxa, Praetors' Voice")["deck_id"]
+
+        targets = {
+            "evil": {
+                "count": 5,
+                "query": "1=1; DROP TABLE cards;--",
+                "label": "Evil",
+            },
+        }
+        with pytest.raises(ValueError, match="Forbidden SQL keyword"):
+            svc.set_plan(deck_id, targets)
+
+    def test_set_plan_rejects_missing_fields(self, seeded_db):
+        """set_plan rejects dict targets missing required fields."""
+        db, _ = seeded_db
+        svc = DeckBuilderService(db)
+        deck_id = svc.create_deck("Atraxa, Praetors' Voice")["deck_id"]
+
+        targets = {
+            "bad": {"count": 5, "query": "1=1"},  # missing "label"
+        }
+        with pytest.raises(ValueError, match="must have"):
+            svc.set_plan(deck_id, targets)
+
+    def test_plan_progress_custom_query(self, seeded_db):
+        """_get_plan_progress counts matching cards for custom query targets."""
+        db, _ = seeded_db
+        svc = DeckBuilderService(db)
+        deck_id = svc.create_deck("Atraxa, Praetors' Voice")["deck_id"]
+
+        # Add a creature with deathtouch (Atraxa has it in oracle text)
+        # Atraxa is already the commander — she matches "deathtouch"
+
+        targets = {
+            "lands": 37,
+            "deathtouch": {
+                "count": 5,
+                "query": "card.oracle_text LIKE '%deathtouch%'",
+                "label": "Deathtouch Cards",
+            },
+        }
+        svc.set_plan(deck_id, targets)
+
+        cards = svc.deck_repo.get_cards(deck_id)
+        plan = svc.get_plan(deck_id)
+        progress = svc._get_plan_progress(deck_id, cards, plan)
+
+        # Atraxa is commander with "deathtouch" in text — should count
+        assert progress["deathtouch"]["target"] == 5
+        assert progress["deathtouch"]["current"] >= 1
+        assert progress["deathtouch"]["label"] == "Deathtouch Cards"
+
+    def test_query_custom_candidates(self, seeded_db):
+        """_query_custom_candidates returns cards matching a WHERE clause."""
+        db, _ = seeded_db
+        svc = DeckBuilderService(db)
+        deck_id = svc.create_deck("Atraxa, Praetors' Voice")["deck_id"]
+        commander_ci = svc._get_commander_identity(deck_id)
+        ci_clauses = svc._ci_exclusion_sql(commander_ci)
+
+        # Query for artifacts
+        results = svc._query_custom_candidates(
+            "card.type_line LIKE '%Artifact%'",
+            deck_id, commander_ci, ci_clauses, set(), limit=10,
+        )
+        names = [r["name"] for r in results]
+        assert "Sol Ring" in names
+
+    def test_compute_curve_state(self, seeded_db):
+        """_compute_curve_state correctly buckets cards."""
+        db, _ = seeded_db
+        svc = DeckBuilderService(db)
+        deck_id = svc.create_deck("Atraxa, Praetors' Voice")["deck_id"]
+
+        # Add some cards to the deck
+        svc.add_card(deck_id, "Sol Ring")
+        svc.add_card(deck_id, "Rhystic Study")
+
+        cards = svc.deck_repo.get_cards(deck_id)
+        state = svc._compute_curve_state(cards)
+
+        # Sol Ring is CMC 1 noncreature (Artifact)
+        assert state["noncreature"].get(1, 0) >= 1
+        # Rhystic Study is CMC 3 noncreature (Enchantment)
+        assert state["noncreature"].get(3, 0) >= 1
+
+    def test_score_candidates_curve_fit(self, seeded_db):
+        """Curve fit signal boosts cards in under-represented CMC buckets."""
+        db, _ = seeded_db
+        svc = DeckBuilderService(db)
+
+        # Create two fake candidates at different CMCs
+        candidates = [
+            {
+                "oracle_id": "solring-id", "name": "Sol Ring",
+                "type_line": "Artifact", "mana_cost": "{1}", "cmc": 1.0,
+                "oracle_text": "Tap: Add CC", "raw_json": _make_raw_json(edhrec_rank=1),
+                "collection_id": 1, "released_at": "2020-01-01",
+                "tag_count": 1, "salt_score": 1.0, "is_bling": 0,
+            },
+            {
+                "oracle_id": "rhystic-id", "name": "Rhystic Study",
+                "type_line": "Enchantment", "mana_cost": "{2}{U}", "cmc": 3.0,
+                "oracle_text": "Draw a card", "raw_json": _make_raw_json(edhrec_rank=2),
+                "collection_id": 2, "released_at": "2020-01-01",
+                "tag_count": 1, "salt_score": 1.0, "is_bling": 0,
+            },
+        ]
+
+        # Curve state with lots of 1-drops but no 3-drops
+        curve_state = {
+            "creature": {},
+            "noncreature": {1: 10, 3: 0},
+        }
+
+        random.seed(42)
+        scored = svc._score_candidates(candidates, curve_state=curve_state)
+        by_name = {c["name"]: c for c in scored}
+
+        # Rhystic Study (CMC 3, deficit 7) should have higher curve_fit
+        # than Sol Ring (CMC 1, deficit 0 since 10 > target 7)
+        assert by_name["Rhystic Study"]["_curve_fit"] > by_name["Sol Ring"]["_curve_fit"]
 
 

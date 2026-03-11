@@ -1110,6 +1110,12 @@ class CrackPackHandler(BaseHTTPRequestHandler):
                 self._api_deck_plan_generate_sse(int(did))
             else:
                 self._send_json({"error": "Not found"}, 404)
+        elif path.startswith("/api/decks/") and path.endswith("/weights"):
+            did = path[len("/api/decks/"):-len("/weights")]
+            if did.isdigit():
+                self._api_deck_weights_get(int(did))
+            else:
+                self._send_json({"error": "Not found"}, 404)
         elif path.startswith("/api/decks/") and path.endswith("/plan"):
             did = path[len("/api/decks/"):-len("/plan")]
             if did.isdigit():
@@ -1120,6 +1126,12 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             did = path[len("/api/decks/"):-len("/completeness")]
             if did.isdigit():
                 self._api_deck_completeness(int(did))
+            else:
+                self._send_json({"error": "Not found"}, 404)
+        elif path.startswith("/api/decks/") and path.endswith("/replacements"):
+            did = path[len("/api/decks/"):-len("/replacements")]
+            if did.isdigit():
+                self._api_deck_replacements(int(did), params)
             else:
                 self._send_json({"error": "Not found"}, 404)
         elif path.startswith("/api/decks/") and path.endswith("/cards"):
@@ -1337,6 +1349,15 @@ class CrackPackHandler(BaseHTTPRequestHandler):
                 self._api_deck_expected_set(int(did), data)
             else:
                 self._send_json({"error": "Not found"}, 404)
+        elif path.startswith("/api/decks/") and path.endswith("/weights"):
+            did = path[len("/api/decks/"):-len("/weights")]
+            if did.isdigit():
+                data = self._read_json_body()
+                if data is None:
+                    return
+                self._api_deck_weights_save(int(did), data)
+            else:
+                self._send_json({"error": "Not found"}, 404)
         elif path.startswith("/api/decks/") and path.endswith("/plan"):
             did = path[len("/api/decks/"):-len("/plan")]
             if did.isdigit():
@@ -1365,6 +1386,15 @@ class CrackPackHandler(BaseHTTPRequestHandler):
                 if data is None:
                     return
                 self._api_deck_reassemble(int(did), data)
+            else:
+                self._send_json({"error": "Not found"}, 404)
+        elif path.startswith("/api/decks/") and path.endswith("/replace"):
+            did = path[len("/api/decks/"):-len("/replace")]
+            if did.isdigit():
+                data = self._read_json_body()
+                if data is None:
+                    return
+                self._api_deck_replace(int(did), data)
             else:
                 self._send_json({"error": "Not found"}, 404)
         elif path.startswith("/api/decks/") and path.endswith("/cards/move"):
@@ -1680,6 +1710,10 @@ class CrackPackHandler(BaseHTTPRequestHandler):
         filter_deck_id = params.get("deck_id", [""])[0]
         filter_binder_id = params.get("binder_id", [""])[0]
         filter_unassigned = params.get("unassigned", [""])[0] == "1"
+        filter_ci_colors = params.get("ci_colors", [""])[0]
+        filter_exclude_deck = params.get("exclude_deck_id", [""])[0]
+        filter_cmc_exact = params.get("cmc", [""])[0]
+        filter_type = params.get("type", [""])[0]
 
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
@@ -1799,6 +1833,32 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             sql_params.append(int(filter_binder_id))
         if filter_unassigned and not include_unowned:
             where_clauses.append("c.deck_id IS NULL AND c.binder_id IS NULL")
+
+        if filter_ci_colors:
+            all_colors = {"W", "U", "B", "R", "G"}
+            ci_set = set(filter_ci_colors) & all_colors
+            excluded = all_colors - ci_set
+            for color in excluded:
+                where_clauses.append(
+                    f"(card.color_identity IS NULL"
+                    f" OR card.color_identity NOT LIKE '%{color}%')"
+                )
+        if filter_exclude_deck and filter_exclude_deck.isdigit():
+            edid = int(filter_exclude_deck)
+            where_clauses.append("c.deck_id IS NULL")
+            where_clauses.append(
+                "card.oracle_id NOT IN ("
+                "SELECT p2.oracle_id FROM collection c2 "
+                "JOIN printings p2 ON c2.printing_id = p2.printing_id "
+                "WHERE c2.deck_id = ?)"
+            )
+            sql_params.append(edid)
+        if filter_cmc_exact and filter_cmc_exact.isdigit():
+            where_clauses.append("CAST(card.cmc AS INTEGER) = ?")
+            sql_params.append(int(filter_cmc_exact))
+        if filter_type:
+            where_clauses.append("card.type_line LIKE ?")
+            sql_params.append(f"%{filter_type}%")
 
         where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
 
@@ -4968,6 +5028,36 @@ class CrackPackHandler(BaseHTTPRequestHandler):
         conn.close()
         self._send_json(plan or {})
 
+    def _api_deck_weights_get(self, deck_id: int):
+        """GET /api/decks/:id/weights — return current autofill weights."""
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        from mtg_collector.services.deck_builder.service import DeckBuilderService
+        svc = DeckBuilderService(conn)
+        try:
+            weights = svc.get_weights(deck_id)
+        except ValueError as e:
+            conn.close()
+            self._send_json({"error": str(e)}, 400)
+            return
+        conn.close()
+        self._send_json(weights)
+
+    def _api_deck_weights_save(self, deck_id: int, data: dict):
+        """POST /api/decks/:id/weights — save autofill weights."""
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        from mtg_collector.services.deck_builder.service import DeckBuilderService
+        svc = DeckBuilderService(conn)
+        try:
+            result = svc.set_weights(deck_id, data)
+        except ValueError as e:
+            conn.close()
+            self._send_json({"error": str(e)}, 400)
+            return
+        conn.close()
+        self._send_json(result)
+
     def _api_deck_plan_save(self, deck_id: int, data: dict):
         """POST /api/decks/:id/plan — save chosen plan variant."""
         conn = sqlite3.connect(self.db_path)
@@ -5130,6 +5220,22 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             tags_str = ", ".join(sorted(info["tags"]))
             infra_lines.append(f"- **{cat}** (min {info['min']}): {tags_str}")
 
+        # DB schema for the query_db tool
+        db_schema = (
+            "cards(oracle_id PK, name, type_line, mana_cost, cmc, oracle_text, colors JSON, color_identity JSON)\n"
+            "printings(printing_id PK, oracle_id FK, set_code, collector_number, rarity, artist, raw_json)\n"
+            "collection(id PK, printing_id FK, finish, status, deck_id FK, binder_id FK, deck_zone)\n"
+            "card_tags(oracle_id, tag) — embedding-inferred functional tags\n"
+            "salt_scores(card_name PK, salt_score)\n"
+            "\n"
+            "Key joins: cards -> printings via oracle_id, printings -> collection via printing_id, "
+            "cards -> card_tags via oracle_id\n"
+            "Useful raw_json fields: json_extract(p.raw_json, '$.edhrec_rank'), "
+            "json_extract(p.raw_json, '$.power'), json_extract(p.raw_json, '$.toughness'), "
+            "json_extract(p.raw_json, '$.keywords')\n"
+            "Colors/color_identity are JSON arrays as TEXT (e.g. '[\"B\",\"G\"]') — use LIKE for filtering."
+        )
+
         prompt = f"""You are an expert Magic: The Gathering Commander/EDH deck builder.
 
 I need you to create 3 different deck plan variants for a Commander deck led by:
@@ -5148,6 +5254,25 @@ These are the real tag names from our card database. You MUST use only these exa
 In addition to the functional tags above, every card has `type:X` tags derived from its card types and creature subtypes (e.g. `type:creature`, `type:pirate`, `type:artifact`, `type:dragon`). You do NOT need to list these — just use the format `type:X` with the lowercase type/subtype name when relevant.
 
 **Type synergy commanders:** Read the commander's oracle text carefully. If it references a creature type (e.g. "whenever a Pirate enters", "Goblins you control get +1/+1"), a card type (e.g. "whenever you cast an Artifact spell", "enchantments you control have..."), or shares a type that has tribal payoffs, include a `type:X` target for that type. Type targets should be LARGE — typically 25-40 cards — because the deck's entire strategy revolves around having enough cards of that type. This is intentionally much higher than functional tag targets like removal (10) or ramp (8). Not every variant needs a type target, but at least one variant for a type-caring commander should go deep on the tribal/type angle.
+
+## Custom Query Targets
+When the commander's strategy involves card properties that tags don't cover (e.g. specific power/toughness, oracle text patterns, keyword abilities), you can create **custom query targets** using SQL WHERE clauses.
+
+Use the `query_db` tool to test your queries against the real database before including them. Verify the query is valid and returns a reasonable number of cards.
+
+Custom query target format in the JSON response:
+"role-key": {{"count": N, "query": "SQL WHERE clause", "label": "Human Label"}}
+
+Example: For Duskana, the Rage Mother (synergy with 2/2 creatures):
+"equal-pt-creatures": {{"count": 12, "query": "json_extract(p.raw_json, '$.power') = '2' AND json_extract(p.raw_json, '$.toughness') = '2' AND card.type_line LIKE '%Creature%'", "label": "2/2 Creatures"}}
+
+The WHERE clause will be injected into a query like:
+SELECT ... FROM cards card JOIN printings p ON p.oracle_id = card.oracle_id WHERE (<your clause>) AND ...
+
+**Important:** Only use custom queries when tags don't cover the need. Most roles should still use tags.
+
+## DB Schema (for query_db tool)
+{db_schema}
 
 ## Infrastructure (every Commander deck needs these)
 {chr(10).join(infra_lines)}
@@ -5168,14 +5293,15 @@ A 99-card Commander deck has 99 cards plus the commander:
 - If commander is expensive (6+ MV) → more ramp, possibly 38 lands
 
 ## Your Task
-Create exactly 3 plan variants. Each should have a different strategic angle.
+1. First, analyze the commander's abilities. If the commander has synergies that tags don't cover, use the `query_db` tool to test WHERE clauses that capture those synergies. Be efficient — typically 2-5 queries.
+2. Then create exactly 3 plan variants, each with a different strategic angle.
 
-**CRITICAL: Every key in "targets" must be an exact tag name from the Available Tags list above, a `type:X` tag (lowercase type/subtype name), or the special value "lands".** Do not invent functional tag names — but `type:X` tags are always valid as long as X is a real Magic card type or creature subtype.
+**CRITICAL: Every key in "targets" must be an exact tag name from the Available Tags list above, a `type:X` tag (lowercase type/subtype name), the special value "lands", or a custom query target (dict with count/query/label).** Do not invent functional tag names — but `type:X` tags are always valid as long as X is a real Magic card type or creature subtype.
 
 For each variant, provide:
 1. A short name (2-3 words)
 2. A 1-2 sentence strategy description
-3. A targets dict mapping tag names to card counts
+3. A targets dict mapping tag names to card counts (or custom query dicts)
 
 Each variant should include:
 - "lands" target (~37)
@@ -5184,7 +5310,7 @@ Each variant should include:
 
 Cards can have multiple tags, so a single card can satisfy multiple targets. Because of this overlap, the sum of all targets will typically be HIGHER than 99 (e.g. 120-150). That's expected and correct — it means some cards serve double duty.
 
-Respond with ONLY valid JSON in this exact format:
+After analysis, respond with ONLY valid JSON in this exact format:
 {{
   "variants": [
     {{
@@ -5200,11 +5326,32 @@ Respond with ONLY valid JSON in this exact format:
         "creature-removal": 4,
         "boardwipe": 3,
         "example-strategy-tag": 8,
-        "another-tag": 5
+        "custom-role": {{"count": 12, "query": "WHERE clause here", "label": "Custom Role"}}
       }}
     }}
   ]
 }}"""
+
+        # Tool definition for query_db
+        query_db_tool = {
+            "name": "query_db",
+            "description": (
+                "Run a read-only SQL query against the card database. "
+                "Returns up to 20 rows. Use to test WHERE clauses, "
+                "check tag availability, verify card counts for the "
+                "commander's color identity."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "sql": {
+                        "type": "string",
+                        "description": "SELECT query to execute",
+                    }
+                },
+                "required": ["sql"],
+            },
+        }
 
         # Set up SSE
         self.send_response(200)
@@ -5222,35 +5369,96 @@ Respond with ONLY valid JSON in this exact format:
             except (BrokenPipeError, ConnectionResetError):
                 pass
 
-        send_event("status", {"message": "Generating deck plans..."})
+        def execute_safe_query(sql):
+            """Execute a read-only query safely, returning results or error."""
+            sql = sql.strip()
+            lower = sql.lower()
+            for forbidden in ("drop ", "delete ", "insert ", "update ",
+                              "alter ", "create ", "attach ", "detach ", "pragma "):
+                if forbidden in lower:
+                    return {"error": f"Forbidden: {forbidden.strip()} not allowed"}
+            conn.execute("SAVEPOINT query_db_check")
+            try:
+                rows = conn.execute(sql).fetchall()
+                result = [dict(r) for r in rows[:20]]
+                return {"rows": result, "count": len(result)}
+            except sqlite3.OperationalError as e:
+                return {"error": str(e)}
+            finally:
+                try:
+                    conn.execute("ROLLBACK TO SAVEPOINT query_db_check")
+                except Exception:
+                    pass
+                try:
+                    conn.execute("RELEASE SAVEPOINT query_db_check")
+                except Exception:
+                    pass
+
+        send_event("status", {"message": "Analyzing commander and generating deck plans..."})
 
         try:
             import anthropic
             client = anthropic.Anthropic()
-            # Stream the response
-            collected_text = ""
-            with client.messages.stream(
-                model="claude-sonnet-4-20250514",
-                max_tokens=2000,
-                messages=[{"role": "user", "content": prompt}],
-            ) as stream:
-                for text in stream.text_stream:
-                    collected_text += text
-                    send_event("chunk", {"text": text})
 
-            # Parse the completed JSON
-            # Extract JSON from response (may have markdown fencing)
-            json_text = collected_text.strip()
-            if json_text.startswith("```"):
-                # Strip markdown code fences
-                lines = json_text.split("\n")
-                start = 1 if lines[0].startswith("```") else 0
-                end = len(lines) - 1 if lines[-1].strip() == "```" else len(lines)
-                json_text = "\n".join(lines[start:end])
+            messages = [{"role": "user", "content": prompt}]
+            max_tool_rounds = 10
 
-            result = json.loads(json_text)
-            send_event("plans", result)
-            send_event("done", {})
+            for _round in range(max_tool_rounds + 1):
+                response = client.messages.create(
+                    model="claude-sonnet-4-20250514",
+                    max_tokens=4000,
+                    tools=[query_db_tool],
+                    messages=messages,
+                )
+
+                if response.stop_reason == "tool_use":
+                    tool_results = []
+                    for block in response.content:
+                        if block.type == "tool_use":
+                            sql = block.input.get("sql", "")
+                            send_event("status", {
+                                "message": f"Testing query: {sql[:80]}..."
+                            })
+                            result = execute_safe_query(sql)
+                            if "error" in result:
+                                send_event("status", {
+                                    "message": f"Query error: {result['error']}"
+                                })
+                            else:
+                                send_event("status", {
+                                    "message": f"Query returned {result['count']} rows"
+                                })
+                            tool_results.append({
+                                "type": "tool_result",
+                                "tool_use_id": block.id,
+                                "content": json.dumps(result),
+                            })
+
+                    messages.append({"role": "assistant", "content": response.content})
+                    messages.append({"role": "user", "content": tool_results})
+                    continue
+
+                # Final text response — extract and parse JSON
+                collected_text = ""
+                for block in response.content:
+                    if hasattr(block, "text"):
+                        collected_text += block.text
+
+                json_text = collected_text.strip()
+                if json_text.startswith("```"):
+                    lines = json_text.split("\n")
+                    start = 1 if lines[0].startswith("```") else 0
+                    end = len(lines) - 1 if lines[-1].strip() == "```" else len(lines)
+                    json_text = "\n".join(lines[start:end])
+
+                result = json.loads(json_text)
+                send_event("plans", result)
+                send_event("done", {})
+                break
+            else:
+                send_event("error", {"message": "Plan generation exceeded maximum tool rounds"})
+                send_event("done", {"error": True})
+
         except json.JSONDecodeError as e:
             send_event("error", {"message": f"Failed to parse Claude's response as JSON: {e}"})
             send_event("done", {"error": True})
@@ -5296,6 +5504,46 @@ Respond with ONLY valid JSON in this exact format:
         cards = repo.get_cards(deck_id, zone=zone)
         conn.close()
         self._send_json(cards)
+
+    def _api_deck_replacements(self, deck_id: int, params: dict):
+        cid = params.get("collection_id", [""])[0]
+        if not cid or not cid.isdigit():
+            self._send_json({"error": "collection_id is required"}, 400)
+            return
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        from mtg_collector.services.deck_builder.service import DeckBuilderService
+        svc = DeckBuilderService(conn)
+        try:
+            result = svc.get_replacements(deck_id, int(cid))
+        except ValueError as e:
+            conn.close()
+            self._send_json({"error": str(e)}, 404)
+            return
+        conn.close()
+        self._send_json(result)
+
+    def _api_deck_replace(self, deck_id: int, data: dict):
+        remove_cid = data.get("remove_collection_id")
+        add_cid = data.get("add_collection_id")
+        zone = data.get("zone", "mainboard")
+        if not remove_cid or not add_cid:
+            self._send_json({"error": "remove_collection_id and add_collection_id required"}, 400)
+            return
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        from mtg_collector.db.models import DeckRepository
+        repo = DeckRepository(conn)
+        repo.remove_cards(deck_id, [remove_cid])
+        try:
+            repo.add_cards(deck_id, [add_cid], zone=zone)
+        except ValueError as e:
+            conn.close()
+            self._send_json({"error": str(e)}, 409)
+            return
+        conn.commit()
+        conn.close()
+        self._send_json({"ok": True})
 
     def _api_deck_add_cards(self, deck_id: int, data: dict):
         collection_ids = data.get("collection_ids", [])

@@ -51,9 +51,9 @@ for _group in INFRASTRUCTURE.values():
 PLAN_TARGET = 30
 LAND_TARGET_DEFAULT = 37
 
-# Mana curve targets by type group (CMC bracket -> (min, max))
-# Creatures can curve higher in Commander; ramp/interaction should be cheap.
-CREATURE_CURVE_TARGETS = {
+# Mana curve hard limits by type group (CMC bracket -> (min, max))
+# Used for audit warnings only.
+CREATURE_CURVE_LIMITS = {
     0: (0, 0),
     1: (0, 4),
     2: (4, 10),
@@ -64,8 +64,7 @@ CREATURE_CURVE_TARGETS = {
     7: (0, 3),  # 7+
 }
 
-# Non-creature spells (ramp, removal, card draw) should be lean.
-NONCREATURE_CURVE_TARGETS = {
+NONCREATURE_CURVE_LIMITS = {
     0: (0, 3),
     1: (4, 10),
     2: (5, 12),
@@ -74,6 +73,16 @@ NONCREATURE_CURVE_TARGETS = {
     5: (0, 4),
     6: (0, 2),
     7: (0, 1),  # 7+
+}
+
+# Mana curve targets by type group (CMC bracket -> target count)
+# Midpoints of the hard limits above — used for curve-fit scoring.
+CREATURE_CURVE_TARGETS = {
+    0: 0, 1: 2, 2: 7, 3: 7, 4: 5, 5: 4, 6: 2, 7: 1,
+}
+
+NONCREATURE_CURVE_TARGETS = {
+    0: 1, 1: 7, 2: 8, 3: 7, 4: 4, 5: 2, 6: 1, 7: 0,
 }
 
 AVG_CMC_TARGET = (2.8, 3.5)
@@ -125,8 +134,9 @@ ZONE_COMMANDER = "commander"
 # Embedding tag inference threshold (cosine similarity)
 DESCRIPTION_MATCH_THRESHOLD = 0.80
 
-# Autofill composite scoring weights (sum to 1.0)
-AUTOFILL_WEIGHTS = {
+# Autofill composite scoring weights — raw integer values.
+# User-adjustable weights are stored per-deck in plan JSON.
+AUTOFILL_WEIGHTS_RAW = {
     "edhrec": 3,            # Per-commander EDHREC inclusion (cards popular with THIS general)
     "salt": 2,              # Salt / annoyance (lower = better)
     "price": 1,             # Log-scaled monetary value (proxy for power level)
@@ -135,10 +145,17 @@ AUTOFILL_WEIGHTS = {
     "recency": 2,           # Newer set release = fresher card
     "bling": 4,             # Full-art/borderless/extended/showcase
     "random": 2,            # Uniform jitter for variety
+    "curve_fit": 2,         # Cards in under-represented CMC buckets score higher
 }
-# Normalize weights to sum to 1.0 at import time
-_aw_total = sum(AUTOFILL_WEIGHTS.values())
-AUTOFILL_WEIGHTS = {k: v / _aw_total for k, v in AUTOFILL_WEIGHTS.items()}
+
+# Normalize to sum to 1.0 for scoring
+def _normalize_weights(raw: dict) -> dict:
+    total = sum(raw.values())
+    if total == 0:
+        return {k: 0.0 for k in raw}
+    return {k: v / total for k, v in raw.items()}
+
+AUTOFILL_WEIGHTS = _normalize_weights(AUTOFILL_WEIGHTS_RAW)
 
 # Land suggestion scoring weights
 LAND_WEIGHTS = {

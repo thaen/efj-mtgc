@@ -116,6 +116,7 @@
         <div class="sidebar-actions">
           <button class="secondary" id="btn-edit">Edit</button>
           <button id="btn-generate-plan" style="display:none">Generate Plan</button>
+          <button class="secondary" id="btn-weights" style="display:none">Weights</button>
           <button id="btn-autofill" style="display:none">Autofill</button>
           <button id="btn-fill-lands" style="display:none">Fill Lands</button>
         </div>
@@ -272,6 +273,52 @@
         </div>
       </div>
     </div>
+    <!-- Weights Modal -->
+    <div class="modal-backdrop" id="weights-modal">
+      <div class="modal" style="max-width:500px">
+        <h3>Autofill Weights</h3>
+        <p class="weights-desc">Adjust how cards are scored during autofill and replacement suggestions.</p>
+        <div id="weights-body"></div>
+        <div class="form-actions">
+          <button id="btn-weights-save">Save</button>
+          <button class="secondary" id="btn-weights-reset">Reset to Defaults</button>
+          <button class="secondary" id="btn-weights-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-backdrop" id="replace-modal">
+      <div class="modal replace-modal">
+        <div class="replace-header">
+          <h3>Replace: <span id="replace-card-name"></span></h3>
+          <button class="btn btn-ghost" id="replace-cancel">✕</button>
+        </div>
+        <div class="replace-columns">
+          <div class="replace-col">
+            <h4>Role-based</h4>
+            <div class="replace-col-body" id="replace-role"></div>
+          </div>
+          <div class="replace-col">
+            <h4>Type-based</h4>
+            <div class="replace-col-body" id="replace-type"></div>
+          </div>
+          <div class="replace-col">
+            <h4>Search</h4>
+            <div class="replace-search-inputs" id="replace-search-form">
+              <input placeholder="Name" id="rs-name">
+              <input placeholder="Mana value" id="rs-cmc" type="number">
+              <input placeholder="Set code" id="rs-set">
+              <input placeholder="Type" id="rs-type">
+            </div>
+            <div class="replace-col-body" id="replace-search"></div>
+          </div>
+        </div>
+        <div class="replace-confirm-bar">
+          <span id="replace-selection-label">No card selected</span>
+          <button class="btn btn-accent" id="replace-confirm" disabled>Confirm</button>
+        </div>
+      </div>
+    </div>
   `;
 
   // --- Wire up event handlers ---
@@ -291,6 +338,7 @@
   document.getElementById('btn-edit').addEventListener('click', showEditModal);
   document.getElementById('btn-generate-plan').addEventListener('click', generatePlan);
   document.getElementById('btn-autofill').addEventListener('click', runAutofill);
+  document.getElementById('btn-weights').addEventListener('click', openWeightsModal);
   document.getElementById('btn-delete').addEventListener('click', deleteDeck);
   document.getElementById('btn-edit-plan').addEventListener('click', enterPlanEditMode);
 
@@ -309,7 +357,21 @@
   document.getElementById('btn-fill-lands').addEventListener('click', runFillLands);
   document.getElementById('btn-fill-lands-add').addEventListener('click', addFillLandsCards);
   document.getElementById('btn-fill-lands-cancel').addEventListener('click', () => closeModal('fill-lands-modal'));
+  document.getElementById('btn-weights-save').addEventListener('click', saveWeights);
+  document.getElementById('btn-weights-reset').addEventListener('click', resetWeights);
+  document.getElementById('btn-weights-cancel').addEventListener('click', () => closeModal('weights-modal'));
   document.getElementById('btn-save-plan').addEventListener('click', savePlanVariant);
+  document.getElementById('replace-cancel').addEventListener('click', () => closeModal('replace-modal'));
+  document.getElementById('replace-confirm').addEventListener('click', confirmReplacement);
+
+  // Replace search debounce
+  let replaceSearchTimer = null;
+  ['rs-name', 'rs-cmc', 'rs-set', 'rs-type'].forEach(id => {
+    document.getElementById(id).addEventListener('input', () => {
+      clearTimeout(replaceSearchTimer);
+      replaceSearchTimer = setTimeout(searchReplacements, 300);
+    });
+  });
 
   // Precon checkbox toggle
   document.getElementById('f-precon').addEventListener('change', function() {
@@ -355,8 +417,14 @@
   });
   applyGridCols();
 
-  // Grid card click — navigate to card detail
+  // Grid card click — navigate to card detail (or open replace modal)
   document.getElementById('card-grid').addEventListener('click', e => {
+    const replBtn = e.target.closest('.replace-btn');
+    if (replBtn) {
+      e.stopPropagation();
+      openReplaceModal(parseInt(replBtn.dataset.cid), replBtn.dataset.name);
+      return;
+    }
     const card = e.target.closest('.sheet-card');
     if (card) window.location.href = `/card/${card.dataset.sc}/${card.dataset.cn}`;
   });
@@ -556,6 +624,7 @@
       return `<div class="sheet-card" data-sc="${esc(sc)}" data-cn="${esc(cn)}">
         <div class="sheet-card-img-wrap${foilClass}" style="--rarity-color:${rarityColor};--set-color:#111">
           <img src="${c.image_uri || ''}" alt="${esc(c.name)}" loading="lazy">
+          <button class="replace-btn" title="Replace" data-cid="${c.id}" data-name="${esc(c.name)}">⇄</button>
         </div>
       </div>`;
     }).join('');
@@ -878,6 +947,9 @@
     ).length;
     const hasPlan = !!(currentPlanTargets && Object.keys(currentPlanTargets).length);
 
+    // Weights: visible whenever a plan exists
+    document.getElementById('btn-weights').style.display = hasPlan ? '' : 'none';
+
     // Autofill: hide if >90 cards or no plan
     const autofillBtn = document.getElementById('btn-autofill');
     autofillBtn.style.display = (hasPlan && totalCards <= 90) ? '' : 'none';
@@ -929,8 +1001,10 @@
     });
 
     let html = '<div class="plan-progress">';
-    for (const [tag, target] of sorted) {
-      const label = tag.replace(/-/g, ' ');
+    for (const [tag, targetVal] of sorted) {
+      const isCustom = typeof targetVal === 'object' && targetVal !== null;
+      const target = isCustom ? targetVal.count : targetVal;
+      const label = isCustom ? targetVal.label : tag.replace(/-/g, ' ');
       const current = (planProgress && planProgress[tag]) ? planProgress[tag].current : 0;
       const pct = target > 0 ? Math.min((current / target) * 100, 100) : 0;
       const cls = current >= target ? 'met' : 'under';
@@ -1073,11 +1147,16 @@
       const sortedTargets = Object.entries(v.targets || {}).sort(([a, ac], [b, bc]) => {
         if (a === 'lands') return -1;
         if (b === 'lands') return 1;
-        return bc - ac;
+        const countA = typeof ac === 'object' ? ac.count : ac;
+        const countB = typeof bc === 'object' ? bc.count : bc;
+        return countB - countA;
       });
-      for (const [tag, count] of sortedTargets) {
-        const label = tag.replace(/-/g, ' ');
-        html += `<span class="cat">${esc(label)}</span><span class="count">${count}</span>`;
+      for (const [tag, val] of sortedTargets) {
+        const isCustom = typeof val === 'object' && val !== null;
+        const count = isCustom ? val.count : val;
+        const label = isCustom ? val.label : tag.replace(/-/g, ' ');
+        const title = isCustom ? ` title="${esc(val.query)}"` : '';
+        html += `<span class="cat"${title}>${esc(label)}</span><span class="count">${count}</span>`;
       }
       html += '</div></div>';
     });
@@ -1279,6 +1358,94 @@
     renderDeckDetail();
     await loadDeckCards();
     await loadPlan();  // Refresh plan progress
+  }
+
+  // --- Weights ---
+
+  const WEIGHT_LABELS = {
+    edhrec: { label: 'EDHREC', desc: () => {
+      const cmds = allDeckCards.filter(c => c.deck_zone === 'commander');
+      const name = cmds.length > 0 ? cmds[0].name : 'your commander';
+      return `Raise to choose more cards that are popular on EDHREC with ${name}`;
+    }},
+    salt: { label: 'Salt', desc: () => 'Raise to choose fewer annoying cards (according to EDHREC\'s "salt" score)' },
+    price: { label: 'Price', desc: () => 'Raise to choose more expensive cards' },
+    plan_overlap: { label: 'Plan overlap', desc: () => 'Raise to choose more cards that overlap with the Deck Plan' },
+    novelty: { label: 'Novelty', desc: () => 'Raise to choose more cards that have low popularity on EDHREC' },
+    bling: { label: 'Bling', desc: () => 'Raise to choose more cards from your collection that are full-art, borderless, showcase, etc.' },
+    random: { label: 'Random', desc: () => 'Raise to choose cards more randomly' },
+  };
+  const WEIGHT_ORDER = ['edhrec', 'salt', 'price', 'plan_overlap', 'novelty', 'bling', 'random'];
+  const DEFAULT_WEIGHTS = { edhrec: 3, salt: 2, price: 1, plan_overlap: 3, novelty: 3, bling: 4, random: 2 };
+  let currentWeights = null;
+
+  async function openWeightsModal() {
+    document.getElementById('weights-modal').classList.add('active');
+    const body = document.getElementById('weights-body');
+    body.innerHTML = '<span class="spinner"></span> Loading...';
+
+    const res = await fetch(`/api/decks/${deck.id}/weights`);
+    if (!res.ok) {
+      body.innerHTML = '<div style="color:var(--error)">Failed to load weights.</div>';
+      return;
+    }
+    currentWeights = await res.json();
+    renderWeightsBody();
+  }
+
+  function renderWeightsBody() {
+    const body = document.getElementById('weights-body');
+    let html = '';
+    for (const key of WEIGHT_ORDER) {
+      const info = WEIGHT_LABELS[key];
+      const val = currentWeights[key] ?? DEFAULT_WEIGHTS[key];
+      html += `<div class="weight-row">
+        <div class="weight-row-top">
+          <span class="weight-label">${esc(info.label)}</span>
+          <div class="weight-controls">
+            <button class="weight-btn" data-key="${key}" data-dir="-1" ${val <= 0 ? 'disabled' : ''}>&minus;</button>
+            <span class="weight-value" id="wv-${key}">${val}</span>
+            <button class="weight-btn" data-key="${key}" data-dir="1" ${val >= 10 ? 'disabled' : ''}>+</button>
+          </div>
+        </div>
+        <div class="weight-desc">${esc(info.desc())}</div>
+      </div>`;
+    }
+    body.innerHTML = html;
+    body.querySelectorAll('.weight-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const key = btn.dataset.key;
+        const dir = parseInt(btn.dataset.dir);
+        const newVal = Math.max(0, Math.min(10, (currentWeights[key] ?? DEFAULT_WEIGHTS[key]) + dir));
+        currentWeights[key] = newVal;
+        renderWeightsBody();
+      });
+    });
+  }
+
+  async function saveWeights() {
+    const btn = document.getElementById('btn-weights-save');
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+
+    const res = await fetch(`/api/decks/${deck.id}/weights`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(currentWeights),
+    });
+    if (res.ok) {
+      closeModal('weights-modal');
+    } else {
+      const err = await res.json();
+      alert(err.error || 'Failed to save weights');
+    }
+    btn.disabled = false;
+    btn.textContent = 'Save';
+  }
+
+  function resetWeights() {
+    currentWeights = { ...DEFAULT_WEIGHTS };
+    renderWeightsBody();
   }
 
   // --- Fill Lands ---
@@ -1525,6 +1692,143 @@
     }
     showPlanProgress(targets);
     renderCards();  // Update role labels
+  }
+
+  // --- Replacement modal ---
+  let replaceCollectionId = null;
+  let replaceSelectedCandidate = null;
+
+  async function openReplaceModal(collectionId, cardName) {
+    replaceCollectionId = collectionId;
+    replaceSelectedCandidate = null;
+    document.getElementById('replace-card-name').textContent = cardName;
+    document.getElementById('replace-confirm').disabled = true;
+    document.getElementById('replace-selection-label').textContent = 'No card selected';
+    document.getElementById('replace-role').innerHTML = '<span style="color:var(--text-secondary)">Loading...</span>';
+    document.getElementById('replace-type').innerHTML = '<span style="color:var(--text-secondary)">Loading...</span>';
+    document.getElementById('replace-search').innerHTML = '';
+    document.getElementById('replace-modal').classList.add('active');
+
+    const res = await fetch(`/api/decks/${encodeURIComponent(deckId)}/replacements?collection_id=${collectionId}`);
+    if (!res.ok) {
+      document.getElementById('replace-role').innerHTML = '<span style="color:#e74c3c">Failed to load</span>';
+      document.getElementById('replace-type').innerHTML = '<span style="color:#e74c3c">Failed to load</span>';
+      return;
+    }
+    const data = await res.json();
+    renderReplaceCandidates(document.getElementById('replace-role'), data.role_suggestions);
+    renderReplaceCandidates(document.getElementById('replace-type'), data.type_suggestions);
+
+    // Pre-fill search inputs from card data
+    document.getElementById('rs-name').value = '';
+    document.getElementById('rs-cmc').value = data.card.cmc != null ? Math.floor(data.card.cmc) : '';
+    document.getElementById('rs-set').value = '';
+    const tl = data.card.type_line || '';
+    const dashIdx = tl.indexOf('\u2014');
+    document.getElementById('rs-type').value = (dashIdx >= 0 ? tl.substring(0, dashIdx).trim() : tl).split(' ').find(w =>
+      ['Creature','Artifact','Enchantment','Instant','Sorcery','Planeswalker'].includes(w)
+    ) || '';
+    searchReplacements();
+  }
+
+  function renderReplaceCandidates(container, candidates) {
+    if (!candidates || candidates.length === 0) {
+      container.innerHTML = '<span style="color:var(--text-secondary);font-size:0.85rem">No candidates found</span>';
+      return;
+    }
+    container.innerHTML = candidates.map(c => {
+      const tags = (c.tags || '').split(',').filter(t => t && planTargetTags.has(t));
+      const tagPills = tags.map(t => `<span class="replace-tag-pill">${esc(t.replace(/-/g, ' '))}</span>`).join('');
+      return `<div class="replace-candidate" data-cid="${c.collection_id}" data-name="${esc(c.name)}">
+        <img class="replace-thumb" src="${c.image_uri || ''}" alt="${esc(c.name)}" loading="lazy">
+        <div class="replace-candidate-info">
+          <span class="replace-candidate-name">${esc(c.name)}</span>
+          <span class="mana">${renderMana(c.mana_cost || '')}</span>
+          ${tagPills ? `<div class="replace-tag-pills">${tagPills}</div>` : ''}
+        </div>
+      </div>`;
+    }).join('');
+
+    container.querySelectorAll('.replace-candidate').forEach(el => {
+      el.addEventListener('click', () => selectReplaceCandidate(el));
+    });
+  }
+
+  function selectReplaceCandidate(el) {
+    document.querySelectorAll('.replace-candidate.selected').forEach(c => c.classList.remove('selected'));
+    el.classList.add('selected');
+    replaceSelectedCandidate = {
+      collection_id: parseInt(el.dataset.cid),
+      name: el.dataset.name,
+    };
+    document.getElementById('replace-selection-label').textContent = replaceSelectedCandidate.name;
+    document.getElementById('replace-confirm').disabled = false;
+  }
+
+  async function searchReplacements() {
+    const name = document.getElementById('rs-name').value.trim();
+    const cmc = document.getElementById('rs-cmc').value.trim();
+    const set = document.getElementById('rs-set').value.trim();
+    const type = document.getElementById('rs-type').value.trim();
+
+    const params = new URLSearchParams({ status: 'owned' });
+    if (name) params.set('q', name);
+    if (cmc) params.set('cmc', cmc);
+    if (set) params.set('filter_set', set);
+    if (type) params.set('type', type);
+
+    // Get commander CI for filtering
+    const commanders = deckCards.filter(c => c.deck_zone === 'commander');
+    if (commanders.length > 0) {
+      const ci = new Set();
+      commanders.forEach(c => {
+        try { JSON.parse(c.color_identity || '[]').forEach(col => ci.add(col)); } catch(e) {}
+      });
+      if (ci.size > 0) params.set('ci_colors', [...ci].join(''));
+    }
+    params.set('exclude_deck_id', deckId);
+
+    const container = document.getElementById('replace-search');
+    container.innerHTML = '<span style="color:var(--text-secondary)">Searching...</span>';
+
+    const res = await fetch(`/api/collection?${params}`);
+    if (!res.ok) {
+      container.innerHTML = '<span style="color:#e74c3c">Search failed</span>';
+      return;
+    }
+    const cards = await res.json();
+    // Map collection API format to candidate format
+    const candidates = cards.slice(0, 20).map(c => ({
+      collection_id: c.collection_ids ? c.collection_ids[0] : c.id,
+      name: c.name,
+      mana_cost: c.mana_cost,
+      image_uri: c.image_uri,
+      tags: c.tags || '',
+    }));
+    renderReplaceCandidates(container, candidates);
+  }
+
+  async function confirmReplacement() {
+    if (!replaceSelectedCandidate || !replaceCollectionId) return;
+    const card = deckCards.find(c => c.id === replaceCollectionId);
+    const zone = card ? (card.deck_zone || 'mainboard') : 'mainboard';
+
+    const res = await fetch(`/api/decks/${encodeURIComponent(deckId)}/replace`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        remove_collection_id: replaceCollectionId,
+        add_collection_id: replaceSelectedCandidate.collection_id,
+        zone: zone,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      alert(err.error || 'Replacement failed');
+      return;
+    }
+    closeModal('replace-modal');
+    loadDeckCards();
   }
 
   // --- Utils ---
