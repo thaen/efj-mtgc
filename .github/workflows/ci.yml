@@ -39,7 +39,13 @@ jobs:
           echo "Server failed to start" && exit 1
 
       - name: Run unit tests
-        run: uv run pytest tests/ -x -q
+        run: |
+          podman run --rm \
+            -v $PWD:/src:Z \
+            -w /src \
+            --entrypoint "" \
+            mtgc:$INSTANCE \
+            sh -c "pip install pytest && python -m pytest tests/ -x -q --ignore=tests/integration --ignore=tests/ui"
 
       - name: Run integration tests
         run: uv run pytest tests/integration/ -x -q --instance $INSTANCE

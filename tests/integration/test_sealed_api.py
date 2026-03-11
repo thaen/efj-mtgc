@@ -89,7 +89,7 @@ class TestSealedProductsSets:
         status, data = api.get("/api/sealed/products/sets")
         assert status == 200
         assert isinstance(data, list)
-        assert len(data) > 100  # demo data has 339 sets with sealed products
+        assert len(data) > 0  # test fixture has ~15 sets, full seed has 339+
 
     def test_set_entry_fields(self, api):
         status, data = api.get("/api/sealed/products/sets")
