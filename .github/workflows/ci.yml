@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# After merging, enable branch protection on `main` in GitHub repo settings:
+#   - Require PR before merging
+#   - Require the `test` status check to pass
+#   - (Optional) Require up-to-date branch before merging
+
+jobs:
+  test:
+    runs-on: [self-hosted, rgantt]
+    env:
+      INSTANCE: ci-test
+      XDG_RUNTIME_DIR: /run/user/1000
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Install Playwright browser
+        run: uv run shot-scraper install
+
+      - name: Build and start test container
+        run: bash deploy/setup.sh $INSTANCE --test
+
+      - name: Wait for server
+        run: |
+          for i in $(seq 1 10); do
+            PORT=$(podman port systemd-mtgc-$INSTANCE 8081/tcp | cut -d: -f2)
+            curl -skf https://localhost:$PORT/ && exit 0
+            sleep 3
+          done
+          echo "Server failed to start" && exit 1
+
+      - name: Run unit tests
+        run: uv run pytest tests/ -x -q
+
+      - name: Run integration tests
+        run: uv run pytest tests/integration/ -x -q --instance $INSTANCE
+
+      - name: Run UI scenario tests
+        run: uv run pytest tests/ui/ -x -q --instance $INSTANCE
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - name: Teardown test container
+        if: always()
+        run: bash deploy/teardown.sh $INSTANCE --purge
