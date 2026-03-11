@@ -16,6 +16,7 @@ jobs:
     env:
       INSTANCE: ci-test
       XDG_RUNTIME_DIR: /run/user/1000
+      UV_CACHE_DIR: .uv-cache
     steps:
       - uses: actions/checkout@v4
 
@@ -50,4 +51,4 @@ jobs:
 
       - name: Teardown test container
         if: always()
-        run: bash deploy/teardown.sh $INSTANCE --purge
+        run: bash deploy/teardown.sh $INSTANCE --purge || true
