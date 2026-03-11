@@ -114,9 +114,12 @@
         <div class="deck-meta-grid" id="deck-meta"></div>
 
         <div class="sidebar-actions">
-          <button class="secondary" id="btn-edit">Edit</button>
+          <div class="sidebar-actions-row">
+            <button class="secondary" id="btn-edit">Edit Metadata</button>
+            <button class="secondary" id="btn-curve">Curve</button>
+          </div>
           <button id="btn-generate-plan" style="display:none">Generate Plan</button>
-          <button class="secondary" id="btn-weights" style="display:none">Weights</button>
+          <button class="secondary" id="btn-weights" style="display:none">Edit Weights</button>
           <button id="btn-autofill" style="display:none">Autofill</button>
           <button id="btn-fill-lands" style="display:none">Fill Lands</button>
         </div>
@@ -273,6 +276,18 @@
         </div>
       </div>
     </div>
+    <!-- Curve Modal -->
+    <div class="modal-backdrop" id="curve-modal">
+      <div class="modal" style="max-width:600px">
+        <h3>Mana Curve</h3>
+        <div id="curve-chart"></div>
+        <div id="curve-legend" class="curve-legend"></div>
+        <div class="form-actions">
+          <button class="secondary" id="btn-curve-close">Close</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Weights Modal -->
     <div class="modal-backdrop" id="weights-modal">
       <div class="modal" style="max-width:500px">
@@ -336,6 +351,7 @@
 
   // Header/sidebar buttons
   document.getElementById('btn-edit').addEventListener('click', showEditModal);
+  document.getElementById('btn-curve').addEventListener('click', openCurveModal);
   document.getElementById('btn-generate-plan').addEventListener('click', generatePlan);
   document.getElementById('btn-autofill').addEventListener('click', runAutofill);
   document.getElementById('btn-weights').addEventListener('click', openWeightsModal);
@@ -360,6 +376,7 @@
   document.getElementById('btn-weights-save').addEventListener('click', saveWeights);
   document.getElementById('btn-weights-reset').addEventListener('click', resetWeights);
   document.getElementById('btn-weights-cancel').addEventListener('click', () => closeModal('weights-modal'));
+  document.getElementById('btn-curve-close').addEventListener('click', () => closeModal('curve-modal'));
   document.getElementById('btn-save-plan').addEventListener('click', savePlanVariant);
   document.getElementById('replace-cancel').addEventListener('click', () => closeModal('replace-modal'));
   document.getElementById('replace-confirm').addEventListener('click', confirmReplacement);
@@ -1360,6 +1377,106 @@
     await loadPlan();  // Refresh plan progress
   }
 
+  // --- Mana Curve ---
+
+  const SUPERTYPE_COLORS = {
+    Creature: '#4a9e4a',
+    Instant: '#3b82c4',
+    Sorcery: '#c44040',
+    Artifact: '#8a8a8a',
+    Enchantment: '#b06cc8',
+    Planeswalker: '#d4a940',
+    Battle: '#d47840',
+    Land: '#8b6b47',
+  };
+
+  function getSupertype(typeLine) {
+    if (!typeLine) return 'Other';
+    for (const t of Object.keys(SUPERTYPE_COLORS)) {
+      if (typeLine.includes(t)) return t;
+    }
+    return 'Other';
+  }
+
+  function openCurveModal() {
+    document.getElementById('curve-modal').classList.add('active');
+
+    // Exclude commanders and lands from the curve
+    const cards = allDeckCards.filter(c =>
+      c.deck_zone !== 'commander' && !(c.type_line || '').includes('Land')
+    );
+
+    // Build histogram: bucket -> { supertype -> count }
+    const buckets = {};
+    const supertypesUsed = new Set();
+    for (const c of cards) {
+      const cmc = Math.min(parseInt(c.cmc || 0) || 0, 7);
+      const label = cmc >= 7 ? '7+' : String(cmc);
+      const st = getSupertype(c.type_line);
+      supertypesUsed.add(st);
+      if (!buckets[label]) buckets[label] = {};
+      buckets[label][st] = (buckets[label][st] || 0) + 1;
+    }
+
+    const labels = ['0', '1', '2', '3', '4', '5', '6', '7+'];
+    // Stack order: most common supertypes first
+    const stOrder = Object.keys(SUPERTYPE_COLORS).filter(s => supertypesUsed.has(s));
+    if (supertypesUsed.has('Other')) stOrder.push('Other');
+
+    // Find max total for scaling
+    let maxTotal = 0;
+    for (const l of labels) {
+      let total = 0;
+      for (const st of stOrder) total += (buckets[l] || {})[st] || 0;
+      if (total > maxTotal) maxTotal = total;
+    }
+    if (maxTotal === 0) maxTotal = 1;
+
+    const barMaxH = 160;
+    const barW = 40;
+    const gap = 8;
+    const chartW = labels.length * (barW + gap);
+
+    let svg = `<svg width="${chartW}" height="${barMaxH + 30}" style="display:block;margin:0 auto">`;
+    for (let i = 0; i < labels.length; i++) {
+      const l = labels[i];
+      const x = i * (barW + gap);
+      const data = buckets[l] || {};
+      let y = barMaxH;
+
+      // Stack segments bottom-up
+      for (const st of stOrder) {
+        const count = data[st] || 0;
+        if (count === 0) continue;
+        const h = (count / maxTotal) * barMaxH;
+        y -= h;
+        const color = SUPERTYPE_COLORS[st] || '#666';
+        svg += `<rect x="${x}" y="${y}" width="${barW}" height="${h}" fill="${color}" rx="2"/>`;
+      }
+
+      // Total count label above bar
+      let total = 0;
+      for (const st of stOrder) total += data[st] || 0;
+      if (total > 0) {
+        svg += `<text x="${x + barW / 2}" y="${y - 4}" text-anchor="middle" fill="var(--text-secondary)" font-size="12" font-weight="600">${total}</text>`;
+      }
+
+      // X-axis label
+      svg += `<text x="${x + barW / 2}" y="${barMaxH + 18}" text-anchor="middle" fill="var(--text-secondary)" font-size="13">${l}</text>`;
+    }
+    svg += '</svg>';
+
+    document.getElementById('curve-chart').innerHTML = svg;
+
+    // Legend
+    let legend = '';
+    for (const st of stOrder) {
+      const color = SUPERTYPE_COLORS[st] || '#666';
+      legend += `<span class="curve-legend-item"><span class="curve-legend-swatch" style="background:${color}"></span>${esc(st)}</span>`;
+    }
+    document.getElementById('curve-legend').innerHTML = legend;
+  }
+
   // --- Weights ---
 
   const WEIGHT_LABELS = {
@@ -1373,10 +1490,11 @@
     plan_overlap: { label: 'Plan overlap', desc: () => 'Raise to choose more cards that overlap with the Deck Plan' },
     novelty: { label: 'Novelty', desc: () => 'Raise to choose more cards that have low popularity on EDHREC' },
     bling: { label: 'Bling', desc: () => 'Raise to choose more cards from your collection that are full-art, borderless, showcase, etc.' },
+    rarity: { label: 'Rarity', desc: () => 'Raise to choose more rare and mythic cards over commons and uncommons' },
     random: { label: 'Random', desc: () => 'Raise to choose cards more randomly' },
   };
-  const WEIGHT_ORDER = ['edhrec', 'salt', 'price', 'plan_overlap', 'novelty', 'bling', 'random'];
-  const DEFAULT_WEIGHTS = { edhrec: 3, salt: 2, price: 1, plan_overlap: 3, novelty: 3, bling: 4, random: 2 };
+  const WEIGHT_ORDER = ['edhrec', 'salt', 'price', 'plan_overlap', 'novelty', 'bling', 'rarity', 'random'];
+  const DEFAULT_WEIGHTS = { edhrec: 3, salt: 2, price: 1, plan_overlap: 3, novelty: 3, bling: 4, rarity: 3, random: 0 };
   let currentWeights = null;
 
   async function openWeightsModal() {

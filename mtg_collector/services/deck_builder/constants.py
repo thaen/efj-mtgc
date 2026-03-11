@@ -144,7 +144,8 @@ AUTOFILL_WEIGHTS_RAW = {
     "novelty": 3,           # Inverse global EDHREC rank (less popular overall = more interesting)
     "recency": 2,           # Newer set release = fresher card
     "bling": 4,             # Full-art/borderless/extended/showcase
-    "random": 2,            # Uniform jitter for variety
+    "rarity": 3,            # Higher rarity (mythic > rare > uncommon > common) preferred
+    "random": 0,            # Uniform jitter for variety
     "curve_fit": 2,         # Cards in under-represented CMC buckets score higher
 }
 

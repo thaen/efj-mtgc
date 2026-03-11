@@ -50,6 +50,13 @@
 .sidebar-actions button {
   width: 100%;
 }
+.sidebar-actions-row {
+  display: flex;
+  gap: 8px;
+}
+.sidebar-actions-row button {
+  flex: 1;
+}
 
 .deck-meta-grid {
   display: grid;
@@ -728,6 +735,28 @@ button.danger:hover { background: #a93226; }
   padding: 4px 8px;
 }
 .btn-ghost:hover { color: var(--text-primary); }
+
+/* Curve modal */
+.curve-legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+.curve-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+.curve-legend-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+}
 
 /* Weights modal */
 .weights-desc {

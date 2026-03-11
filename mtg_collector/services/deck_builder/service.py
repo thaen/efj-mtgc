@@ -41,7 +41,7 @@ from mtg_collector.utils import parse_json_array
 # ── Autofill ranking weights ─────────────────────────────────────
 # Default weights — user-tunable via the Weights modal on the deck page.
 # User-adjustable keys (exposed in UI):
-ADJUSTABLE_WEIGHT_KEYS = {"edhrec", "salt", "price", "plan_overlap", "novelty", "bling", "random"}
+ADJUSTABLE_WEIGHT_KEYS = {"edhrec", "salt", "price", "plan_overlap", "novelty", "bling", "rarity", "random"}
 # Internal-only keys (always use defaults, not exposed):
 INTERNAL_WEIGHT_KEYS = {"recency", "curve_fit"}
 # Tag aliases — when autofill searches for a tag, also include cards
@@ -1290,6 +1290,10 @@ class DeckBuilderService:
                     pass
             c["_recency"] = recency
 
+            # Rarity: mythic=4, rare=3, uncommon=2, common=1
+            rarity_map = {"M": 4, "R": 3, "U": 2, "C": 1, "P": 3, "L": 1, "T": 0}
+            c["_rarity"] = rarity_map.get(c.get("rarity", "C"), 1)
+
             # Curve fit: deficit from target for this card's CMC bucket
             if curve_state:
                 cmc = int(c.get("cmc", 0) or 0)
@@ -1324,6 +1328,7 @@ class DeckBuilderService:
         _norm("_plan_overlap")
         _norm("_novelty")
         _norm("_recency")
+        _norm("_rarity")
         _norm("_curve_fit")
 
         w = weights or AUTOFILL_WEIGHTS
@@ -1336,6 +1341,7 @@ class DeckBuilderService:
                 + c["_novelty_n"] * w["novelty"]             # higher novelty = better
                 + c["_recency_n"] * w["recency"]             # newer = better
                 + c.get("is_bling", 0) * w["bling"]          # full-art/borderless/extended/showcase
+                + c["_rarity_n"] * w["rarity"]               # higher rarity = better
                 + c["_curve_fit_n"] * w["curve_fit"]         # under-represented CMC = better
                 + random.random() * w["random"]              # uniform jitter for variety
             )
