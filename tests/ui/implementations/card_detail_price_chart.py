@@ -35,22 +35,28 @@ def steps(harness):
     # start_page: /card/blb/124 — auto-navigated by test runner.
     harness.wait_for_text("Artist's Talent")
 
-    # Seed price data into the database via podman exec.
+    # Seed price data into the database via podman exec + python (sqlite3 CLI
+    # is not installed in the container image).
     container = _find_container(harness.base_url)
     if container:
-        sql = (
-            "INSERT OR IGNORE INTO prices "
-            "(set_code, collector_number, source, price_type, price, observed_at) "
-            "VALUES "
-            "('blb', '124', 'tcgplayer', 'normal', 8.50, date('now', '-60 days')),"
-            "('blb', '124', 'tcgplayer', 'normal', 9.00, date('now', '-45 days')),"
-            "('blb', '124', 'tcgplayer', 'normal', 10.00, date('now', '-30 days')),"
-            "('blb', '124', 'tcgplayer', 'normal', 10.50, date('now', '-15 days')),"
-            "('blb', '124', 'tcgplayer', 'normal', 10.46, date('now'));"
+        python_script = (
+            "import sqlite3, datetime as dt; "
+            "conn = sqlite3.connect('/data/collection.sqlite'); "
+            "rows = ["
+            "('blb','124','tcgplayer','normal',8.50,(dt.date.today()-dt.timedelta(days=60)).isoformat()),"
+            "('blb','124','tcgplayer','normal',9.00,(dt.date.today()-dt.timedelta(days=45)).isoformat()),"
+            "('blb','124','tcgplayer','normal',10.00,(dt.date.today()-dt.timedelta(days=30)).isoformat()),"
+            "('blb','124','tcgplayer','normal',10.50,(dt.date.today()-dt.timedelta(days=15)).isoformat()),"
+            "('blb','124','tcgplayer','normal',10.46,dt.date.today().isoformat())"
+            "]; "
+            "conn.executemany('INSERT OR IGNORE INTO prices "
+            "(set_code,collector_number,source,price_type,price,observed_at) "
+            "VALUES (?,?,?,?,?,?)', rows); "
+            "conn.commit(); conn.close()"
         )
         subprocess.run(
-            ["podman", "exec", container, "sqlite3", "/data/collection.sqlite", sql],
-            capture_output=True, text=True,
+            ["podman", "exec", container, "python", "-c", python_script],
+            capture_output=True, text=True, check=True,
         )
 
     # Re-navigate so the chart picks up the seeded data.
