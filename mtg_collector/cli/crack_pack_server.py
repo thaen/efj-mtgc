@@ -5134,9 +5134,13 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             send_event("result", result)
             send_event("done", {})
         except ValueError as e:
+            import traceback
+            traceback.print_exc()
             send_event("error", {"message": str(e)})
             send_event("done", {"error": True})
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             send_event("error", {"message": str(e)})
             send_event("done", {"error": True})
         conn.close()
@@ -5405,7 +5409,7 @@ After analysis, respond with ONLY valid JSON in this exact format:
 
             for _round in range(max_tool_rounds + 1):
                 response = client.messages.create(
-                    model="claude-sonnet-4-20250514",
+                    model="claude-sonnet-4-5-20250929",
                     max_tokens=4000,
                     tools=[query_db_tool],
                     messages=messages,
@@ -5445,11 +5449,26 @@ After analysis, respond with ONLY valid JSON in this exact format:
                         collected_text += block.text
 
                 json_text = collected_text.strip()
-                if json_text.startswith("```"):
-                    lines = json_text.split("\n")
-                    start = 1 if lines[0].startswith("```") else 0
-                    end = len(lines) - 1 if lines[-1].strip() == "```" else len(lines)
-                    json_text = "\n".join(lines[start:end])
+                # Try to extract JSON from markdown code fence
+                import re as _re
+                fence_match = _re.search(r'```(?:json)?\s*\n(.*?)```', json_text, _re.DOTALL)
+                if fence_match:
+                    json_text = fence_match.group(1).strip()
+                else:
+                    # Try to find raw JSON object in the text
+                    brace_start = json_text.find('{')
+                    if brace_start >= 0:
+                        json_text = json_text[brace_start:]
+                        # Find matching closing brace
+                        depth = 0
+                        for i, ch in enumerate(json_text):
+                            if ch == '{':
+                                depth += 1
+                            elif ch == '}':
+                                depth -= 1
+                                if depth == 0:
+                                    json_text = json_text[:i + 1]
+                                    break
 
                 result = json.loads(json_text)
                 send_event("plans", result)
@@ -5460,9 +5479,13 @@ After analysis, respond with ONLY valid JSON in this exact format:
                 send_event("done", {"error": True})
 
         except json.JSONDecodeError as e:
+            import traceback
+            traceback.print_exc()
             send_event("error", {"message": f"Failed to parse Claude's response as JSON: {e}"})
             send_event("done", {"error": True})
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             send_event("error", {"message": str(e)})
             send_event("done", {"error": True})
         conn.close()

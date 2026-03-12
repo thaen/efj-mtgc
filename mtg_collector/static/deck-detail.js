@@ -1123,7 +1123,8 @@
         } else if (eventType === 'error') {
           body.innerHTML = `<div class="plan-error">${esc(data.message)}</div>`;
         } else if (eventType === 'done') {
-          if (data.error && !gotPlans) {
+          // error event already displayed the message — only show generic if no error was shown
+          if (data.error && !gotPlans && !body.querySelector('.plan-error')) {
             body.innerHTML = '<div class="plan-error">Plan generation failed. Try again.</div>';
           }
         }
