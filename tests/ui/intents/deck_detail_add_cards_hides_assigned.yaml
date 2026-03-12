@@ -1,0 +1,12 @@
+# Scenario: Deck picker hides copies assigned to decks or binders
+#
+# Prerequisites:
+#   Deck 1 "Bolt Tribal" exists. "Condemn" has 1 copy assigned to deck 1.
+#   "Unstoppable Slasher" has 1 copy assigned to binder 1, 1 unassigned.
+
+description: >
+  When I navigate to deck 2 (Eldrazi Ramp) at /decks/2 and open the "Add Cards"
+  modal, I search for "Condemn" — a card where all copies are already assigned
+  to a deck. The picker shows "No unassigned copies found" because the only copy
+  is in deck 1. Then I clear the search and type "Unstoppable" — one copy is in
+  a binder so only the unassigned copy appears. The assigned copy is filtered out.

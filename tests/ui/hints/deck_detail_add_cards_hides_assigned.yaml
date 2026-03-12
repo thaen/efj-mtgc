@@ -1,0 +1,17 @@
+start_page: /decks/2
+involves:
+  - "#btn-add-cards opens #add-cards-modal.active"
+  - "#picker-search input with placeholder 'Search by name...'"
+  - ".picker-cards shows 'No unassigned copies found' for fully-assigned cards"
+  - ".picker-cards shows only unassigned copies for partially-assigned cards"
+fixture_data:
+  deck_id: 2
+  fully_assigned_card: "Condemn"
+  partially_assigned_card: "Unstoppable"
+  partial_card_name: "Unstoppable Slasher"
+notes: >
+  Navigate to /decks/2. Wait for deck to load. Click "Add Cards". Wait for
+  modal. Type "Condemn" in search — all copies are in deck 1. Verify the
+  "No unassigned copies found" message appears. Clear the search field.
+  Type "Unstoppable" — one copy is in binder 1, one is unassigned. Verify
+  exactly 1 row appears (the unassigned copy).
