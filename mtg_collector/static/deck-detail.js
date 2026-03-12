@@ -305,28 +305,22 @@
     <div class="modal-backdrop" id="replace-modal">
       <div class="modal replace-modal">
         <div class="replace-header">
-          <h3>Replace: <span id="replace-card-name"></span></h3>
+          <h3>Replace: <span id="replace-card-name"></span> <span id="replace-card-roles" class="replace-roles"></span></h3>
           <button class="btn btn-ghost" id="replace-cancel">✕</button>
         </div>
-        <div class="replace-columns">
-          <div class="replace-col">
-            <h4>Role-based</h4>
-            <div class="replace-col-body" id="replace-role"></div>
-          </div>
-          <div class="replace-col">
-            <h4>Type-based</h4>
-            <div class="replace-col-body" id="replace-type"></div>
-          </div>
-          <div class="replace-col">
-            <h4>Search</h4>
-            <div class="replace-search-inputs" id="replace-search-form">
-              <input placeholder="Name" id="rs-name">
-              <input placeholder="Mana value" id="rs-cmc" type="number">
-              <input placeholder="Set code" id="rs-set">
-              <input placeholder="Type" id="rs-type">
-            </div>
-            <div class="replace-col-body" id="replace-search"></div>
-          </div>
+        <div class="replace-tabs">
+          <button class="replace-tab active" data-tab="role">Role</button>
+          <button class="replace-tab" data-tab="type">Type</button>
+          <button class="replace-tab" data-tab="search">Search</button>
+        </div>
+        <div class="replace-search-inputs" id="replace-search-form" style="display:none">
+          <input placeholder="Name" id="rs-name">
+          <input placeholder="Mana value" id="rs-cmc" type="number">
+          <input placeholder="Set code" id="rs-set">
+          <input placeholder="Type" id="rs-type">
+        </div>
+        <div class="replace-grid-wrap">
+          <div class="card-grid replace-card-grid" id="replace-grid"></div>
         </div>
         <div class="replace-confirm-bar">
           <span id="replace-selection-label">No card selected</span>
@@ -380,6 +374,22 @@
   document.getElementById('btn-save-plan').addEventListener('click', savePlanVariant);
   document.getElementById('replace-cancel').addEventListener('click', () => closeModal('replace-modal'));
   document.getElementById('replace-confirm').addEventListener('click', confirmReplacement);
+
+  // Replace tab switching
+  let replaceActiveTab = 'role';
+  let replaceCandidateData = { role: [], type: [], search: [] };
+  document.querySelectorAll('.replace-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      replaceActiveTab = tab.dataset.tab;
+      document.querySelectorAll('.replace-tab').forEach(t => t.classList.toggle('active', t === tab));
+      document.getElementById('replace-search-form').style.display = replaceActiveTab === 'search' ? '' : 'none';
+      if (replaceActiveTab === 'search' && replaceCandidateData.search.length === 0) {
+        searchReplacements();
+      } else {
+        renderReplaceGrid(replaceCandidateData[replaceActiveTab]);
+      }
+    });
+  });
 
   // Replace search debounce
   let replaceSearchTimer = null;
@@ -568,6 +578,24 @@
     });
   }
 
+  function getCardRoles(card) {
+    const tags = card.tags ? card.tags.split(',') : [];
+    const roles = [];
+    // Regular tag targets
+    for (const t of tags) {
+      if (planTargetTags.has(t)) {
+        const val = currentPlanTargets && currentPlanTargets[t];
+        const label = val.label;
+        roles.push(label);
+      }
+    }
+    // Custom query targets — check card's custom_roles if present
+    if (card.custom_roles) {
+      for (const label of card.custom_roles) roles.push(label);
+    }
+    return roles;
+  }
+
   function renderCards() {
     const cards = getFilteredCards();
 
@@ -602,8 +630,7 @@
     tbody.innerHTML = cards.map(c => {
       const sc = c.set_code.toLowerCase();
       const cn = c.collector_number;
-      const tags = c.tags ? c.tags.split(',') : [];
-      const role = tags.filter(t => planTargetTags.has(t)).map(t => t.replace(/-/g, ' ')).join(', ');
+      const role = getCardRoles(c).join(', ');
       return `<tr>
         <td><input type="checkbox" data-id="${c.id}" ${selectedCardIds.has(c.id) ? 'checked' : ''}></td>
         <td><a href="/card/${esc(sc)}/${esc(cn)}">${esc(c.name)}</a></td>
@@ -638,10 +665,13 @@
       const cn = c.collector_number;
       const rarityColor = getRarityColor(c.rarity);
       const foilClass = (c.finish === 'foil' || c.finish === 'etched') ? ' foil' : '';
+      const roles = getCardRoles(c);
+      const primaryRole = roles.length ? roles[0] : '';
       return `<div class="sheet-card" data-sc="${esc(sc)}" data-cn="${esc(cn)}">
         <div class="sheet-card-img-wrap${foilClass}" style="--rarity-color:${rarityColor};--set-color:#111">
           <img src="${c.image_uri || ''}" alt="${esc(c.name)}" loading="lazy">
           <button class="replace-btn" title="Replace" data-cid="${c.id}" data-name="${esc(c.name)}">⇄</button>
+          ${primaryRole ? `<span class="role-overlay">${esc(primaryRole)}</span>` : ''}
         </div>
       </div>`;
     }).join('');
@@ -1019,9 +1049,8 @@
 
     let html = '<div class="plan-progress">';
     for (const [tag, targetVal] of sorted) {
-      const isCustom = typeof targetVal === 'object' && targetVal !== null;
-      const target = isCustom ? targetVal.count : targetVal;
-      const label = isCustom ? targetVal.label : tag.replace(/-/g, ' ');
+      const target = targetVal.count;
+      const label = targetVal.label;
       const current = (planProgress && planProgress[tag]) ? planProgress[tag].current : 0;
       const pct = target > 0 ? Math.min((current / target) * 100, 100) : 0;
       const cls = current >= target ? 'met' : 'under';
@@ -1165,15 +1194,12 @@
       const sortedTargets = Object.entries(v.targets || {}).sort(([a, ac], [b, bc]) => {
         if (a === 'lands') return -1;
         if (b === 'lands') return 1;
-        const countA = typeof ac === 'object' ? ac.count : ac;
-        const countB = typeof bc === 'object' ? bc.count : bc;
-        return countB - countA;
+        return bc.count - ac.count;
       });
       for (const [tag, val] of sortedTargets) {
-        const isCustom = typeof val === 'object' && val !== null;
-        const count = isCustom ? val.count : val;
-        const label = isCustom ? val.label : tag.replace(/-/g, ' ');
-        const title = isCustom ? ` title="${esc(val.query)}"` : '';
+        const count = val.count;
+        const label = val.label;
+        const title = val.query ? ` title="${esc(val.query)}"` : '';
         html += `<span class="cat"${title}>${esc(label)}</span><span class="count">${count}</span>`;
       }
       html += '</div></div>';
@@ -1712,10 +1738,11 @@
     });
 
     let html = '<div class="plan-edit">';
-    for (const [tag, count] of sorted) {
+    for (const [tag, target] of sorted) {
+      const isQuery = target.type === 'query';
       html += `<div class="plan-edit-row" data-original-tag="${esc(tag)}">`;
-      html += `<input type="text" class="plan-edit-tag" value="${esc(tag)}" placeholder="tag name">`;
-      html += `<input type="number" class="plan-edit-count" value="${count}" min="0" max="99">`;
+      html += `<input type="text" class="plan-edit-tag" value="${esc(isQuery ? target.label : tag)}" placeholder="tag name"${isQuery ? ' readonly title="Custom query — rename not supported"' : ''}>`;
+      html += `<input type="number" class="plan-edit-count" value="${target.count}" min="0" max="99">`;
       html += `<button class="plan-edit-delete" title="Remove">&times;</button>`;
       html += `</div>`;
     }
@@ -1776,10 +1803,19 @@
     const rows = body.querySelectorAll('.plan-edit-row:not(.plan-edit-add)');
     const targets = {};
     for (const row of rows) {
-      const tag = row.querySelector('.plan-edit-tag').value.trim();
       const count = parseInt(row.querySelector('.plan-edit-count').value) || 0;
-      if (tag && count > 0) {
-        targets[tag] = count;
+      if (count <= 0) continue;
+      const originalTag = row.dataset.originalTag;
+      const originalTarget = currentPlanTargets && currentPlanTargets[originalTag];
+      if (originalTarget && originalTarget.type === 'query') {
+        // Preserve custom query target, only update count
+        targets[originalTag] = { ...originalTarget, count };
+      } else {
+        const tag = row.querySelector('.plan-edit-tag').value.trim();
+        if (tag) {
+          const type = tag === 'lands' ? 'lands' : 'tag';
+          targets[tag] = { count, label: tag === 'lands' ? 'lands' : tag.replace(/-/g, ' '), type };
+        }
       }
     }
 
@@ -1821,22 +1857,31 @@
     replaceCollectionId = collectionId;
     replaceSelectedCandidate = null;
     document.getElementById('replace-card-name').textContent = cardName;
+    document.getElementById('replace-card-roles').innerHTML = '';
     document.getElementById('replace-confirm').disabled = true;
     document.getElementById('replace-selection-label').textContent = 'No card selected';
-    document.getElementById('replace-role').innerHTML = '<span style="color:var(--text-secondary)">Loading...</span>';
-    document.getElementById('replace-type').innerHTML = '<span style="color:var(--text-secondary)">Loading...</span>';
-    document.getElementById('replace-search').innerHTML = '';
+    replaceCandidateData = { role: [], type: [], search: [] };
+    // Reset to Role tab
+    replaceActiveTab = 'role';
+    document.querySelectorAll('.replace-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === 'role'));
+    document.getElementById('replace-search-form').style.display = 'none';
+    renderReplaceGrid([]);
+    document.getElementById('replace-grid').innerHTML = '<div style="padding:24px;color:var(--text-secondary);text-align:center;grid-column:1/-1">Loading...</div>';
     document.getElementById('replace-modal').classList.add('active');
 
     const res = await fetch(`/api/decks/${encodeURIComponent(deckId)}/replacements?collection_id=${collectionId}`);
     if (!res.ok) {
-      document.getElementById('replace-role').innerHTML = '<span style="color:#e74c3c">Failed to load</span>';
-      document.getElementById('replace-type').innerHTML = '<span style="color:#e74c3c">Failed to load</span>';
+      document.getElementById('replace-grid').innerHTML = '<div style="padding:24px;color:#e74c3c;text-align:center;grid-column:1/-1">Failed to load</div>';
       return;
     }
     const data = await res.json();
-    renderReplaceCandidates(document.getElementById('replace-role'), data.role_suggestions);
-    renderReplaceCandidates(document.getElementById('replace-type'), data.type_suggestions);
+    const cardRoles = (data.card.tags || []);
+    if (cardRoles.length) {
+      document.getElementById('replace-card-roles').innerHTML = cardRoles.map(r => `<span class="replace-role-pill">${esc(r)}</span>`).join('');
+    }
+    replaceCandidateData.role = data.role_suggestions || [];
+    replaceCandidateData.type = data.type_suggestions || [];
+    renderReplaceGrid(replaceCandidateData[replaceActiveTab]);
 
     // Pre-fill search inputs from card data
     document.getElementById('rs-name').value = '';
@@ -1847,28 +1892,31 @@
     document.getElementById('rs-type').value = (dashIdx >= 0 ? tl.substring(0, dashIdx).trim() : tl).split(' ').find(w =>
       ['Creature','Artifact','Enchantment','Instant','Sorcery','Planeswalker'].includes(w)
     ) || '';
-    searchReplacements();
   }
 
-  function renderReplaceCandidates(container, candidates) {
+  function renderReplaceGrid(candidates) {
+    const grid = document.getElementById('replace-grid');
     if (!candidates || candidates.length === 0) {
-      container.innerHTML = '<span style="color:var(--text-secondary);font-size:0.85rem">No candidates found</span>';
+      grid.innerHTML = '<div style="padding:24px;color:var(--text-secondary);text-align:center;grid-column:1/-1">No candidates found</div>';
       return;
     }
-    container.innerHTML = candidates.map(c => {
+    grid.innerHTML = candidates.map(c => {
       const tags = (c.tags || '').split(',').filter(t => t && planTargetTags.has(t));
-      const tagPills = tags.map(t => `<span class="replace-tag-pill">${esc(t.replace(/-/g, ' '))}</span>`).join('');
-      return `<div class="replace-candidate" data-cid="${c.collection_id}" data-name="${esc(c.name)}">
-        <img class="replace-thumb" src="${c.image_uri || ''}" alt="${esc(c.name)}" loading="lazy">
-        <div class="replace-candidate-info">
-          <span class="replace-candidate-name">${esc(c.name)}</span>
-          <span class="mana">${renderMana(c.mana_cost || '')}</span>
-          ${tagPills ? `<div class="replace-tag-pills">${tagPills}</div>` : ''}
+      const rolesText = tags.map(t => {
+        const val = currentPlanTargets && currentPlanTargets[t];
+        return val ? val.label : t.replace(/-/g, ' ');
+      }).join(', ');
+      const rarityColor = getRarityColor(c.rarity);
+      const foilClass = (c.finish === 'foil' || c.finish === 'etched') ? ' foil' : '';
+      return `<div class="sheet-card replace-candidate" data-cid="${c.collection_id}" data-name="${esc(c.name)}">
+        <div class="sheet-card-img-wrap${foilClass}" style="--rarity-color:${rarityColor};--set-color:#111">
+          <img src="${c.image_uri || ''}" alt="${esc(c.name)}" loading="lazy">
+          ${rolesText ? `<span class="role-overlay" style="opacity:1">${esc(rolesText)}</span>` : ''}
         </div>
       </div>`;
     }).join('');
 
-    container.querySelectorAll('.replace-candidate').forEach(el => {
+    grid.querySelectorAll('.replace-candidate').forEach(el => {
       el.addEventListener('click', () => selectReplaceCandidate(el));
     });
   }
@@ -1907,24 +1955,25 @@
     }
     params.set('exclude_deck_id', deckId);
 
-    const container = document.getElementById('replace-search');
-    container.innerHTML = '<span style="color:var(--text-secondary)">Searching...</span>';
+    const grid = document.getElementById('replace-grid');
+    grid.innerHTML = '<div style="padding:24px;color:var(--text-secondary);text-align:center;grid-column:1/-1">Searching...</div>';
 
     const res = await fetch(`/api/collection?${params}`);
     if (!res.ok) {
-      container.innerHTML = '<span style="color:#e74c3c">Search failed</span>';
+      grid.innerHTML = '<div style="padding:24px;color:#e74c3c;text-align:center;grid-column:1/-1">Search failed</div>';
       return;
     }
     const cards = await res.json();
-    // Map collection API format to candidate format
-    const candidates = cards.slice(0, 20).map(c => ({
-      collection_id: c.collection_ids ? c.collection_ids[0] : c.id,
+    replaceCandidateData.search = cards.filter(c => c.collection_id).slice(0, 20).map(c => ({
+      collection_id: c.collection_id,
       name: c.name,
       mana_cost: c.mana_cost,
       image_uri: c.image_uri,
-      tags: c.tags || '',
+      rarity: c.rarity,
+      finish: c.finish,
+      tags: (c.card_tags || []).join(','),
     }));
-    renderReplaceCandidates(container, candidates);
+    renderReplaceGrid(replaceCandidateData.search);
   }
 
   async function confirmReplacement() {

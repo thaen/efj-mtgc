@@ -25,7 +25,8 @@ TAG_ROLE_HINTS = {
     "boardwipe": "can potentialy destory 5 or more creatures given the right board state",
     "multi-removal": "removes 2+ permanents in one action, not single-target",
     "card-advantage": "must generate net card advantage, not just filter/loot",
-    "mana-rock": "an artifact that generates mana"
+    "mana-rock": "an artifact that generates mana",
+    "mana-dork": "a creature that generates mana"
 }
 
 HAIKU_MODEL = "claude-haiku-4-5-20251001"

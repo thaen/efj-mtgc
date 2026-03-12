@@ -627,7 +627,10 @@ class TestPlan:
         svc.set_plan(deck["deck_id"], {"reanimate": 8, "discard": 5, "targets": 10})
         plan = svc.get_plan(deck["deck_id"])
         assert plan is not None
-        assert plan["targets"] == {"reanimate": 8, "discard": 5, "targets": 10}
+        assert plan["targets"]["reanimate"]["count"] == 8
+        assert plan["targets"]["discard"]["count"] == 5
+        assert plan["targets"]["targets"]["count"] == 10
+        assert plan["targets"]["reanimate"]["type"] == "tag"
 
     def test_plan_progress_tracks_card_tags(self, seeded_db):
         db, entries = seeded_db
@@ -672,7 +675,9 @@ class TestPlan:
         # Edit: rename draw→card-advantage, remove boardwipe, add evasion
         svc.set_plan(deck["deck_id"], {"ramp": 12, "card-advantage": 8, "evasion": 4})
         plan = svc.get_plan(deck["deck_id"])
-        assert plan["targets"] == {"ramp": 12, "card-advantage": 8, "evasion": 4}
+        assert plan["targets"]["ramp"]["count"] == 12
+        assert plan["targets"]["card-advantage"]["count"] == 8
+        assert plan["targets"]["evasion"]["count"] == 4
         assert "draw" not in plan["targets"]
         assert "boardwipe" not in plan["targets"]
 
@@ -1843,12 +1848,15 @@ class TestCustomQueryTargets:
             },
         }
         result = svc.set_plan(deck_id, targets)
-        assert result["targets"]["ramp"] == 8
+        assert result["targets"]["ramp"]["count"] == 8
+        assert result["targets"]["ramp"]["type"] == "tag"
         assert result["targets"]["creatures-with-deathtouch"]["count"] == 5
+        assert result["targets"]["creatures-with-deathtouch"]["type"] == "query"
 
         # Verify it persists
         plan = svc.get_plan(deck_id)
         assert plan["targets"]["creatures-with-deathtouch"]["label"] == "Deathtouch Creatures"
+        assert plan["targets"]["lands"]["type"] == "lands"
 
     def test_set_plan_rejects_invalid_custom_query(self, seeded_db):
         """set_plan rejects custom query targets with invalid SQL."""

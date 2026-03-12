@@ -1986,6 +1986,7 @@ class CrackPackHandler(BaseHTTPRequestHandler):
                     json_extract(p.raw_json, '$.card_faces[1].mana_cost') as face1_mana,
                     c.finish, c.condition, c.status,
                     COUNT(DISTINCT c.id) as qty,
+                    MIN(c.id) as collection_id,
                     MAX(c.acquired_at) as acquired_at,
                     c.order_id,
                     o.seller_name as order_seller,
@@ -2052,6 +2053,8 @@ class CrackPackHandler(BaseHTTPRequestHandler):
                 "acquired_at": row["acquired_at"],
                 "owned": bool(row["owned"]) if include_unowned else True,
             }
+            if "collection_id" in row.keys() and row["collection_id"]:
+                card["collection_id"] = row["collection_id"]
             # Tags
             tags_raw = row["card_tags"] if "card_tags" in row.keys() else None
             if tags_raw:
@@ -5471,6 +5474,12 @@ After analysis, respond with ONLY valid JSON in this exact format:
                                     break
 
                 result = json.loads(json_text)
+                # Normalize variant targets to canonical shape for the UI
+                from mtg_collector.services.deck_builder.service import DeckBuilderService
+                svc = DeckBuilderService(conn)
+                for variant in result.get("variants", []):
+                    if "targets" in variant:
+                        variant["targets"] = svc._normalize_targets(variant["targets"])
                 send_event("plans", result)
                 send_event("done", {})
                 break
@@ -5550,8 +5559,8 @@ After analysis, respond with ONLY valid JSON in this exact format:
         remove_cid = data.get("remove_collection_id")
         add_cid = data.get("add_collection_id")
         zone = data.get("zone", "mainboard")
-        if not remove_cid or not add_cid:
-            self._send_json({"error": "remove_collection_id and add_collection_id required"}, 400)
+        if remove_cid is None or add_cid is None:
+            self._send_json({"error": f"remove_collection_id and add_collection_id required (got remove={remove_cid!r}, add={add_cid!r})"}, 400)
             return
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row

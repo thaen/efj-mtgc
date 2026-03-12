@@ -569,19 +569,52 @@ class DeckBuilderService:
 
     # ── Plan ────────────────────────────────────────────────────────
 
+    def _normalize_targets(self, targets: dict) -> dict:
+        """Convert all target values to canonical dict shape for consumers."""
+        result = {}
+        for key, val in targets.items():
+            if isinstance(val, dict) and "type" in val:
+                result[key] = val  # already normalized
+            elif key == "lands":
+                count = val if isinstance(val, (int, float)) else val.get("count", 0)
+                result[key] = {"count": int(count), "label": "lands", "type": "lands"}
+            elif isinstance(val, dict):
+                result[key] = {"count": int(val["count"]), "label": val["label"],
+                               "type": "query", "query": val["query"]}
+            else:
+                result[key] = {"count": int(val), "label": key.replace("-", " "), "type": "tag"}
+        return result
+
+    def _denormalize_targets(self, targets: dict) -> dict:
+        """Convert normalized targets back to storage format."""
+        result = {}
+        for key, val in targets.items():
+            if isinstance(val, dict) and "type" in val:
+                if val["type"] == "query":
+                    result[key] = {"count": val["count"], "query": val["query"], "label": val["label"]}
+                else:
+                    result[key] = val["count"]
+            else:
+                result[key] = val  # already in storage format
+        return result
+
     def set_plan(self, deck_id: int, targets: dict) -> dict:
         """Store a build plan with numeric targets as JSON in decks.plan.
 
         Target values can be:
         - int: tag-based role with this count (backward compatible)
         - dict with {count, query, label}: custom SQL WHERE clause role
+        - normalized dict with {count, label, type, query?}: from API round-trip
         """
         deck = self.deck_repo.get(deck_id)
         if not deck:
             raise ValueError(f"Deck not found: {deck_id}")
 
+        # Denormalize first so validation works on storage format
+        storage_targets = self._denormalize_targets(targets)
+
         # Validate each target
-        for key, val in targets.items():
+        for key, val in storage_targets.items():
             if isinstance(val, (int, float)):
                 continue
             if isinstance(val, dict):
@@ -600,19 +633,22 @@ class DeckBuilderService:
 
         # Preserve existing weights when updating targets
         existing_plan = self.get_plan(deck_id)
-        new_plan = {"targets": targets}
+        new_plan = {"targets": storage_targets}
         if existing_plan and "weights" in existing_plan:
             new_plan["weights"] = existing_plan["weights"]
         self.deck_repo.update(deck_id, {"plan": json.dumps(new_plan)})
         self.conn.commit()
-        return {"deck_id": deck_id, "targets": targets}
+        return {"deck_id": deck_id, "targets": self._normalize_targets(storage_targets)}
 
     def get_plan(self, deck_id: int) -> Optional[dict]:
-        """Parse plan JSON from deck."""
+        """Parse plan JSON from deck. Targets are normalized to canonical dict shape."""
         deck = self.deck_repo.get(deck_id)
         if not deck or not deck.get("plan"):
             return None
-        return json.loads(deck["plan"])
+        plan = json.loads(deck["plan"])
+        if "targets" in plan:
+            plan["targets"] = self._normalize_targets(plan["targets"])
+        return plan
 
     def clear_plan(self, deck_id: int) -> dict:
         """Clear the build plan."""
@@ -717,8 +753,8 @@ class DeckBuilderService:
 
         # Compute budget: total nonland slots available
         commander_count = sum(1 for c in cards_in_deck if c.get("deck_zone") == ZONE_COMMANDER)
-        land_target_val = targets.get("lands", LAND_TARGET_DEFAULT)
-        land_target = land_target_val if isinstance(land_target_val, (int, float)) else LAND_TARGET_DEFAULT
+        land_target_val = targets.get("lands")
+        land_target = land_target_val["count"] if land_target_val else LAND_TARGET_DEFAULT
         nonland_budget = DECK_SIZE - commander_count - land_target
         existing_nonland = sum(
             1 for c in cards_in_deck
@@ -738,7 +774,7 @@ class DeckBuilderService:
         # For custom query targets, count matching cards in deck
         custom_query_counts: dict[str, int] = {}
         for key, val in targets.items():
-            if isinstance(val, dict) and "query" in val:
+            if val["type"] == "query":
                 deck_oids = {c.get("oracle_id") for c in cards_in_deck if c.get("oracle_id")}
                 if deck_oids:
                     oid_list = ",".join(f"'{o}'" for o in deck_oids)
@@ -779,7 +815,7 @@ class DeckBuilderService:
         for tag, val in targets.items():
             if tag == "lands":
                 continue
-            if isinstance(val, dict):
+            if val["type"] == "query":
                 continue  # custom query targets don't expand to tag aliases
             expanded_plan_tags.add(tag)
             for alias in TAG_ALIASES.get(tag, []):
@@ -804,11 +840,10 @@ class DeckBuilderService:
             for key, val in targets.items():
                 if key == "lands" or key in exhausted_tags:
                     continue
-                if isinstance(val, dict):
-                    target_count = int(val["count"])
+                target_count = val["count"]
+                if val["type"] == "query":
                     current = custom_query_counts.get(key, 0)
                 else:
-                    target_count = int(val)
                     current = tag_counts.get(key, 0)
                 need = max(0, target_count - current)
                 if need > 0:
@@ -822,8 +857,8 @@ class DeckBuilderService:
             tag, target_count, current, need = tag_needs[0]
 
             target_val = targets[tag]
-            is_custom = isinstance(target_val, dict)
-            label = target_val.get("label", tag) if is_custom else tag.replace("-", " ")
+            is_custom = target_val["type"] == "query"
+            label = target_val["label"]
             if progress_cb:
                 progress_cb(f"Searching for {label}")
 
@@ -897,12 +932,12 @@ class DeckBuilderService:
                 # Update tag counts for ALL plan tags each picked card satisfies
                 card_tags = self._get_card_tags(p["oracle_id"])
                 for t in card_tags:
-                    if t in targets and isinstance(targets[t], (int, float)):
+                    if t in targets and targets[t]["type"] == "tag":
                         tag_counts[t] = tag_counts.get(t, 0) + 1
 
                 # Update custom query counts — check if this card matches each custom query
                 for cq_key, cq_val in targets.items():
-                    if isinstance(cq_val, dict) and "query" in cq_val:
+                    if cq_val["type"] == "query":
                         match = self.conn.execute(
                             f"SELECT 1 FROM cards card "  # noqa: S608
                             f"JOIN printings p ON p.oracle_id = card.oracle_id "
@@ -1671,12 +1706,10 @@ class DeckBuilderService:
 
         progress = {}
         for target_name, target_val in targets.items():
-            if target_name == "lands":
-                target_count = target_val if isinstance(target_val, (int, float)) else target_val.get("count", 0)
+            target_count = target_val["count"]
+            if target_val["type"] == "lands":
                 current = land_row["cnt"]
-            elif isinstance(target_val, dict) and "query" in target_val:
-                # Custom query target — count matching cards in deck
-                target_count = int(target_val["count"])
+            elif target_val["type"] == "query":
                 cnt_row = self.conn.execute(
                     f"""SELECT COUNT(DISTINCT card.oracle_id) AS cnt
                        FROM collection c
@@ -1687,11 +1720,8 @@ class DeckBuilderService:
                 ).fetchone()
                 current = cnt_row["cnt"]
             else:
-                target_count = int(target_val)
                 current = tag_counts.get(target_name, 0)
-            entry = {"current": current, "target": target_count}
-            if isinstance(target_val, dict) and "label" in target_val:
-                entry["label"] = target_val["label"]
+            entry = {"current": current, "target": target_count, "label": target_val["label"]}
             progress[target_name] = entry
         return progress
 
@@ -1787,28 +1817,53 @@ class DeckBuilderService:
         exclude_oids = {c["oracle_id"] for c in deck_cards}
         exclude_list = ",".join(f"'{oid}'" for oid in exclude_oids) if exclude_oids else "''"
 
-        # Get the card's plan-relevant tags
+        # Get the card's plan-relevant tags (regular tags + custom queries)
         plan = self.get_plan(deck_id)
-        plan_targets = set(plan["targets"].keys()) if plan and "targets" in plan else set()
+        targets = plan["targets"] if plan and "targets" in plan else {}
+        plan_tag_keys = {k for k, v in targets.items() if v["type"] == "tag"}
         card_tags = self._get_card_tags(card["oracle_id"])
-        card_plan_tags = card_tags & plan_targets
+        card_plan_tags = card_tags & plan_tag_keys
+
+        # Check which custom query targets this card matches
+        card_custom_queries: list[dict] = []
+        for key, val in targets.items():
+            if val["type"] == "query":
+                match = self.conn.execute(
+                    f"SELECT 1 FROM cards card "  # noqa: S608
+                    f"JOIN printings p ON p.oracle_id = card.oracle_id "
+                    f"WHERE card.oracle_id = ? AND ({val['query']})",
+                    (card["oracle_id"],),
+                ).fetchone()
+                if match:
+                    card_custom_queries.append(val)
 
         target_cmc = int(card.get("cmc") or 0)
 
-        # Role-based suggestions
+        # Role-based suggestions: from tag matches + custom query matches
         role_suggestions = self._query_role_replacements(
-            card_plan_tags, target_cmc, ci_clauses, exclude_list
+            target_cmc, ci_clauses, exclude_list, card_plan_tags=card_plan_tags
         )
+        for cq in card_custom_queries:
+            cq_results = self._query_role_replacements(
+                target_cmc, ci_clauses, exclude_list, custom_where=cq["query"]
+            )
+            # Merge without duplicates
+            seen = {r["oracle_id"] for r in role_suggestions}
+            for r in cq_results:
+                if r["oracle_id"] not in seen:
+                    role_suggestions.append(r)
+                    seen.add(r["oracle_id"])
 
         # Type-based suggestions
         type_suggestions = self._query_type_replacements(
             card, target_cmc, ci_clauses, exclude_list
         )
 
+        all_labels = sorted(card_plan_tags) + [cq["label"] for cq in card_custom_queries]
         card_info = {
             "name": card["name"],
             "cmc": card.get("cmc"),
-            "tags": sorted(card_plan_tags),
+            "tags": all_labels,
             "type_line": card.get("type_line", ""),
             "mana_cost": card.get("mana_cost", ""),
             "colors": card.get("colors", "[]"),
@@ -1821,14 +1876,27 @@ class DeckBuilderService:
             "type_suggestions": type_suggestions,
         }
 
-    def _query_role_replacements(self, card_plan_tags: set, target_cmc: int,
-                                  ci_clauses: str, exclude_list: str) -> list:
-        """Find replacement candidates sharing plan tags at same CMC."""
-        if not card_plan_tags:
+    def _query_role_replacements(self, target_cmc: int,
+                                  ci_clauses: str, exclude_list: str,
+                                  *, card_plan_tags: set | None = None,
+                                  custom_where: str | None = None) -> list:
+        """Find replacement candidates by plan tags or custom query at same CMC."""
+        if card_plan_tags:
+            tags = sorted(card_plan_tags)
+            tag_placeholders = ",".join("?" for _ in tags)
+            tag_join = (f"JOIN card_tags ct ON ct.oracle_id = card.oracle_id"
+                        f"\n                  AND ct.tag IN ({tag_placeholders})"
+                        f"\n                  AND {tag_validation_filter('ct')}")
+            order = "ORDER BY COUNT(DISTINCT ct.tag) DESC"
+            params = (*tags, target_cmc)
+        elif custom_where:
+            tag_join = ""
+            order = ""
+            params = (target_cmc,)
+        else:
             return []
 
-        tags = sorted(card_plan_tags)
-        tag_placeholders = ",".join("?" for _ in tags)
+        custom_clause = f"AND ({custom_where})" if custom_where else ""
 
         rows = self.conn.execute(
             f"""SELECT card.oracle_id, card.name, card.type_line,
@@ -1836,23 +1904,22 @@ class DeckBuilderService:
                        p.set_code, p.collector_number, p.image_uri, p.rarity,
                        MIN(c.id) AS collection_id,
                        GROUP_CONCAT(DISTINCT ct2.tag) AS tags
-                FROM card_tags ct
-                JOIN cards card ON ct.oracle_id = card.oracle_id
+                FROM cards card
                 JOIN printings p ON p.oracle_id = card.oracle_id
                 JOIN collection c ON c.printing_id = p.printing_id
+                {tag_join}
                 LEFT JOIN card_tags ct2 ON ct2.oracle_id = card.oracle_id
                   AND {tag_validation_filter("ct2")}
-                WHERE ct.tag IN ({tag_placeholders})
-                  AND {tag_validation_filter("ct")}
-                  AND c.status = 'owned'
+                WHERE c.status = 'owned'
                   AND c.deck_id IS NULL AND c.binder_id IS NULL
                   AND card.oracle_id NOT IN ({exclude_list})
                   AND CAST(card.cmc AS INTEGER) = ?
                   {ci_clauses}
+                  {custom_clause}
                 GROUP BY card.oracle_id
-                ORDER BY COUNT(DISTINCT ct.tag) DESC
+                {order}
                 LIMIT 20""",  # noqa: S608
-            (*tags, target_cmc),
+            params,
         ).fetchall()
         return [dict(r) for r in rows]
 
