@@ -556,20 +556,24 @@
     if (activeRoleFilter === 'lands') {
       return deckCards.filter(c => (c.type_line || '').includes('Land'));
     }
+    // Exclude lands from tag-based filters — lands only count for "lands" target
+    const nonlands = deckCards.filter(c => !(c.type_line || '').includes('Land'));
     const subTags = INFRA_SUB_TAGS[activeRoleFilter];
     if (subTags) {
-      return deckCards.filter(c => {
+      return nonlands.filter(c => {
         const tags = c.tags ? c.tags.split(',') : [];
         return tags.some(t => subTags.has(t));
       });
     }
-    return deckCards.filter(c => {
+    return nonlands.filter(c => {
       const tags = c.tags ? c.tags.split(',') : [];
       return tags.includes(activeRoleFilter);
     });
   }
 
   function getCardRoles(card) {
+    // Lands don't get functional roles — they fill the "Lands" target only
+    if ((card.type_line || '').includes('Land')) return [];
     const tags = card.tags ? card.tags.split(',') : [];
     const tagSet = new Set(tags);
     const roles = [];
