@@ -1,0 +1,21 @@
+start_page: /decks/2
+involves:
+  - "#btn-add-cards opens #add-cards-modal.active"
+  - "#picker-search input with placeholder 'Search by name...'"
+  - ".picker-cards shows individual copy rows (not grouped)"
+  - ".picker-card click toggles .selected class"
+  - "#btn-add-picker sends POST /api/decks/2/cards with collection_ids"
+  - "#card-tbody updates with Scrawling Crawler"
+fixture_data:
+  deck_id: 2
+  deck_name: "Eldrazi Ramp"
+  search_term: "Scrawling"
+  card_name: "Scrawling Crawler"
+  unassigned_copies: 1
+  total_copies: 3
+notes: >
+  Navigate to /decks/2. Wait for deck to load. Click "Add Cards". Wait for
+  modal. Type "Scrawling" in picker search. Wait for results. Verify only 1
+  row appears (the unassigned copy, not the 2 assigned ones). Click the row
+  to select it. Click "Add Selected". Wait for modal to close. Verify
+  "Scrawling Crawler" appears in the card table.

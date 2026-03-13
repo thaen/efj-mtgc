@@ -1,0 +1,20 @@
+start_page: /collection
+involves:
+  - "#more-menu-btn opens dropdown"
+  - "#toggle-multiselect-btn enables multi-select (re-fetches with expand=copies)"
+  - "Table rows show individual copies (qty=1 each)"
+  - "tr[data-idx] input.row-sel-cb checkboxes for selection"
+  - "#sel-deck-btn opens assign-deck overlay"
+  - "#assign-deck-select to pick target deck"
+fixture_data:
+  search_term: "Scrawling"
+  card_name: "Scrawling Crawler"
+  target_deck: "Eldrazi Ramp"
+  target_deck_id: 2
+notes: >
+  Navigate to /collection. Wait for table. Search for "Scrawling" to narrow
+  results. Open more menu and click toggle multi-select. Wait for table to
+  re-render with expanded rows. Verify multiple rows appear for Scrawling
+  Crawler (3 individual copies). Select one checkbox. Click "Add to Deck".
+  Select "Eldrazi Ramp" in the deck selector. Confirm. Verify the row count
+  changes after assignment.

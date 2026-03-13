@@ -1,0 +1,11 @@
+# Scenario: Delete a specific individual copy in multi-select mode
+#
+# Prerequisites:
+#   "Unstoppable Slasher" has 2 copies (1 in binder 1, 1 unassigned).
+
+description: >
+  When I navigate to the collection page, search for "Unstoppable Slasher",
+  and enable multi-select mode, I see two individual rows for this card. I
+  select one specific copy via its checkbox, click Delete, confirm the dialog,
+  and only that one copy is removed. The other copy remains in the collection.
+  The delete uses the collection_id directly without an extra fetch.

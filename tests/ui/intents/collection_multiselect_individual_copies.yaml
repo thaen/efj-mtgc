@@ -1,0 +1,13 @@
+# Scenario: Multi-select mode shows individual copies for targeted assignment
+#
+# Prerequisites:
+#   "Scrawling Crawler" has 3 copies (2 in deck 1, 1 unassigned).
+#   "Unstoppable Slasher" has 2 copies (1 in binder, 1 unassigned).
+
+description: >
+  When I navigate to the collection page and enable multi-select mode via the
+  More menu, the table re-fetches and shows individual copy rows instead of
+  grouped printing rows. Scrawling Crawler appears as 3 separate rows (one per
+  copy) rather than a single row with qty 2+1. I can select the one unassigned
+  Scrawling Crawler copy and use "Add to Deck" to assign only that copy to
+  deck 2. The other copies remain unchanged.

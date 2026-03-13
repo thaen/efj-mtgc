@@ -1,0 +1,13 @@
+# Scenario: Add individual copy to deck from picker
+#
+# Prerequisites:
+#   Deck 2 "Eldrazi Ramp" exists. "Scrawling Crawler" has 3 copies: 2 assigned
+#   to deck 1, 1 unassigned (collection_id=34).
+
+description: >
+  When I navigate to deck 2 (Eldrazi Ramp) at /decks/2 and click "Add Cards",
+  the picker modal opens. I type "Scrawling" in the search field. The picker
+  shows only the one unassigned copy of Scrawling Crawler as an individual row
+  (not a grouped row with qty=3). I select that copy, click "Add Selected",
+  and the card is added to the deck. The modal closes and Scrawling Crawler
+  appears in the deck's card table.

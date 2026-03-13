@@ -1,0 +1,17 @@
+start_page: /collection
+involves:
+  - "#more-menu-btn opens dropdown"
+  - "#toggle-multiselect-btn enables multi-select (re-fetches with expand=copies)"
+  - "tr[data-idx] input.row-sel-cb checkboxes for selection"
+  - "#sel-delete-btn triggers delete with confirm dialog"
+  - "Table re-fetches after delete shows remaining copy"
+fixture_data:
+  search_term: "Unstoppable Slasher"
+  card_name: "Unstoppable Slasher"
+  initial_copies: 2
+  remaining_after_delete: 1
+notes: >
+  Navigate to /collection. Wait for table. Search for "Unstoppable Slasher".
+  Open more menu and toggle multi-select. Wait for re-fetch. Verify 2 rows
+  appear (one per copy). Select one row's checkbox. Click Delete. Confirm
+  dialog is auto-accepted. Wait for table refresh. Verify only 1 row remains.
