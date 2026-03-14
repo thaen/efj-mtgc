@@ -1,4 +1,4 @@
-# Scenario: Card names in deck detail link to card detail page
+# Scenario: Card row in deck detail links to card detail page via modal
 #
 # Related:
 #   issues: [191]
@@ -7,7 +7,7 @@
 #   A deck with cards must exist (demo data provides "Bolt Tribal" deck)
 
 description: >
-  When I view a deck's standalone detail page, each card name in the card
-  table is a clickable link. I can click a card name and navigate to the
-  card detail page at /card/:set/:cn, where I see that card's image and
-  details. The browser URL reflects the card's set and collector number.
+  When I view a deck's standalone detail page and click a card row, a modal
+  opens with the card's details. The modal contains a "Full page" link that
+  navigates to the card detail page at /card/:set/:cn, where I see that
+  card's image and details.

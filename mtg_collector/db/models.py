@@ -1937,6 +1937,7 @@ class DeckRepository:
                    p.promo, p.promo_types, p.finishes,
                    card.name, card.type_line, card.mana_cost, card.cmc,
                    card.colors, card.color_identity, p.oracle_id,
+                   json_extract(p.raw_json, '$.layout') as layout,
                    s.set_name
             FROM collection c
             JOIN printings p ON c.printing_id = p.printing_id

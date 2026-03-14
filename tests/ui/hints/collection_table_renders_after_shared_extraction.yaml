@@ -1,0 +1,18 @@
+start_page: /collection
+involves:
+  - ".collection-table card rows with rich cell content"
+  - ".card-cell containing .card-thumb img and .card-name span"
+  - ".set-cell with .ss keyrune icon"
+  - ".mana-cost with .ms mana font icons"
+  - "shared-card-table.css and shared-card-table.js imports"
+fixture_data:
+  card_name: "Beast-Kin Ranger"
+notes: >
+  Navigate to /collection. Wait for the table to render (wait for
+  "Beast-Kin Ranger" text, which appears in both table and grid views).
+  Ensure we are in table view by clicking the table view button if
+  not already active. Verify a .card-thumb img element exists inside
+  the table (proves thumbnails render from shared CSS). Verify a .ss
+  keyrune icon element exists (proves set icons render). Verify a .ms
+  mana symbol element exists (proves mana icons render from shared JS).
+  Take a screenshot.

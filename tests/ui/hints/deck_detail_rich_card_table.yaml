@@ -1,0 +1,21 @@
+start_page: /decks/1
+involves:
+  - "#card-tbody table rows with rich cell content"
+  - ".card-cell containing .card-thumb img and .card-name span"
+  - ".set-cell with .ss keyrune icon"
+  - ".mana-cost with .ms mana font icons"
+  - "th columns: Name, Type, Mana, Set, #, Condition, Price"
+fixture_data:
+  deck_id: 1
+  card_name: "Beast-Kin Ranger"
+  card_type: "Creature"
+  card_set: "FDN"
+  card_mana: "{2}{G}"
+notes: >
+  Navigate to /decks/1. Wait for the card table to render (wait for
+  "Beast-Kin Ranger" text). Verify the table header contains expected
+  column names (Name, Type, Mana, Set). Verify a .card-thumb img element
+  exists inside the card table body (proves thumbnails render). Verify
+  a .ss keyrune icon element exists (proves set icons render). Verify
+  a .ms mana symbol element exists (proves mana icons render). Verify
+  a .set-cell element exists. Take a screenshot.
