@@ -1,0 +1,16 @@
+# Scenario: Clicking a card row in deck detail opens the card modal
+#
+# Related:
+#   issues: []
+#
+# Prerequisites:
+#   A deck with cards must exist (demo data provides "Bolt Tribal" deck)
+
+description: >
+  When I view a deck's card table on the standalone detail page and click on
+  a card row (not on a checkbox or external link), a card detail modal opens
+  showing the full card image on the left and a details panel on the right.
+  The details panel displays the card name, mana symbols, type line, set with
+  icon, collector number, rarity, condition, finish, any treatment tags, and
+  SF/CK price links plus a "Full page" link. I can close the modal by
+  clicking the X button and return to the deck detail table.

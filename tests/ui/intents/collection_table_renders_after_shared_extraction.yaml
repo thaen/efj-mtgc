@@ -1,0 +1,15 @@
+# Scenario: Collection table renders correctly after shared CSS/JS extraction
+#
+# Related:
+#   issues: []
+#
+# Prerequisites:
+#   Collection must have cards (demo data provides ~45 cards)
+
+description: >
+  When I view the collection page in table view, card rows display all
+  expected rich content: a thumbnail image, the card name, a formatted type
+  line, mana cost rendered as symbol icons (not raw text like {R}), a
+  rarity-colored set icon, and price badges. The rendering works correctly
+  after the cell styles and rendering functions were extracted into shared
+  modules.

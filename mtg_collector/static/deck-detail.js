@@ -29,6 +29,9 @@
   let pickerSelected = new Set();
   let editingDeckId = null;
 
+  // Card modal
+  const cardModal = createCardModal();
+
   // Build the page
   const layout = document.getElementById('deck-detail-layout');
   layout.innerHTML = `
@@ -57,11 +60,12 @@
         <tr>
           <th><input type="checkbox" id="select-all"></th>
           <th>Name</th>
-          <th>Set</th>
-          <th>Mana</th>
           <th>Type</th>
-          <th>Finish</th>
+          <th>Mana</th>
+          <th>Set</th>
+          <th>#</th>
           <th>Condition</th>
+          <th>Price</th>
         </tr>
       </thead>
       <tbody id="card-tbody"></tbody>
@@ -231,6 +235,14 @@
     });
   });
 
+  // Card table row click → card modal
+  document.getElementById('card-table').addEventListener('click', (e) => {
+    if (e.target.closest('input[type="checkbox"]')) return;
+    if (e.target.closest('a')) return;
+    const tr = e.target.closest('tr[data-idx]');
+    if (tr) cardModal.show(deckCards[parseInt(tr.dataset.idx)]);
+  });
+
   // --- Render deck detail header ---
   function renderDeckDetail() {
     document.getElementById('deck-name').textContent = deck.name;
@@ -277,23 +289,24 @@
     renderCards();
   }
 
+  const DECK_COLUMNS = ['name', 'type', 'mana', 'set', 'collector_number', 'condition', 'price'];
+
   function renderCards() {
     const tbody = document.getElementById('card-tbody');
     if (deckCards.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:var(--text-secondary); padding:24px;">No cards in this zone</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color:var(--text-secondary); padding:24px;">No cards in this zone</td></tr>';
       return;
     }
     tbody.innerHTML = deckCards.map(c => {
-      const sc = c.set_code.toLowerCase();
-      const cn = c.collector_number;
-      return `<tr>
+      const helpers = prepareCardHelpers(c);
+      const cells = DECK_COLUMNS.map(col => {
+        const cls = col === 'price' ? ' class="price-cell"' : '';
+        const content = renderCellContent(col, c, helpers);
+        return `<td${cls}>${content}</td>`;
+      }).join('');
+      return `<tr data-idx="${deckCards.indexOf(c)}">
         <td><input type="checkbox" data-id="${c.id}" ${selectedCardIds.has(c.id) ? 'checked' : ''}></td>
-        <td><a href="/card/${esc(sc)}/${esc(cn)}">${esc(c.name)}</a></td>
-        <td>${esc(c.set_code.toUpperCase())} #${esc(cn)}</td>
-        <td class="mana">${renderMana(c.mana_cost || '')}</td>
-        <td>${esc(c.type_line || '')}</td>
-        <td>${esc(c.finish)}</td>
-        <td>${esc(c.condition)}</td>
+        ${cells}
       </tr>`;
     }).join('');
 
@@ -305,6 +318,7 @@
         else selectedCardIds.delete(id);
       });
     });
+
   }
 
   // --- Edit modal ---

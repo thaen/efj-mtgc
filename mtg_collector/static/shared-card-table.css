@@ -1,0 +1,88 @@
+/* shared-card-table.css — Cell-component styles for card tables.
+   Shared across collection.html, deck-detail, and future pages.
+   Does NOT include table chrome (th/td padding, hover) — those differ per page. */
+
+/* Name cell: thumbnail + name */
+.card-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.card-thumb {
+  width: 146px;
+  height: 44px;
+  object-fit: cover;
+  object-position: top center;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.card-name { font-weight: 500; margin-right: 1em; }
+
+/* DFC face stacking */
+.card-face { display: block; }
+.card-face + .card-face { margin-top: 2px; }
+
+/* Type line with ellipsis */
+.type-cell {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.3;
+}
+.type-sub {
+  display: block;
+  font-size: 0.8em;
+  color: #777;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Mana cost layout */
+.mana-cost { white-space: nowrap; }
+.mana-cost .ms { font-size: 0.85rem; }
+.mana-line { display: block; white-space: nowrap; }
+
+/* Set icon sizing/stroke */
+.set-cell { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.set-cell .ss {
+  font-size: 2.0em;
+  width: 40px;
+  height: 40px;
+  line-height: 40px;
+  text-align: center;
+  -webkit-text-stroke: 3px rgba(0,0,0,0.85);
+  paint-order: stroke fill;
+}
+.set-cell .ss.ss-grad::before {
+  -webkit-text-fill-color: currentColor;
+}
+.set-cell .ss.ss-common {
+  -webkit-text-stroke: 2px rgba(255,255,255,0.9);
+}
+
+/* Price cell */
+.price-cell { white-space: nowrap; color: #aaa; font-variant-numeric: tabular-nums; }
+
+/* Inline tags (smaller variants for table rows) */
+.card-tag {
+  padding: 1px 3px;
+  font-size: 0.6rem;
+  vertical-align: middle;
+  margin-left: 0px;
+}
+
+.card-tag.wanted-tag {
+  background: #1a5c3a;
+  border: 1px solid #2a8c5a;
+  color: #7ee8b0;
+}
+
+.card-tag.ordered-tag {
+  background: #5c3a1a;
+  border: 1px solid #8c5a2a;
+  color: #f0c878;
+}

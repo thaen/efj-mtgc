@@ -1,0 +1,21 @@
+start_page: /decks/1
+involves:
+  - "#card-table tr[data-idx] click opens modal"
+  - ".card-modal-overlay becomes .active"
+  - ".card-modal-details showing card name, type, set, condition, links"
+  - ".card-modal-close button to dismiss"
+  - ".modal-links with SF, CK, and Full page badges"
+fixture_data:
+  deck_id: 1
+  card_name: "Beast-Kin Ranger"
+  card_type: "Creature"
+notes: >
+  Navigate to /decks/1. Wait for card table to load (wait for
+  "Beast-Kin Ranger" text). Click on the "Beast-Kin Ranger" text
+  (which is inside a table row). Wait for the modal overlay to appear
+  (wait for .card-modal-overlay.active). Verify the modal shows the
+  card name "Beast-Kin Ranger". Verify "Full page" text is present
+  (the link to the card detail page). Verify "Creature" type text is
+  present. Take a screenshot of the open modal. Then click the close
+  button (.card-modal-close). Verify the modal overlay is hidden.
+  Take a final screenshot.

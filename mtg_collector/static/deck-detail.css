@@ -75,6 +75,7 @@
   padding: 8px 12px;
   border-bottom: 1px solid var(--border-color);
 }
+.card-table tbody tr { cursor: pointer; }
 .card-table tr:hover { background: rgba(233, 69, 96, 0.05); }
 .card-table .mana .ms { font-size: 0.85rem; }
 .card-table a { color: var(--text-primary); text-decoration: none; }

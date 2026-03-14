@@ -4947,6 +4947,53 @@ class CrackPackHandler(BaseHTTPRequestHandler):
         repo = DeckRepository(conn)
         zone = params.get("zone", [None])[0]
         cards = repo.get_cards(deck_id, zone=zone)
+
+        for card in cards:
+            card["layout"] = card.get("layout") or "normal"
+            card["tcg_price"] = None
+            card["ck_price"] = None
+            card["ck_url"] = ""
+
+        # Bulk price lookup
+        if cards:
+            price_keys = []
+            for card in cards:
+                foil = card["finish"] in ("foil", "etched")
+                price_type = "foil" if foil else "normal"
+                sc = card["set_code"].lower()
+                cn = card["collector_number"]
+                price_keys.append((sc, cn, price_type))
+
+            unique_cards = list({(sc, cn) for sc, cn, _ in price_keys})
+            ph = ",".join("(?,?)" for _ in unique_cards)
+            params_q = [v for pair in unique_cards for v in pair]
+            price_map: dict = {}
+            for r in conn.execute(
+                f"SELECT set_code, collector_number, source, price_type, price "
+                f"FROM latest_prices WHERE (set_code, collector_number) IN ({ph})",
+                params_q,
+            ).fetchall():
+                price_map[(r["set_code"], r["collector_number"], r["source"], r["price_type"])] = str(r["price"])
+
+            # Bulk CK URL lookup
+            ck_url_map: dict = {}
+            if self.generator:
+                pids = [card["printing_id"] for card in cards]
+                ph2 = ",".join("?" for _ in pids)
+                for r in conn.execute(
+                    f"SELECT printing_id, ck_url, ck_url_foil FROM mtgjson_printings WHERE printing_id IN ({ph2})",
+                    pids,
+                ).fetchall():
+                    ck_url_map[r["printing_id"]] = (r["ck_url"] or "", r["ck_url_foil"] or "")
+
+            for i, card in enumerate(cards):
+                sc, cn, pt = price_keys[i]
+                card["ck_price"] = price_map.get((sc, cn, "cardkingdom", f"buylist_{pt}")) or price_map.get((sc, cn, "cardkingdom", pt))
+                card["tcg_price"] = price_map.get((sc, cn, "tcgplayer", pt))
+                foil = card["finish"] in ("foil", "etched")
+                urls = ck_url_map.get(card["printing_id"], ("", ""))
+                card["ck_url"] = (urls[1] if foil else urls[0]) or urls[0]
+
         conn.close()
         self._send_json(cards)
 

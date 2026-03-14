@@ -1,0 +1,15 @@
+# Scenario: Deck detail card table shows rich content
+#
+# Related:
+#   issues: []
+#
+# Prerequisites:
+#   A deck with cards must exist (demo data provides "Bolt Tribal" deck)
+
+description: >
+  When I view a deck's standalone detail page (/decks/1), the card table
+  displays rich content in each row: a thumbnail image, the card name with
+  treatment badges, a formatted type line with subtype, mana cost rendered
+  as symbol icons, a rarity-colored set icon with set code, collector number,
+  condition abbreviation, and price link badges. The table columns are Name,
+  Type, Mana, Set, #, Condition, and Price.
