@@ -251,6 +251,34 @@ def import_mtgjson(db_path: str):
             ))
             uuid_map_rows.append((uuid, set_code, number))
 
+        # Tokens → mtgjson_printings + mtgjson_uuid_map
+        # Tokens use the parent set's tokenSetCode (matching Scryfall's token
+        # set code) so lookups align with the set_code in our printings table.
+        token_set_code = set_data.get("tokenSetCode", set_code_raw).lower()
+        for token in set_data.get("tokens", []):
+            uuid = token.get("uuid")
+            if not uuid:
+                continue
+            number = token.get("number", "")
+            identifiers = token.get("identifiers", {})
+            frame_effects = token.get("frameEffects")
+
+            printing_rows.append((
+                uuid,
+                identifiers.get("scryfallId", ""),
+                token.get("name", "Unknown"),
+                token_set_code,
+                number,
+                token.get("rarity", ""),
+                token.get("borderColor", "black"),
+                1 if token.get("isFullArt", False) else 0,
+                json.dumps(frame_effects) if frame_effects else None,
+                "",  # no ck_url for tokens
+                "",  # no ck_url_foil for tokens
+                imported_at,
+            ))
+            uuid_map_rows.append((uuid, token_set_code, number))
+
         # Sealed products
         for sealed in set_data.get("sealedProduct", []):
             sealed_uuid = sealed.get("uuid")
@@ -544,6 +572,15 @@ def _ensure_uuid_map(conn: sqlite3.Connection):
             number = card.get("number")
             if uuid and number:
                 rows.append((uuid, set_code.lower(), number))
+        # Tokens live under "tokens", not "cards". Use the parent set's
+        # tokenSetCode (matching Scryfall's token set code) so the UUID map
+        # aligns with the set_code stored in our printings table.
+        token_set_code = set_data.get("tokenSetCode", set_code).lower()
+        for token in set_data.get("tokens", []):
+            uuid = token.get("uuid")
+            number = token.get("number")
+            if uuid and number:
+                rows.append((uuid, token_set_code, number))
 
     conn.executemany(
         "INSERT OR IGNORE INTO mtgjson_uuid_map (uuid, set_code, collector_number) VALUES (?, ?, ?)",
