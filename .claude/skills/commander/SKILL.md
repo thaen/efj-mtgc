@@ -141,9 +141,9 @@ Repeat this loop until add-card says "61 NONLAND CARDS COMPLETE":
 
 #### Phase 4: Mana base
 
-When add-card says "61 NONLAND CARDS COMPLETE", run `commander-mana-analysis.py <deck_id>` to get pip counts, color weights, curve data, and a recommended land count with basic split. Then:
+When add-card says "61 NONLAND CARDS COMPLETE", run `commander-mana-analysis.py <deck_id>` to get pip counts, color weights, and curve data. Then:
 
-- Use the recommended land count as a starting point (accounts for curve and ramp)
+- Target 38 lands per the template
 - Add nonbasic lands first, again use a variety of searches to find the right colors
 - Fill remaining slots with basics, weighted by the pip percentages from the analysis
 - Re-run the analysis after adding lands to verify the final count

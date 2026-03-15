@@ -55,14 +55,6 @@ cards = conn.execute(
     (deck_id,),
 ).fetchall()
 
-# Count ramp cards from sub_plans
-ramp_count = 0
-if deck["sub_plans"]:
-    for cat in json.loads(deck["sub_plans"]):
-        if cat["name"] == "Ramp":
-            ramp_count = len(cat.get("cards", []))
-            break
-
 # --- Pip counting ---
 COLOR_SYMBOLS = {"W": "White", "U": "Blue", "B": "Black", "R": "Red", "G": "Green"}
 pip_counts = {c: 0 for c in COLOR_SYMBOLS}
@@ -176,24 +168,11 @@ if warnings:
 # --- Land recommendations ---
 print(f"\n--- Land Base Recommendation ---")
 
-# Base: 38 lands (Command Zone / Karsten consensus)
-# Curve adjustment: +-1 for each 0.5 deviation from 3.0 avg CMC
-# Ramp adjustment: -1 per 3 ramp spells (conservative — Karsten/Chimera Gaming)
-base_lands = 38
-curve_adj = round((avg_cmc - 3.0) * 2)  # +2 at 4.0, -2 at 2.0
-curve_adj = max(-3, min(3, curve_adj))
+recommended_lands = 38  # Command Zone 2025 template
 
-ramp_adj = -(ramp_count // 3)  # conservative: 1 land cut per 3 ramp spells
-recommended_lands = base_lands + curve_adj + ramp_adj
-# Clamp to reasonable range (35 floor per community consensus)
-recommended_lands = max(35, min(42, recommended_lands))
-
-print(f"  Base target:      38 lands (Command Zone / Karsten)")
-print(f"  Curve adjustment: {curve_adj:+d} (avg CMC {avg_cmc:.2f}, baseline 3.0)")
-print(f"  Ramp adjustment:  {ramp_adj:+d} ({ramp_count} ramp spells, -1 per 3)")
-print(f"  Recommended:      {recommended_lands} lands")
-print(f"  Already in deck:  {land_count}")
-print(f"  Need to add:      {max(0, recommended_lands - land_count)}")
+print(f"  Target:          {recommended_lands} lands (Command Zone 2025 template)")
+print(f"  Already in deck: {land_count}")
+print(f"  Need to add:     {max(0, recommended_lands - land_count)}")
 
 # Basic land split based on pip ratios
 if active_colors:
