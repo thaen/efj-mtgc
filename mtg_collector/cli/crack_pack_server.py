@@ -1294,6 +1294,11 @@ class CrackPackHandler(BaseHTTPRequestHandler):
             if data is None:
                 return
             self._api_sealed_open(data)
+        elif path == "/api/sealed/collection/bulk-dispose":
+            data = self._read_json_body()
+            if data is None:
+                return
+            self._api_sealed_collection_bulk_dispose(data)
         elif path.startswith("/api/sealed/collection/") and path.endswith("/dispose"):
             entry_id = path[len("/api/sealed/collection/"):-len("/dispose")]
             data = self._read_json_body()
@@ -6349,6 +6354,34 @@ class CrackPackHandler(BaseHTTPRequestHandler):
         except ValueError as e:
             conn.close()
             self._send_json({"error": str(e)}, 400)
+
+    def _api_sealed_collection_bulk_dispose(self, data: dict):
+        """Bulk-transition sealed collection entries' status."""
+        from mtg_collector.db.models import SealedCollectionRepository
+        from mtg_collector.db.schema import init_db
+
+        ids = data.get("ids", [])
+        if not ids:
+            self._send_json({"error": "ids array required"}, 400)
+            return
+        new_status = data.get("new_status")
+        if not new_status:
+            self._send_json({"error": "new_status required"}, 400)
+            return
+
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        init_db(conn)
+        repo = SealedCollectionRepository(conn)
+        result = repo.bulk_dispose(ids, new_status, sale_price=data.get("sale_price"))
+        conn.commit()
+        conn.close()
+        self._send_json({
+            "disposed": len(result["disposed"]),
+            "skipped": len(result["skipped"]),
+            "disposed_ids": result["disposed"],
+            "skipped_ids": result["skipped"],
+        })
 
     def _api_sealed_collection_delete(self, entry_id: int):
         """Delete a sealed collection entry."""

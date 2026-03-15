@@ -1754,6 +1754,35 @@ class SealedCollectionRepository:
             entry.sale_price = sale_price
         return self.update(entry)
 
+    def bulk_dispose(
+        self,
+        entry_ids: List[int],
+        new_status: str,
+        sale_price: Optional[float] = None,
+    ) -> Dict[str, List[int]]:
+        """Bulk-transition sealed products to a disposition status.
+
+        Skips entries that are not found or cannot transition to new_status.
+        Returns dict with 'disposed' and 'skipped' ID lists.
+        """
+        disposed = []
+        skipped = []
+        for entry_id in entry_ids:
+            entry = self.get(entry_id)
+            if not entry:
+                skipped.append(entry_id)
+                continue
+            allowed = self.VALID_TRANSITIONS.get(entry.status)
+            if not allowed or new_status not in allowed:
+                skipped.append(entry_id)
+                continue
+            entry.status = new_status
+            if sale_price is not None:
+                entry.sale_price = sale_price
+            self.update(entry)
+            disposed.append(entry_id)
+        return {"disposed": disposed, "skipped": skipped}
+
     def stats(self) -> Dict[str, Any]:
         """Get sealed collection statistics."""
         stats: Dict[str, Any] = {}

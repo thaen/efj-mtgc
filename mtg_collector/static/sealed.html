@@ -982,6 +982,48 @@ a.badge.link:hover { color: #fff; background: #555; border-color: #777; }
   font-size: 0.7rem; background: #333; color: #888; margin-left: 6px;
 }
 
+/* Bulk action bar */
+.bulk-bar {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 200;
+  background: #16213e; border-top: 3px solid #e94560;
+  padding: 12px 24px; display: none; align-items: center; gap: 12px;
+  box-shadow: 0 -4px 16px rgba(0,0,0,0.5);
+}
+.bulk-bar.active { display: flex; }
+.bulk-bar .bulk-count { font-weight: 600; margin-right: auto; }
+.bulk-action {
+  padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer;
+  font-size: 0.85rem; font-weight: 600; transition: opacity 0.15s;
+}
+.bulk-action:hover { opacity: 0.85; }
+.bulk-action.opened { background: #5c3a1a; color: #e8b87e; }
+.bulk-action.sold { background: #1a5c3a; color: #7ee8b0; }
+.bulk-action.deselect { background: #333; color: #aaa; }
+
+/* Selection mode checkbox overlay */
+.select-checkbox {
+  position: absolute; top: 6px; left: 6px; z-index: 10;
+  width: 20px; height: 20px; accent-color: #e94560; cursor: pointer;
+}
+.sheet-card.selectable { cursor: pointer; }
+.sheet-card.selected .sheet-card-img-wrap { outline: 3px solid #e94560; outline-offset: -3px; }
+
+/* Table select column */
+th.select-col, td.select-col { width: 36px; text-align: center; padding: 4px !important; }
+tr.selected { background: rgba(233, 69, 96, 0.12) !important; }
+
+/* Select button active */
+#select-btn.active { background: #e94560; color: #fff; border-color: #e94560; }
+
+/* Quick-dispose buttons in detail modal */
+.quick-dispose-btn {
+  padding: 2px 8px; border: none; border-radius: 4px; cursor: pointer;
+  font-size: 0.7rem; font-weight: 600; transition: opacity 0.15s;
+}
+.quick-dispose-btn:hover { opacity: 0.8; }
+.quick-dispose-btn.opened { background: #5c3a1a; color: #e8b87e; }
+.quick-dispose-btn.sold { background: #1a5c3a; color: #7ee8b0; }
+
 @media (max-width: 768px) {
   .card-modal { flex-direction: column; max-height: 95vh; }
   .card-modal-img img { height: auto; width: 70vw; }
@@ -998,6 +1040,7 @@ a.badge.link:hover { color: #fff; background: #555; border-color: #777; }
     <input type="text" id="search-input" placeholder="Search collection...">
     <button id="add-btn">+ Add</button>
     <button class="secondary" id="open-btn">Open Product</button>
+    <button class="secondary" id="select-btn">Select</button>
     <button class="secondary" id="filter-btn">Filters</button>
     <div class="view-toggle-group">
       <button class="secondary" id="view-table-btn" title="Table view"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="2" width="14" height="2" rx=".5"/><rect x="1" y="7" width="14" height="2" rx=".5"/><rect x="1" y="12" width="14" height="2" rx=".5"/></svg></button>
@@ -1094,6 +1137,14 @@ a.badge.link:hover { color: #fff; background: #555; border-color: #777; }
   </div>
 </div>
 
+<!-- Bulk Action Bar -->
+<div class="bulk-bar" id="bulk-bar">
+  <span class="bulk-count" id="bulk-count">0 selected</span>
+  <button class="bulk-action opened" id="bulk-opened-btn">Mark Opened</button>
+  <button class="bulk-action sold" id="bulk-sold-btn">Mark Sold</button>
+  <button class="bulk-action deselect" id="bulk-deselect-btn">Deselect All</button>
+</div>
+
 <script>
 // ─── State ───────────────────────────────────────────────────────────────────
 let allEntries = [];
@@ -1104,6 +1155,8 @@ let selectedSets = new Map(); // code -> name
 let sortKey = 'added_at';
 let sortDir = -1; // -1 = desc
 let viewMode = localStorage.getItem('sealedViewMode') || 'table';
+let selectionMode = false;
+let selectedEntryIds = new Set();
 
 // ─── Column config ──────────────────────────────────────────────────────────
 const ALL_COLUMNS = [
@@ -1367,10 +1420,17 @@ function initEventListeners() {
   document.getElementById('detail-close').addEventListener('click', closeDetailModal);
   detailOverlay.addEventListener('click', e => { if (e.target === detailOverlay) closeDetailModal(); });
 
-  // Keyboard: Escape closes modals
+  // Select button + bulk bar
+  document.getElementById('select-btn').addEventListener('click', toggleSelectionMode);
+  document.getElementById('bulk-opened-btn').addEventListener('click', () => bulkDispose('opened'));
+  document.getElementById('bulk-sold-btn').addEventListener('click', () => bulkDispose('sold'));
+  document.getElementById('bulk-deselect-btn').addEventListener('click', deselectAll);
+
+  // Keyboard: Escape closes modals (selection mode first)
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
-      if (detailOverlay.classList.contains('active')) closeDetailModal();
+      if (selectionMode) { toggleSelectionMode(); }
+      else if (detailOverlay.classList.contains('active')) closeDetailModal();
       else if (openOverlay.classList.contains('active')) closeOpenModal();
       else if (addOverlay.classList.contains('active')) closeAddModal();
       else if (colDrawer.classList.contains('open')) {
@@ -1690,14 +1750,45 @@ function render() {
     });
   }
 
-  // Card/row clicks open detail modal
+  // Card/row clicks: selection mode toggles, normal mode opens modal
   mainEl.querySelectorAll('[data-uuid]').forEach(el => {
-    el.addEventListener('click', () => {
+    el.addEventListener('click', (e) => {
+      if (e.target.classList.contains('select-checkbox') || e.target.classList.contains('row-select-cb')) return;
       const uuid = el.dataset.uuid;
       const product = aggregatedProducts.find(p => p.uuid === uuid);
-      if (product) openDetailModal(product);
+      if (!product) return;
+      if (selectionMode) {
+        const wasSelected = isProductSelected(product);
+        toggleProductSelection(product, !wasSelected);
+        render();
+      } else {
+        openDetailModal(product);
+      }
     });
   });
+
+  // Checkbox change events in selection mode
+  mainEl.querySelectorAll('.select-checkbox, .row-select-cb').forEach(cb => {
+    cb.addEventListener('change', (e) => {
+      e.stopPropagation();
+      const el = cb.closest('[data-uuid]');
+      if (!el) return;
+      const product = aggregatedProducts.find(p => p.uuid === el.dataset.uuid);
+      if (product) {
+        toggleProductSelection(product, cb.checked);
+        render();
+      }
+    });
+  });
+
+  // Select-all checkbox in table header
+  const selectAllCb = document.getElementById('select-all-cb');
+  if (selectAllCb) {
+    selectAllCb.addEventListener('change', () => {
+      aggregatedProducts.forEach(p => toggleProductSelection(p, selectAllCb.checked));
+      render();
+    });
+  }
 }
 
 function formatCategory(entry) {
@@ -1705,6 +1796,72 @@ function formatCategory(entry) {
   if (entry.subtype && entry.subtype !== 'default') parts.push(entry.subtype);
   if (entry.category) parts.push(entry.category);
   return parts.join(' ').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+// ─── Selection mode ─────────────────────────────────────────────────────────
+function getDisposableEntryIds(product) {
+  return product.entries
+    .filter(e => VALID_TRANSITIONS[e.status])
+    .map(e => e.id);
+}
+
+function toggleSelectionMode() {
+  selectionMode = !selectionMode;
+  selectedEntryIds.clear();
+  const btn = document.getElementById('select-btn');
+  btn.textContent = selectionMode ? 'Cancel' : 'Select';
+  btn.classList.toggle('active', selectionMode);
+  updateBulkBar();
+  render();
+}
+
+function toggleProductSelection(product, checked) {
+  const ids = getDisposableEntryIds(product);
+  ids.forEach(id => checked ? selectedEntryIds.add(id) : selectedEntryIds.delete(id));
+  updateBulkBar();
+}
+
+function isProductSelected(product) {
+  const ids = getDisposableEntryIds(product);
+  return ids.length > 0 && ids.every(id => selectedEntryIds.has(id));
+}
+
+function deselectAll() {
+  selectedEntryIds.clear();
+  updateBulkBar();
+  render();
+}
+
+function updateBulkBar() {
+  const bar = document.getElementById('bulk-bar');
+  const count = document.getElementById('bulk-count');
+  if (selectionMode && selectedEntryIds.size > 0) {
+    bar.classList.add('active');
+    count.textContent = `${selectedEntryIds.size} selected`;
+  } else {
+    bar.classList.remove('active');
+  }
+}
+
+async function bulkDispose(newStatus) {
+  const n = selectedEntryIds.size;
+  if (!n) return;
+  if (!confirm(`Mark ${n} entry${n > 1 ? 's' : ''} as "${newStatus}"?`)) return;
+  try {
+    const resp = await fetch('/api/sealed/collection/bulk-dispose', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ ids: [...selectedEntryIds], new_status: newStatus }),
+    });
+    const result = await resp.json();
+    if (!resp.ok) { alert(result.error || 'Bulk dispose failed'); return; }
+    const msg = `${result.disposed} disposed` + (result.skipped > 0 ? `, ${result.skipped} skipped` : '');
+    document.getElementById('status').textContent = msg;
+    toggleSelectionMode();
+    await fetchCollection();
+  } catch (e) {
+    alert('Bulk dispose failed: ' + e.message);
+  }
 }
 
 function renderGrid() {
@@ -1718,9 +1875,13 @@ function renderGrid() {
     const statusBadge = `<span class="status-badge ${product.primary_status}">${product.primary_status}</span>`;
     const costText = product.min_cost != null ? `$${product.min_cost.toFixed(2)}` : '';
     const marketText = product.market_total != null ? `$${product.market_total.toFixed(2)}` : '';
+    const selectable = selectionMode ? ' selectable' : '';
+    const selected = selectionMode && isProductSelected(product) ? ' selected' : '';
+    const checkboxHtml = selectionMode ? `<input type="checkbox" class="select-checkbox" ${isProductSelected(product) ? 'checked' : ''}>` : '';
 
-    html += `<div class="sheet-card" data-uuid="${product.uuid}">
+    html += `<div class="sheet-card${selectable}${selected}" data-uuid="${product.uuid}">
       <div class="sheet-card-img-wrap">
+        ${checkboxHtml}
         ${imgHtml}
         ${qtyBadge}
         ${statusBadge}
@@ -1743,6 +1904,7 @@ function renderTable() {
   const colIcon = `<svg viewBox="0 0 16 16"><path d="M1 1h4v4H1zm5 0h4v4H6zm5 0h4v4H11zM1 6h4v4H1zm5 0h4v4H6zm5 0h4v4H11zM1 11h4v4H1zm5 0h4v4H6zm5 0h4v4H11z"/></svg>`;
 
   let html = '<table class="sealed-table"><thead><tr>';
+  if (selectionMode) html += '<th class="select-col"><input type="checkbox" id="select-all-cb"></th>';
   html += `<th class="col-config-th${drawerOpen ? ' active' : ''}" id="col-config-th" title="Configure columns">${colIcon}</th>`;
   for (const col of visCols) {
     if (col.sort === null) {
@@ -1763,7 +1925,9 @@ function renderTable() {
     const market = product.market_total != null ? `$${product.market_total.toFixed(2)}` : '';
     const added = product.added_at ? product.added_at.slice(0, 10) : '';
 
-    html += `<tr data-uuid="${product.uuid}">`;
+    const rowSelected = selectionMode && isProductSelected(product) ? ' selected' : '';
+    html += `<tr data-uuid="${product.uuid}" class="${rowSelected}">`;
+    if (selectionMode) html += `<td class="select-col"><input type="checkbox" class="row-select-cb" ${isProductSelected(product) ? 'checked' : ''}></td>`;
     html += '<td></td>';
     const thumbHtml = product.image_url
       ? `<img class="table-thumb" src="${product.image_url}" alt="" loading="lazy">`
@@ -1881,6 +2045,8 @@ function openDetailModal(product) {
         ${sourceStr ? `<span class="entry-detail">${esc(sourceStr)}</span>` : ''}
         ${dateStr ? `<span class="entry-detail">${dateStr}</span>` : ''}
         <span class="entry-actions">
+          ${transitions.includes('opened') ? `<button class="quick-dispose-btn opened" data-entry-id="${entry.id}" data-status="opened">Opened</button>` : ''}
+          ${transitions.includes('sold') ? `<button class="quick-dispose-btn sold" data-entry-id="${entry.id}" data-status="sold">Sold</button>` : ''}
           <button class="secondary entry-edit-toggle" data-idx="${idx}">Edit</button>
         </span>
       </div>
@@ -1949,6 +2115,27 @@ function openDetailModal(product) {
       if (pane) {
         pane.classList.toggle('open');
         btn.textContent = pane.classList.contains('open') ? 'Close' : 'Edit';
+      }
+    });
+  });
+
+  // Quick-dispose handlers (Opened/Sold buttons on entry rows)
+  detailsPane.querySelectorAll('.quick-dispose-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const entryId = parseInt(btn.dataset.entryId);
+      const newStatus = btn.dataset.status;
+      if (!confirm(`Mark this entry as "${newStatus}"?`)) return;
+      const res = await fetch(`/api/sealed/collection/${entryId}/dispose`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ new_status: newStatus }),
+      });
+      if (res.ok) {
+        closeDetailModal();
+        await fetchCollection();
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Dispose failed');
       }
     });
   });
